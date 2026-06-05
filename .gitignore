@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+.turbo/
+.env
+.env.local
+*.db
+*.sqlite
+coverage/
+playwright-report/
+test-results/
+.codebones/
