@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { apiErrorSchema, type ApiError } from "@x-builder/shared";
 import { buildServer } from "../server";
 
@@ -57,6 +57,38 @@ describe("engine API error normalization", () => {
         retryable: false,
         status: 404,
       });
+      expectNoStackLeak(error);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("returns a normalized generation error when idea generation fails", async () => {
+    const generateCandidates = vi.fn(async () => {
+      throw new Error("Writer generator leaked secret prompt internals");
+    });
+    const app = await buildServer({ generateCandidates });
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/ideas/generate",
+        payload: {
+          idea: "Explain why deterministic feedback helps founders revise faster.",
+        },
+      });
+
+      const error = parseApiError(response.body);
+
+      expect(generateCandidates).toHaveBeenCalledOnce();
+      expect(response.statusCode).toBe(500);
+      expect(error).toMatchObject({
+        code: "generation_failed",
+        scope: "writer",
+        retryable: true,
+        status: 500,
+      });
+      expect(JSON.stringify(error)).not.toContain("secret prompt internals");
       expectNoStackLeak(error);
     } finally {
       await app.close();
