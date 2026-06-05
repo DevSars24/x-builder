@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 const localEngineUrlMessage = "Engine base URL must use http(s) localhost or 127.0.0.1.";
+const appSettingsSourceSchema: z.ZodType<string> = z.enum(["persisted", "defaults"]);
 
 const localEngineUrlSchema = z.string().url().refine((value) => {
   try {
@@ -82,7 +83,7 @@ export const appSettingsSchema = z.object({
 
 export const appSettingsResponseSchema = z.object({
   settings: appSettingsSchema,
-  source: z.enum(["persisted", "defaults"]),
+  source: appSettingsSourceSchema,
   updatedAt: z.string().datetime().optional(),
 });
 

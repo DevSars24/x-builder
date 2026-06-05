@@ -1,16 +1,26 @@
 import { constants } from "node:fs";
 import { access } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import Fastify, { type FastifyInstance } from "fastify";
 import {
   apiErrorSchema,
+  appSettingsResponseSchema,
+  appSettingsSchema,
   appStatusSchema,
   subsystemStatusSchema,
   type ApiError,
+  type AppSettings,
   type AppStatus,
   type SubsystemStatus,
 } from "@x-builder/shared";
 import { z } from "zod";
+
+import {
+  JsonFileAppSettingsRepository,
+  type AppSettingsRepository,
+} from "./settings-repository.js";
 
 const generateIdeaRequestSchema = z.object({
   idea: z
@@ -43,6 +53,7 @@ export interface BuildServerOptions {
   readinessDependencies?: ReadinessDependencies;
   readinessService?: ReadinessService;
   readinessTimeoutMs?: number;
+  settingsRepository?: AppSettingsRepository;
 }
 
 class NormalizedApiError extends Error {
@@ -102,6 +113,24 @@ const statusUnavailableError = (): ApiError =>
     status: 500,
   });
 
+const settingsLoadFailedError = (): ApiError =>
+  normalize({
+    code: "settings_load_failed",
+    message: "Settings could not be loaded. Try again.",
+    scope: "settings",
+    retryable: true,
+    status: 500,
+  });
+
+const settingsPersistFailedError = (): ApiError =>
+  normalize({
+    code: "settings_persist_failed",
+    message: "Settings could not be saved. Try again.",
+    scope: "settings",
+    retryable: true,
+    status: 500,
+  });
+
 const internalError = (): ApiError =>
   normalize({
     code: "internal_error",
@@ -133,6 +162,7 @@ const defaultGenerateCandidates: GenerateCandidates = ({ idea }) => ({
 
 const readinessTimeoutMsDefault = 750;
 const packageVersion = "0.0.0";
+const defaultSettingsRoot = join(tmpdir(), "x-builder-engine-settings");
 
 const nowIso = (): string => new Date().toISOString();
 
@@ -287,6 +317,8 @@ class DefaultReadinessService implements ReadinessService {
 export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   const app = Fastify({ logger: false });
   const generateCandidates = options.generateCandidates ?? defaultGenerateCandidates;
+  const settingsRepository =
+    options.settingsRepository ?? new JsonFileAppSettingsRepository({ root: defaultSettingsRoot });
   const readinessService =
     options.readinessService ??
     new DefaultReadinessService(
@@ -320,6 +352,28 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
       return reply.send(status);
     } catch {
       throw new NormalizedApiError(statusUnavailableError());
+    }
+  });
+
+  app.get("/settings", async (_request, reply) => {
+    try {
+      const settingsResponse = appSettingsResponseSchema.parse(await settingsRepository.load());
+
+      return reply.send(settingsResponse);
+    } catch {
+      throw new NormalizedApiError(settingsLoadFailedError());
+    }
+  });
+
+  app.patch("/settings", async (request, reply) => {
+    const settings: AppSettings = appSettingsSchema.parse(request.body);
+
+    try {
+      const settingsResponse = appSettingsResponseSchema.parse(await settingsRepository.save(settings));
+
+      return reply.send(settingsResponse);
+    } catch {
+      throw new NormalizedApiError(settingsPersistFailedError());
     }
   });
 
