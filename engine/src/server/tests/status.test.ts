@@ -1,18 +1,39 @@
 import { describe, expect, it, vi } from "vitest";
-import { apiErrorSchema, appStatusSchema, type AppStatus } from "@x-builder/shared";
+import {
+  apiErrorSchema,
+  appStatusSchema,
+  type AppStatus,
+  type SubsystemStatus,
+} from "@x-builder/shared";
 import { buildServer } from "../server";
+
+type ReadinessProbe = {
+  check: () => Promise<SubsystemStatus> | SubsystemStatus;
+};
+
+type ReadinessDependencies = {
+  deterministic: ReadinessProbe;
+  codex: ReadinessProbe;
+  storage: ReadinessProbe;
+};
 
 type ReadinessServiceFake = {
   getStatus: () => Promise<AppStatus> | AppStatus;
 };
 
+type BuildServerReadinessOptions = Parameters<typeof buildServer>[0] & {
+  readinessDependencies?: ReadinessDependencies;
+  readinessService?: ReadinessServiceFake;
+  readinessTimeoutMs?: number;
+};
+
 const now = "2026-06-06T12:00:00.000Z";
 
 const subsystem = (
-  state: AppStatus["engine"]["state"],
+  state: SubsystemStatus["state"],
   label: string,
-  overrides: Partial<AppStatus["engine"]> = {},
-): AppStatus["engine"] => ({
+  overrides: Partial<SubsystemStatus> = {},
+): SubsystemStatus => ({
   state,
   label,
   checkedAt: now,
@@ -21,25 +42,34 @@ const subsystem = (
   ...overrides,
 });
 
-const statusFixture = (overrides: Partial<AppStatus> = {}): AppStatus =>
-  appStatusSchema.parse({
-    overall: "ready",
-    version: "0.0.0-test",
-    generatedAt: now,
-    engine: subsystem("ready", "Engine"),
-    deterministic: subsystem("ready", "Deterministic scorer"),
-    codex: subsystem("ready", "Codex judge"),
-    storage: subsystem("ready", "Storage"),
-    lastRun: {
-      state: "none",
-    },
-    ...overrides,
-  });
-
 const parseJsonPayload = (payload: string): unknown => JSON.parse(payload);
 
+const buildServerWithReadinessDependencies = (
+  readinessDependencies: ReadinessDependencies,
+  options: { readinessTimeoutMs?: number } = {},
+) =>
+  buildServer({
+    readinessDependencies,
+    readinessTimeoutMs: options.readinessTimeoutMs,
+  } as BuildServerReadinessOptions);
+
 const buildServerWithReadiness = (readinessService: ReadinessServiceFake) =>
-  buildServer({ readinessService });
+  buildServer({ readinessService } as BuildServerReadinessOptions);
+
+const readinessDependencies = (
+  overrides: Partial<ReadinessDependencies> = {},
+): ReadinessDependencies => ({
+  deterministic: {
+    check: vi.fn(async () => subsystem("ready", "Deterministic scorer")),
+  },
+  codex: {
+    check: vi.fn(async () => subsystem("ready", "Codex judge")),
+  },
+  storage: {
+    check: vi.fn(async () => subsystem("ready", "Storage")),
+  },
+  ...overrides,
+});
 
 describe("engine status readiness", () => {
   it("keeps health liveness-only without detailed readiness", async () => {
@@ -64,12 +94,9 @@ describe("engine status readiness", () => {
     }
   });
 
-  it("returns ready status from the injected readiness service", async () => {
-    const readyStatus = statusFixture();
-    const readinessService = {
-      getStatus: vi.fn(async () => readyStatus),
-    };
-    const app = await buildServerWithReadiness(readinessService);
+  it("aggregates ready subsystem probes into ready app status", async () => {
+    const dependencies = readinessDependencies();
+    const app = await buildServerWithReadinessDependencies(dependencies);
 
     try {
       const response = await app.inject({
@@ -80,10 +107,11 @@ describe("engine status readiness", () => {
       const payload = parseJsonPayload(response.body);
 
       expect(response.statusCode).toBe(200);
-      expect(readinessService.getStatus).toHaveBeenCalledOnce();
+      expect(dependencies.deterministic.check).toHaveBeenCalledOnce();
+      expect(dependencies.codex.check).toHaveBeenCalledOnce();
+      expect(dependencies.storage.check).toHaveBeenCalledOnce();
       const status = appStatusSchema.parse(payload);
 
-      expect(status).toEqual(readyStatus);
       expect(status.overall).toBe("ready");
       expect(status.engine.state).toBe("ready");
       expect(status.deterministic.state).toBe("ready");
@@ -94,18 +122,18 @@ describe("engine status readiness", () => {
     }
   });
 
-  it("reports partial readiness when Codex is unavailable but deterministic scoring is ready", async () => {
-    const partialStatus = statusFixture({
-      overall: "partial",
-      codex: subsystem("unavailable", "Codex judge", {
-        message: "Codex command is not available.",
-        retryable: true,
-      }),
+  it("aggregates unavailable Codex and ready deterministic scoring into partial app status", async () => {
+    const dependencies = readinessDependencies({
+      codex: {
+        check: vi.fn(async () =>
+          subsystem("unavailable", "Codex judge", {
+            message: "Codex command is not available.",
+            retryable: true,
+          }),
+        ),
+      },
     });
-    const readinessService = {
-      getStatus: vi.fn(async () => partialStatus),
-    };
-    const app = await buildServerWithReadiness(readinessService);
+    const app = await buildServerWithReadinessDependencies(dependencies);
 
     try {
       const response = await app.inject({
@@ -114,29 +142,33 @@ describe("engine status readiness", () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(readinessService.getStatus).toHaveBeenCalledOnce();
+      expect(dependencies.deterministic.check).toHaveBeenCalledOnce();
+      expect(dependencies.codex.check).toHaveBeenCalledOnce();
+      expect(dependencies.storage.check).toHaveBeenCalledOnce();
       const status = appStatusSchema.parse(parseJsonPayload(response.body));
 
       expect(status.overall).toBe("partial");
+      expect(status.engine.state).toBe("ready");
       expect(status.deterministic.state).toBe("ready");
       expect(status.codex.state).toBe("unavailable");
+      expect(status.storage.state).toBe("ready");
     } finally {
       await app.close();
     }
   });
 
-  it("reports degraded storage readiness without changing engine readiness", async () => {
-    const storageFailedStatus = statusFixture({
-      overall: "partial",
-      storage: subsystem("failed", "Storage", {
-        message: "Storage path is not writable.",
-        retryable: true,
-      }),
+  it("aggregates a failed storage boundary into degraded app status", async () => {
+    const dependencies = readinessDependencies({
+      storage: {
+        check: vi.fn(async () =>
+          subsystem("failed", "Storage", {
+            message: "Storage path is not writable.",
+            retryable: true,
+          }),
+        ),
+      },
     });
-    const readinessService = {
-      getStatus: vi.fn(async () => storageFailedStatus),
-    };
-    const app = await buildServerWithReadiness(readinessService);
+    const app = await buildServerWithReadinessDependencies(dependencies);
 
     try {
       const response = await app.inject({
@@ -145,13 +177,55 @@ describe("engine status readiness", () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(readinessService.getStatus).toHaveBeenCalledOnce();
+      expect(dependencies.deterministic.check).toHaveBeenCalledOnce();
+      expect(dependencies.codex.check).toHaveBeenCalledOnce();
+      expect(dependencies.storage.check).toHaveBeenCalledOnce();
       const status = appStatusSchema.parse(parseJsonPayload(response.body));
 
       expect(status.overall).toBe("partial");
       expect(status.engine.state).toBe("ready");
       expect(status.storage.state).toBe("failed");
     } finally {
+      await app.close();
+    }
+  });
+
+  it("times out a slow readiness probe and returns degraded status without waiting for it", async () => {
+    vi.useFakeTimers();
+
+    const dependencies = readinessDependencies({
+      codex: {
+        check: vi.fn(() => new Promise<SubsystemStatus>(() => {})),
+      },
+    });
+    const app = await buildServerWithReadinessDependencies(dependencies, {
+      readinessTimeoutMs: 25,
+    });
+
+    try {
+      const responsePromise = app.inject({
+        method: "GET",
+        url: "/status",
+      });
+
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(25);
+
+      const response = await responsePromise;
+
+      expect(response.statusCode).toBe(200);
+      expect(dependencies.deterministic.check).toHaveBeenCalledOnce();
+      expect(dependencies.codex.check).toHaveBeenCalledOnce();
+      expect(dependencies.storage.check).toHaveBeenCalledOnce();
+      const status = appStatusSchema.parse(parseJsonPayload(response.body));
+
+      expect(status.overall).toBe("partial");
+      expect(status.deterministic.state).toBe("ready");
+      expect(status.codex.state).toBe("unavailable");
+      expect(status.codex.retryable).toBe(true);
+      expect(status.storage.state).toBe("ready");
+    } finally {
+      vi.useRealTimers();
       await app.close();
     }
   });
