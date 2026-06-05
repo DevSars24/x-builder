@@ -1,5 +1,15 @@
+import { constants } from "node:fs";
+import { access } from "node:fs/promises";
+
 import Fastify, { type FastifyInstance } from "fastify";
-import { apiErrorSchema, type ApiError } from "@x-builder/shared";
+import {
+  apiErrorSchema,
+  appStatusSchema,
+  subsystemStatusSchema,
+  type ApiError,
+  type AppStatus,
+  type SubsystemStatus,
+} from "@x-builder/shared";
 import { z } from "zod";
 
 const generateIdeaRequestSchema = z.object({
@@ -14,8 +24,25 @@ export type GenerateIdeaRequest = z.infer<typeof generateIdeaRequestSchema>;
 
 export type GenerateCandidates = (input: GenerateIdeaRequest) => Promise<unknown> | unknown;
 
+export type ReadinessProbe = {
+  check: () => Promise<SubsystemStatus> | SubsystemStatus;
+};
+
+export type ReadinessDependencies = {
+  deterministic: ReadinessProbe;
+  codex: ReadinessProbe;
+  storage: ReadinessProbe;
+};
+
+export type ReadinessService = {
+  getStatus: () => Promise<AppStatus> | AppStatus;
+};
+
 export interface BuildServerOptions {
   generateCandidates?: GenerateCandidates;
+  readinessDependencies?: ReadinessDependencies;
+  readinessService?: ReadinessService;
+  readinessTimeoutMs?: number;
 }
 
 class NormalizedApiError extends Error {
@@ -66,6 +93,15 @@ const generationError = (): ApiError =>
     status: 500,
   });
 
+const statusUnavailableError = (): ApiError =>
+  normalize({
+    code: "status_unavailable",
+    message: "Status is unavailable. Try again.",
+    scope: "status",
+    retryable: true,
+    status: 500,
+  });
+
 const internalError = (): ApiError =>
   normalize({
     code: "internal_error",
@@ -95,9 +131,168 @@ const defaultGenerateCandidates: GenerateCandidates = ({ idea }) => ({
   ],
 });
 
+const readinessTimeoutMsDefault = 750;
+const packageVersion = "0.0.0";
+
+const nowIso = (): string => new Date().toISOString();
+
+const subsystem = (
+  state: SubsystemStatus["state"],
+  label: string,
+  overrides: Partial<SubsystemStatus> = {},
+): SubsystemStatus =>
+  subsystemStatusSchema.parse({
+    state,
+    label,
+    checkedAt: nowIso(),
+    retryable: true,
+    details: {},
+    ...overrides,
+  });
+
+const timeoutProbeStatus = (label: string): SubsystemStatus =>
+  subsystem("unavailable", label, {
+    message: "Readiness check timed out.",
+    retryable: true,
+  });
+
+const failedProbeStatus = (label: string): SubsystemStatus =>
+  subsystem("unavailable", label, {
+    message: "Readiness check failed.",
+    retryable: true,
+  });
+
+const defaultReadinessDependencies: ReadinessDependencies = {
+  deterministic: {
+    check: () =>
+      subsystem("ready", "Deterministic scorer", {
+        retryable: false,
+        details: {
+          mode: "in-process",
+        },
+      }),
+  },
+  codex: {
+    check: () =>
+      subsystem("unconfigured", "Codex judge", {
+        message: "Codex judge is not configured for automatic readiness checks.",
+        retryable: true,
+        details: {
+          judgeExecuted: false,
+        },
+      }),
+  },
+  storage: {
+    check: async () => {
+      await access(process.cwd(), constants.W_OK);
+
+      return subsystem("ready", "Storage", {
+        retryable: true,
+        details: {
+          boundary: "working-directory",
+        },
+      });
+    },
+  },
+};
+
+const probeLabels: Record<keyof ReadinessDependencies, string> = {
+  deterministic: "Deterministic scorer",
+  codex: "Codex judge",
+  storage: "Storage",
+};
+
+const overallFromSubsystems = (
+  engine: SubsystemStatus,
+  deterministic: SubsystemStatus,
+  codex: SubsystemStatus,
+  storage: SubsystemStatus,
+): AppStatus["overall"] => {
+  if (engine.state !== "ready") {
+    return "unavailable";
+  }
+
+  return [deterministic, codex, storage].every((status) => status.state === "ready")
+    ? "ready"
+    : "partial";
+};
+
+const withTimeout = async <T>(operation: Promise<T>, timeoutMs: number, timeoutValue: T): Promise<T> =>
+  new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      resolve(timeoutValue);
+    }, timeoutMs);
+
+    operation
+      .then(resolve)
+      .catch(reject)
+      .finally(() => {
+        clearTimeout(timeout);
+      });
+  });
+
+class DefaultReadinessService implements ReadinessService {
+  constructor(
+    private readonly dependencies: ReadinessDependencies = defaultReadinessDependencies,
+    private readonly timeoutMs = readinessTimeoutMsDefault,
+  ) {}
+
+  async getStatus(): Promise<AppStatus> {
+    const engine = subsystem("ready", "Engine", {
+      message: "Engine is accepting local requests.",
+      retryable: false,
+      details: {
+        adapter: "fastify",
+      },
+    });
+
+    const [deterministic, codex, storage] = await Promise.all([
+      this.checkProbe("deterministic"),
+      this.checkProbe("codex"),
+      this.checkProbe("storage"),
+    ]);
+    const generatedAt = nowIso();
+
+    return appStatusSchema.parse({
+      overall: overallFromSubsystems(engine, deterministic, codex, storage),
+      version: packageVersion,
+      generatedAt,
+      engine,
+      deterministic,
+      codex,
+      storage,
+      lastRun: {
+        state: "none",
+      },
+    });
+  }
+
+  private async checkProbe(key: keyof ReadinessDependencies): Promise<SubsystemStatus> {
+    const label = probeLabels[key];
+
+    try {
+      const status = await withTimeout(
+        Promise.resolve().then(() => this.dependencies[key].check()),
+        this.timeoutMs,
+        timeoutProbeStatus(label),
+      );
+
+      return subsystemStatusSchema.parse(status);
+    } catch {
+      return failedProbeStatus(label);
+    }
+  }
+}
+
 export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   const app = Fastify({ logger: false });
   const generateCandidates = options.generateCandidates ?? defaultGenerateCandidates;
+  const readinessService =
+    options.readinessService ??
+    new DefaultReadinessService(
+      options.readinessDependencies,
+      options.readinessTimeoutMs ?? readinessTimeoutMsDefault,
+    );
 
   app.setNotFoundHandler((_request, reply) => {
     const apiError = notFoundError();
@@ -114,6 +309,18 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
           : internalError();
 
     return reply.code(apiError.status ?? 500).send(apiError);
+  });
+
+  app.get("/health", async () => ({ ok: true }));
+
+  app.get("/status", async (_request, reply) => {
+    try {
+      const status = appStatusSchema.parse(await readinessService.getStatus());
+
+      return reply.send(status);
+    } catch {
+      throw new NormalizedApiError(statusUnavailableError());
+    }
   });
 
   app.post("/ideas/generate", async (request, reply) => {
