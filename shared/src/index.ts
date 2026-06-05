@@ -6,7 +6,7 @@ export {
   readinessStateSchema,
   routeConfigSchema,
   subsystemStatusSchema,
-} from "./schemas/shell";
+} from "./schemas/shell.js";
 export type {
   ApiError,
   AppSettings,
@@ -15,4 +15,4 @@ export type {
   ReadinessState,
   RouteConfig,
   SubsystemStatus,
-} from "./schemas/shell";
+} from "./schemas/shell.js";
