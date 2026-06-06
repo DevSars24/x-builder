@@ -1,4 +1,6 @@
 import {
+  Component,
+  useEffect,
   useSyncExternalStore,
   type MouseEvent,
   type ReactElement,
@@ -62,9 +64,10 @@ const browserStorageKey = "x-builder:shell-preferences";
 
 function createHistoryState(initialPath: string): ShellHistoryState {
   const listeners = new Set<() => void>();
+  const initialResolution = resolveRoutePath(initialPath);
   const history: ShellHistoryState = {
     location: {
-      pathname: initialPath,
+      pathname: initialResolution.canonicalPath,
     },
     notify: () => {
       for (const listener of listeners) {
@@ -102,9 +105,14 @@ export function createBrowserShellHistory(): ShellHistory {
     return createMemoryShellHistory({ initialPath: "/writer" });
   }
 
-  const history = createHistoryState(window.location.pathname);
+  const initialResolution = resolveRoutePath(window.location.pathname);
+  const history = createHistoryState(initialResolution.canonicalPath);
   const push = history.push;
   const replace = history.replace;
+
+  if (initialResolution.shouldReplace) {
+    window.history.replaceState(null, "", initialResolution.canonicalPath);
+  }
 
   history.push = (path) => {
     window.history.pushState(null, "", path);
@@ -203,6 +211,14 @@ function useShellPath(history: ShellHistory): string {
   );
 }
 
+function useShellPreferences(preferencesStore: ShellPreferencesStore) {
+  return useSyncExternalStore(
+    preferencesStore.subscribe,
+    preferencesStore.get,
+    preferencesStore.get,
+  );
+}
+
 function focusRouteHeading(target: RouteHeadingFocusTarget): void {
   if (typeof document === "undefined") {
     return;
@@ -217,24 +233,24 @@ function SidebarNav({
   activeRoute,
   history,
   onNavigate,
+  preferences,
   preferencesStore,
 }: {
   activeRoute: RouteConfig;
   history: ShellHistory;
   onNavigate?: (target: RouteHeadingFocusTarget) => void;
+  preferences: ReturnType<ShellPreferencesStore["get"]>;
   preferencesStore: ShellPreferencesStore;
 }): ReactElement {
-  const preferences = preferencesStore.get();
   const sidebarToggleLabel = preferences.sidebarCollapsed
     ? "Expand sidebar"
     : "Collapse sidebar";
 
   const handleToggleSidebar = () => {
     preferencesStore.set({
-      ...preferencesStore.get(),
-      sidebarCollapsed: !preferencesStore.get().sidebarCollapsed,
+      ...preferences,
+      sidebarCollapsed: !preferences.sidebarCollapsed,
     });
-    history.replace?.(history.location.pathname as RouteConfig["path"]);
   };
 
   const handleNavigate =
@@ -317,17 +333,94 @@ function RouteRecovery(): ReactElement {
   );
 }
 
-function renderRouteBody(
+type RouteErrorBoundaryProps = {
+  children: ReactElement;
+  routeId: RouteConfig["id"];
+};
+
+type RouteErrorBoundaryState = {
+  hasError: boolean;
+  routeId: RouteConfig["id"];
+};
+
+class RouteErrorBoundary extends Component<
+  RouteErrorBoundaryProps,
+  RouteErrorBoundaryState
+> {
+  state: RouteErrorBoundaryState = {
+    hasError: false,
+    routeId: this.props.routeId,
+  };
+
+  static getDerivedStateFromProps(
+    props: RouteErrorBoundaryProps,
+    state: RouteErrorBoundaryState,
+  ): RouteErrorBoundaryState | null {
+    if (props.routeId !== state.routeId) {
+      return {
+        hasError: false,
+        routeId: props.routeId,
+      };
+    }
+
+    return null;
+  }
+
+  componentDidCatch(): void {
+    this.setState({
+      hasError: true,
+      routeId: this.props.routeId,
+    });
+  }
+
+  render(): ReactElement {
+    if (this.state.hasError) {
+      return <RouteRecovery />;
+    }
+
+    return this.props.children;
+  }
+}
+
+function routeComponentFor(
   route: RouteConfig,
   routeComponents: ShellRouteComponents | undefined,
-): ReactElement {
+) {
   const RouteComponent = routeComponents?.[route.id] ?? DefaultRouteBody;
 
+  return RouteComponent;
+}
+
+function renderStaticRouteBody(
+  route: RouteConfig,
+  RouteComponent: (props: ShellRouteComponentProps) => ReactElement,
+): ReactElement {
+  // React error boundaries do not catch server-render failures.
   try {
     return RouteComponent({ route });
   } catch {
     return <RouteRecovery />;
   }
+}
+
+function RouteBody({
+  route,
+  routeComponents,
+}: {
+  route: RouteConfig;
+  routeComponents: ShellRouteComponents | undefined;
+}): ReactElement {
+  const RouteComponent = routeComponentFor(route, routeComponents);
+
+  if (typeof window === "undefined") {
+    return renderStaticRouteBody(route, RouteComponent);
+  }
+
+  return (
+    <RouteErrorBoundary routeId={route.id}>
+      <RouteComponent route={route} />
+    </RouteErrorBoundary>
+  );
 }
 
 function RouteHeading({ target }: { target: RouteHeadingFocusTarget }): ReactElement {
@@ -348,11 +441,16 @@ export function AppShell({
   routeComponents,
 }: AppShellProps): ReactElement {
   const pathname = useShellPath(history);
+  const preferences = useShellPreferences(preferencesStore);
   const resolution = resolveRoutePath(pathname);
+  const shouldReplace = resolution.shouldReplace;
+  const canonicalPath = resolution.canonicalPath;
 
-  if (resolution.shouldReplace) {
-    setHistoryPath(history, resolution.canonicalPath, "replace");
-  }
+  useEffect(() => {
+    if (shouldReplace) {
+      setHistoryPath(history, canonicalPath, "replace");
+    }
+  }, [canonicalPath, history, shouldReplace]);
 
   const route = resolution.route;
   const headingTarget = headingTargetForRoute(route);
@@ -360,9 +458,7 @@ export function AppShell({
   return (
     <div
       className="xb-shell"
-      data-sidebar-collapsed={
-        preferencesStore.get().sidebarCollapsed ? "true" : "false"
-      }
+      data-sidebar-collapsed={preferences.sidebarCollapsed ? "true" : "false"}
     >
       <a className="xb-shell__skip-link" href="#main-content">
         Skip to content
@@ -371,6 +467,7 @@ export function AppShell({
         activeRoute={route}
         history={history}
         onNavigate={onRouteHeadingFocus}
+        preferences={preferences}
         preferencesStore={preferencesStore}
       />
       <main className="xb-shell__main" id="main-content">
@@ -380,7 +477,7 @@ export function AppShell({
           </div>
         </header>
         <section aria-labelledby={headingTarget.headingId} className="xb-shell__route-outlet">
-          {renderRouteBody(route, routeComponents)}
+          <RouteBody route={route} routeComponents={routeComponents} />
         </section>
       </main>
     </div>

@@ -12,6 +12,7 @@ export type ShellPreferenceStorage = {
 export type ShellPreferencesStore = {
   get: () => ShellPreferences;
   set: (preferences: ShellPreferences) => void;
+  subscribe: (listener: () => void) => () => void;
 };
 
 export type CreateShellPreferencesStoreOptions = {
@@ -71,6 +72,7 @@ export function createShellPreferencesStore({
   storageKey,
 }: CreateShellPreferencesStoreOptions): ShellPreferencesStore {
   let currentPreferences = loadPreferences(storage, storageKey);
+  const listeners = new Set<() => void>();
 
   return {
     get: () => currentPreferences,
@@ -80,8 +82,19 @@ export function createShellPreferencesStore({
       try {
         storage.setItem(storageKey, JSON.stringify(preferences));
       } catch {
-        return;
+        // Preference state remains valid for the current session even if storage fails.
       }
+
+      for (const listener of listeners) {
+        listener();
+      }
+    },
+    subscribe: (listener) => {
+      listeners.add(listener);
+
+      return () => {
+        listeners.delete(listener);
+      };
     },
   };
 }
