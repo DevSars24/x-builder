@@ -9,10 +9,13 @@ import {
   appSettingsResponseSchema,
   appSettingsSchema,
   appStatusSchema,
+  generateIdeaRequestSchema,
+  generateIdeaResponseSchema,
   subsystemStatusSchema,
   type ApiError,
   type AppSettings,
   type AppStatus,
+  type GenerateIdeaRequest,
   type SubsystemStatus,
 } from "@x-builder/shared";
 import { z } from "zod";
@@ -21,16 +24,6 @@ import {
   JsonFileAppSettingsRepository,
   type AppSettingsRepository,
 } from "./settings-repository.js";
-
-const generateIdeaRequestSchema = z.object({
-  idea: z
-    .string()
-    .trim()
-    .min(1, "Idea is required.")
-    .max(4_000, "Idea must be 4,000 characters or fewer."),
-});
-
-export type GenerateIdeaRequest = z.infer<typeof generateIdeaRequestSchema>;
 
 export type GenerateCandidates = (input: GenerateIdeaRequest) => Promise<unknown> | unknown;
 
@@ -381,7 +374,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     const input = generateIdeaRequestSchema.parse(request.body);
 
     try {
-      const result = await generateCandidates(input);
+      const result = generateIdeaResponseSchema.parse(await generateCandidates(input));
 
       return reply.send(result);
     } catch {

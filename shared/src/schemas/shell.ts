@@ -86,6 +86,26 @@ export const appSettingsResponseSchema = z.object({
   updatedAt: z.string().datetime().optional(),
 });
 
+export const generateIdeaRequestSchema = z.object({
+  idea: z
+    .string()
+    .trim()
+    .min(1, "Idea is required.")
+    .max(4_000, "Idea must be 4,000 characters or fewer."),
+  voiceProfileId: z.string().min(1).max(120).optional(),
+  useKnownPostIds: z.array(z.string().min(1).max(240)).default([]).optional(),
+});
+
+export const generatedIdeaCandidateSchema = z.object({
+  id: z.string().min(1).max(120),
+  format: z.enum(["one-liner", "mini-framework", "debate-question"]),
+  text: z.string().min(1).max(8_000),
+});
+
+export const generateIdeaResponseSchema = z.object({
+  candidates: z.array(generatedIdeaCandidateSchema).length(3),
+});
+
 export const routeConfigSchema = z.object({
   id: z.enum(["writer", "voice", "library", "settings"]),
   label: z.string().min(1).max(40),
@@ -103,4 +123,7 @@ export type AppStatus = z.infer<typeof appStatusSchema>;
 export type ApiError = z.infer<typeof apiErrorSchema>;
 export type AppSettings = z.infer<typeof appSettingsSchema>;
 export type AppSettingsResponse = z.infer<typeof appSettingsResponseSchema>;
+export type GenerateIdeaRequest = z.infer<typeof generateIdeaRequestSchema>;
+export type GeneratedIdeaCandidate = z.infer<typeof generatedIdeaCandidateSchema>;
+export type GenerateIdeaResponse = z.infer<typeof generateIdeaResponseSchema>;
 export type RouteConfig = z.infer<typeof routeConfigSchema>;
