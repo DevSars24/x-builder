@@ -21,6 +21,7 @@ export type AppStatusSnapshot = {
   error: ApiError | null;
   phase: StatusPhase;
   isRefreshing: boolean;
+  publish: (status: AppStatus) => void;
   refresh: () => Promise<void>;
 };
 
@@ -39,6 +40,8 @@ type StatusItem = {
   state: SubsystemStatus["state"] | "checking" | "invalid";
   message?: string;
 };
+
+type AppStatusState = Omit<AppStatusSnapshot, "publish" | "refresh">;
 
 const checkingItems: StatusItem[] = [
   { label: "Engine", state: "checking" },
@@ -167,9 +170,7 @@ export function useAppStatus({
   apiClient,
   onStatusChange,
 }: UseAppStatusOptions): AppStatusSnapshot {
-  const [state, setState] = useState<
-    Omit<AppStatusSnapshot, "refresh">
-  >({
+  const [state, setState] = useState<AppStatusState>({
     error: null,
     isRefreshing: true,
     phase: "checking",
@@ -205,12 +206,23 @@ export function useAppStatus({
     }
   }
 
+  function publish(status: AppStatus): void {
+    onStatusChange?.(status);
+    setState({
+      error: null,
+      isRefreshing: false,
+      phase: phaseForStatus(status),
+      status,
+    });
+  }
+
   useEffect(() => {
     void refresh();
   }, [apiClient]);
 
   return {
     ...state,
+    publish,
     refresh,
   };
 }

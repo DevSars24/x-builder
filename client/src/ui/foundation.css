@@ -632,3 +632,104 @@ select {
   width: min(var(--overlay-width-sm), calc(100vw - var(--space-8)));
   pointer-events: none;
 }
+
+.xb-settings-route {
+  display: grid;
+  gap: var(--space-3);
+  max-width: var(--overlay-width-lg);
+}
+
+.xb-settings-route__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.xb-settings-route__heading {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+}
+
+.xb-settings-route__heading h2 {
+  margin: 0;
+  color: var(--text-heading);
+  font: var(--type-panel-title);
+}
+
+.xb-settings-route__meta,
+.xb-settings-route__actions,
+.xb-settings-route__readiness {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.xb-settings-route__form {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.xb-settings-route__field,
+.xb-settings-route__switches {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.xb-settings-route__label,
+.xb-settings-route__switch-label {
+  color: var(--text-heading);
+  font: var(--type-label);
+}
+
+.xb-settings-route__field input[type="text"] {
+  width: 100%;
+  min-height: var(--density-input-height);
+  box-sizing: border-box;
+  padding-inline: var(--space-3);
+  border: var(--border-width-thin) solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  color: var(--text-primary);
+}
+
+.xb-settings-route__field input[type="text"]:focus-visible,
+.xb-settings-route__switch input:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.xb-settings-route__field input[aria-invalid="true"] {
+  border-color: var(--border-danger);
+}
+
+.xb-settings-route__field-error {
+  color: var(--text-danger);
+  font: var(--type-caption);
+}
+
+.xb-settings-route__switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: var(--density-nav-item-height);
+  padding: var(--space-2);
+  border: var(--border-width-thin) solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+}
+
+.xb-settings-route__switch input {
+  width: var(--control-height-xs);
+  height: var(--control-height-xs);
+  accent-color: var(--interactive-default);
+}
+
+.xb-settings-route__helper {
+  color: var(--text-secondary);
+  font: var(--type-caption);
+}

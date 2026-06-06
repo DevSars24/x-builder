@@ -6,13 +6,17 @@ import {
   type MouseEvent,
   type ReactElement,
 } from "react";
-import type { ApiError, RouteConfig } from "@x-builder/shared";
+import type { ApiError, AppStatus, RouteConfig } from "@x-builder/shared";
 
 import { EngineApiClient } from "../api/engine-api-client";
 import { WriterPage } from "../features/writer/writer-page";
 import { EmptyState } from "../ui/foundation";
 import { appRoutes, resolveRoutePath } from "./route-registry";
 import { RouteErrorBanner } from "./route-error-banner";
+import {
+  SettingsRoute,
+  type SettingsRouteApiClient,
+} from "./settings-route";
 import {
   createShellPreferencesStore,
   type ShellPreferencesStore,
@@ -47,7 +51,7 @@ export type ShellRouteComponents = Partial<
 >;
 
 export type AppShellProps = {
-  apiClient?: EngineStatusClient;
+  apiClient?: EngineStatusClient & Partial<SettingsRouteApiClient>;
   history: ShellHistory;
   preferencesStore: ShellPreferencesStore;
   routeComponents?: ShellRouteComponents;
@@ -325,9 +329,38 @@ function SidebarNav({
   );
 }
 
-function DefaultRouteBody({ route }: ShellRouteComponentProps): ReactElement {
+function hasSettingsApiClient(
+  apiClient: EngineStatusClient & Partial<SettingsRouteApiClient>,
+): apiClient is SettingsRouteApiClient {
+  return (
+    typeof apiClient.getSettings === "function" &&
+    typeof apiClient.saveSettings === "function"
+  );
+}
+
+function DefaultRouteBody({
+  apiClient,
+  onNavigateToWriter,
+  onStatusRefresh,
+  route,
+}: ShellRouteComponentProps & {
+  apiClient: SettingsRouteApiClient;
+  onNavigateToWriter: () => void;
+  onStatusRefresh: (status: AppStatus) => void;
+}): ReactElement {
   if (route.id === "writer") {
     return <WriterPage />;
+  }
+
+  if (route.id === "settings") {
+    return (
+      <SettingsRoute
+        apiClient={apiClient}
+        onNavigateToWriter={onNavigateToWriter}
+        onStatusRefresh={onStatusRefresh}
+        openedFrom="writer"
+      />
+    );
   }
 
   return (
@@ -409,18 +442,36 @@ function routeComponentFor(
   route: RouteConfig,
   routeComponents: ShellRouteComponents | undefined,
 ) {
-  const RouteComponent = routeComponents?.[route.id] ?? DefaultRouteBody;
+  const RouteComponent = routeComponents?.[route.id];
 
-  return RouteComponent;
+  if (RouteComponent !== undefined) {
+    return RouteComponent;
+  }
+
+  return null;
 }
 
 function renderStaticRouteBody(
+  apiClient: SettingsRouteApiClient,
   onOpenSettings: () => void,
+  onNavigateToWriter: () => void,
+  onStatusRefresh: (status: AppStatus) => void,
   route: RouteConfig,
-  RouteComponent: (props: ShellRouteComponentProps) => ReactElement,
+  RouteComponent: ((props: ShellRouteComponentProps) => ReactElement) | null,
 ): ReactElement {
   // React error boundaries do not catch server-render failures.
   try {
+    if (RouteComponent === null) {
+      return (
+        <DefaultRouteBody
+          apiClient={apiClient}
+          onNavigateToWriter={onNavigateToWriter}
+          onStatusRefresh={onStatusRefresh}
+          route={route}
+        />
+      );
+    }
+
     return RouteComponent({ route });
   } catch {
     return (
@@ -434,23 +485,48 @@ function renderStaticRouteBody(
 }
 
 function RouteBody({
+  apiClient,
   onOpenSettings,
+  onNavigateToWriter,
+  onStatusRefresh,
   route,
   routeComponents,
 }: {
+  apiClient: SettingsRouteApiClient;
   onOpenSettings: () => void;
+  onNavigateToWriter: () => void;
+  onStatusRefresh: (status: AppStatus) => void;
   route: RouteConfig;
   routeComponents: ShellRouteComponents | undefined;
 }): ReactElement {
   const RouteComponent = routeComponentFor(route, routeComponents);
 
   if (typeof window === "undefined") {
-    return renderStaticRouteBody(onOpenSettings, route, RouteComponent);
+    return renderStaticRouteBody(
+      apiClient,
+      onOpenSettings,
+      onNavigateToWriter,
+      onStatusRefresh,
+      route,
+      RouteComponent,
+    );
   }
+
+  const routeElement =
+    RouteComponent === null ? (
+      <DefaultRouteBody
+        apiClient={apiClient}
+        onNavigateToWriter={onNavigateToWriter}
+        onStatusRefresh={onStatusRefresh}
+        route={route}
+      />
+    ) : (
+      <RouteComponent route={route} />
+    );
 
   return (
     <RouteErrorBoundary onOpenSettings={onOpenSettings} routeId={route.id}>
-      <RouteComponent route={route} />
+      {routeElement}
     </RouteErrorBoundary>
   );
 }
@@ -476,8 +552,12 @@ export function AppShell({
   const [defaultApiClient] = useState(
     () => new EngineApiClient({ baseUrl: defaultEngineBaseUrl }),
   );
+  const shellApiClient = apiClient ?? defaultApiClient;
+  const settingsApiClient = hasSettingsApiClient(shellApiClient)
+    ? shellApiClient
+    : defaultApiClient;
   const status = useAppStatus({
-    apiClient: apiClient ?? defaultApiClient,
+    apiClient: shellApiClient,
   });
   const pathname = useShellPath(history);
   const preferences = useShellPreferences(preferencesStore);
@@ -502,6 +582,17 @@ export function AppShell({
       history,
       preferencesStore,
       to: "/settings",
+    });
+  };
+  const handleNavigateToWriter = () => {
+    navigateShellRoute({
+      focusRouteHeading: (target) => {
+        onRouteHeadingFocus?.(target);
+        focusRouteHeading(target);
+      },
+      history,
+      preferencesStore,
+      to: "/writer",
     });
   };
 
@@ -529,7 +620,10 @@ export function AppShell({
         </header>
         <section aria-labelledby={headingTarget.headingId} className="xb-shell__route-outlet">
           <RouteBody
+            apiClient={settingsApiClient}
             onOpenSettings={handleOpenSettings}
+            onNavigateToWriter={handleNavigateToWriter}
+            onStatusRefresh={status.publish}
             route={route}
             routeComponents={routeComponents}
           />
