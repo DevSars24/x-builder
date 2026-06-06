@@ -414,6 +414,12 @@ select {
   opacity: 0.72;
 }
 
+.xb-button--primary:disabled {
+  border-color: var(--border-default);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+}
+
 .xb-button__label {
   min-width: 0;
   overflow-wrap: anywhere;

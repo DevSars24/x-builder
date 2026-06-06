@@ -36,6 +36,7 @@ type SettingsApiClient = {
 type SettingsRouteProps = {
   apiClient: SettingsApiClient;
   openedFrom?: RouteConfig["id"];
+  onNavigate?: (to: RouteConfig["path"]) => void;
   onNavigateToWriter?: () => void;
   onStatusRefresh?: (status: AppStatus) => void;
 };
@@ -443,6 +444,56 @@ describe("SettingsRoute public behavior", () => {
     driver.discardUnsavedNavigation();
 
     expect(onNavigateToWriter).toHaveBeenCalledOnce();
+  });
+
+  it("warns before Back to Writer discards dirty settings", async () => {
+    const { SettingsRoute, createSettingsRoutePublicDriver } =
+      await loadSettingsRoute();
+    const onNavigateToWriter = vi.fn();
+    const apiClient = createApiClient();
+    const driver = createDriver(createSettingsRoutePublicDriver, {
+      apiClient,
+      onNavigateToWriter,
+      openedFrom: "writer",
+      renderRoute: SettingsRoute,
+    });
+
+    await driver.load();
+    driver.updateField("storagePath", "/tmp/x-builder-unsaved-back-action");
+    const warningHtml = driver.backToWriter();
+    const warningText = textContent(warningHtml);
+
+    expect(warningText).toContain("You have unsaved settings changes.");
+    expect(warningText).toContain("Stay on Settings");
+    expect(warningText).toContain("Discard changes");
+    expect(onNavigateToWriter).not.toHaveBeenCalled();
+
+    driver.discardUnsavedNavigation();
+
+    expect(onNavigateToWriter).toHaveBeenCalledOnce();
+  });
+
+  it("discards dirty settings to the originally requested shell route", async () => {
+    const { SettingsRoute, createSettingsRoutePublicDriver } =
+      await loadSettingsRoute();
+    const onNavigate = vi.fn();
+    const onNavigateToWriter = vi.fn();
+    const apiClient = createApiClient();
+    const driver = createDriver(createSettingsRoutePublicDriver, {
+      apiClient,
+      onNavigate,
+      onNavigateToWriter,
+      openedFrom: "writer",
+      renderRoute: SettingsRoute,
+    });
+
+    await driver.load();
+    driver.updateField("storagePath", "/tmp/x-builder-unsaved-voice-route");
+    driver.warnBeforeNavigateAway("/voice");
+    driver.discardUnsavedNavigation();
+
+    expect(onNavigate).toHaveBeenCalledWith("/voice");
+    expect(onNavigateToWriter).not.toHaveBeenCalled();
   });
 });
 

@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { RouteConfig } from "@x-builder/shared";
 
 import {
@@ -48,11 +48,22 @@ type NavigateShellRouteOptions = {
   focusRouteHeading: (target: RouteHeadingFocusTarget) => void;
 };
 
+type GuardSettingsNavigationOptions = {
+  activeRouteId: RouteConfig["id"];
+  isSettingsDirty: boolean;
+  onNavigate: (to: RouteConfig["path"]) => void;
+  onWarnUnsavedSettings: (to: RouteConfig["path"]) => void;
+  to: RouteConfig["path"];
+};
+
 type AppShellModule = {
   AppShell: (props: AppShellProps) => ReactElement;
   createMemoryShellHistory: (
     options: CreateMemoryShellHistoryOptions,
   ) => ShellHistory;
+  guardSettingsNavigation: (
+    options: GuardSettingsNavigationOptions,
+  ) => "navigated" | "warned";
   navigateShellRoute: (options: NavigateShellRouteOptions) => void;
 };
 
@@ -212,5 +223,34 @@ describe("AppShell route frame", () => {
     });
     expect(html).toContain('id="route-heading-settings"');
     expect(html).toContain('tabIndex="-1"');
+  });
+
+  it("warns instead of mutating shell history when dirty Settings attempts to leave", async () => {
+    const { guardSettingsNavigation } = await loadAppShell();
+    const onNavigate = vi.fn();
+    const onWarnUnsavedSettings = vi.fn();
+
+    const result = guardSettingsNavigation({
+      activeRouteId: "settings",
+      isSettingsDirty: true,
+      onNavigate,
+      onWarnUnsavedSettings,
+      to: "/voice",
+    });
+
+    expect(result).toBe("warned");
+    expect(onWarnUnsavedSettings).toHaveBeenCalledWith("/voice");
+    expect(onNavigate).not.toHaveBeenCalled();
+
+    const cleanResult = guardSettingsNavigation({
+      activeRouteId: "settings",
+      isSettingsDirty: false,
+      onNavigate,
+      onWarnUnsavedSettings,
+      to: "/writer",
+    });
+
+    expect(cleanResult).toBe("navigated");
+    expect(onNavigate).toHaveBeenCalledWith("/writer");
   });
 });

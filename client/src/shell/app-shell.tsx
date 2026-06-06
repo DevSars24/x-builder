@@ -1,6 +1,8 @@
 import {
   Component,
+  useCallback,
   useEffect,
+  useRef,
   useState,
   useSyncExternalStore,
   type MouseEvent,
@@ -67,6 +69,14 @@ export type NavigateShellRouteOptions = {
   preferencesStore: ShellPreferencesStore;
   to: RouteConfig["path"];
   focusRouteHeading: (target: RouteHeadingFocusTarget) => void;
+};
+
+export type GuardSettingsNavigationOptions = {
+  activeRouteId: RouteConfig["id"];
+  isSettingsDirty: boolean;
+  onNavigate: (to: RouteConfig["path"]) => void;
+  onWarnUnsavedSettings: (to: RouteConfig["path"]) => void;
+  to: RouteConfig["path"];
 };
 
 type ShellHistoryState = ShellHistory & {
@@ -217,6 +227,28 @@ export function navigateShellRoute({
   focusRouteHeading(headingTargetForRoute(resolution.route));
 }
 
+export function guardSettingsNavigation({
+  activeRouteId,
+  isSettingsDirty,
+  onNavigate,
+  onWarnUnsavedSettings,
+  to,
+}: GuardSettingsNavigationOptions): "navigated" | "warned" {
+  const resolution = resolveRoutePath(to);
+
+  if (
+    activeRouteId === "settings" &&
+    isSettingsDirty &&
+    resolution.route.id !== "settings"
+  ) {
+    onWarnUnsavedSettings(resolution.canonicalPath);
+    return "warned";
+  }
+
+  onNavigate(resolution.canonicalPath);
+  return "navigated";
+}
+
 function createRouteRenderError(): ApiError {
   return {
     code: "internal_error",
@@ -255,14 +287,12 @@ function focusRouteHeading(target: RouteHeadingFocusTarget): void {
 
 function SidebarNav({
   activeRoute,
-  history,
-  onNavigate,
+  onNavigatePath,
   preferences,
   preferencesStore,
 }: {
   activeRoute: RouteConfig;
-  history: ShellHistory;
-  onNavigate?: (target: RouteHeadingFocusTarget) => void;
+  onNavigatePath: (path: RouteConfig["path"]) => void;
   preferences: ReturnType<ShellPreferencesStore["get"]>;
   preferencesStore: ShellPreferencesStore;
 }): ReactElement {
@@ -280,15 +310,7 @@ function SidebarNav({
   const handleNavigate =
     (path: RouteConfig["path"]) => (event: MouseEvent<HTMLAnchorElement>) => {
       event.preventDefault();
-      navigateShellRoute({
-        history,
-        preferencesStore,
-        to: path,
-        focusRouteHeading: (target) => {
-          onNavigate?.(target);
-          focusRouteHeading(target);
-        },
-      });
+      onNavigatePath(path);
     };
 
   return (
@@ -340,13 +362,23 @@ function hasSettingsApiClient(
 
 function DefaultRouteBody({
   apiClient,
+  onDirtySettingsChange,
+  onDiscardSettingsNavigation,
   onNavigateToWriter,
+  onRequestShellNavigation,
+  onStayOnSettings,
   onStatusRefresh,
+  pendingSettingsNavigationPath,
   route,
 }: ShellRouteComponentProps & {
   apiClient: SettingsRouteApiClient;
+  onDirtySettingsChange: (dirty: boolean) => void;
+  onDiscardSettingsNavigation: (to: RouteConfig["path"]) => void;
   onNavigateToWriter: () => void;
+  onRequestShellNavigation: (to: RouteConfig["path"]) => void;
+  onStayOnSettings: () => void;
   onStatusRefresh: (status: AppStatus) => void;
+  pendingSettingsNavigationPath: RouteConfig["path"] | null;
 }): ReactElement {
   if (route.id === "writer") {
     return <WriterPage />;
@@ -356,9 +388,14 @@ function DefaultRouteBody({
     return (
       <SettingsRoute
         apiClient={apiClient}
+        onDirtyChange={onDirtySettingsChange}
+        onDiscardNavigation={onDiscardSettingsNavigation}
         onNavigateToWriter={onNavigateToWriter}
+        onRequestNavigate={onRequestShellNavigation}
+        onStayOnSettings={onStayOnSettings}
         onStatusRefresh={onStatusRefresh}
         openedFrom="writer"
+        pendingNavigationPath={pendingSettingsNavigationPath}
       />
     );
   }
@@ -453,9 +490,14 @@ function routeComponentFor(
 
 function renderStaticRouteBody(
   apiClient: SettingsRouteApiClient,
+  onDirtySettingsChange: (dirty: boolean) => void,
+  onDiscardSettingsNavigation: (to: RouteConfig["path"]) => void,
   onOpenSettings: () => void,
   onNavigateToWriter: () => void,
+  onRequestShellNavigation: (to: RouteConfig["path"]) => void,
+  onStayOnSettings: () => void,
   onStatusRefresh: (status: AppStatus) => void,
+  pendingSettingsNavigationPath: RouteConfig["path"] | null,
   route: RouteConfig,
   RouteComponent: ((props: ShellRouteComponentProps) => ReactElement) | null,
 ): ReactElement {
@@ -465,8 +507,13 @@ function renderStaticRouteBody(
       return (
         <DefaultRouteBody
           apiClient={apiClient}
+          onDirtySettingsChange={onDirtySettingsChange}
+          onDiscardSettingsNavigation={onDiscardSettingsNavigation}
           onNavigateToWriter={onNavigateToWriter}
+          onRequestShellNavigation={onRequestShellNavigation}
+          onStayOnSettings={onStayOnSettings}
           onStatusRefresh={onStatusRefresh}
+          pendingSettingsNavigationPath={pendingSettingsNavigationPath}
           route={route}
         />
       );
@@ -486,16 +533,26 @@ function renderStaticRouteBody(
 
 function RouteBody({
   apiClient,
+  onDirtySettingsChange,
+  onDiscardSettingsNavigation,
   onOpenSettings,
   onNavigateToWriter,
+  onRequestShellNavigation,
+  onStayOnSettings,
   onStatusRefresh,
+  pendingSettingsNavigationPath,
   route,
   routeComponents,
 }: {
   apiClient: SettingsRouteApiClient;
+  onDirtySettingsChange: (dirty: boolean) => void;
+  onDiscardSettingsNavigation: (to: RouteConfig["path"]) => void;
   onOpenSettings: () => void;
   onNavigateToWriter: () => void;
+  onRequestShellNavigation: (to: RouteConfig["path"]) => void;
+  onStayOnSettings: () => void;
   onStatusRefresh: (status: AppStatus) => void;
+  pendingSettingsNavigationPath: RouteConfig["path"] | null;
   route: RouteConfig;
   routeComponents: ShellRouteComponents | undefined;
 }): ReactElement {
@@ -504,9 +561,14 @@ function RouteBody({
   if (typeof window === "undefined") {
     return renderStaticRouteBody(
       apiClient,
+      onDirtySettingsChange,
+      onDiscardSettingsNavigation,
       onOpenSettings,
       onNavigateToWriter,
+      onRequestShellNavigation,
+      onStayOnSettings,
       onStatusRefresh,
+      pendingSettingsNavigationPath,
       route,
       RouteComponent,
     );
@@ -516,8 +578,13 @@ function RouteBody({
     RouteComponent === null ? (
       <DefaultRouteBody
         apiClient={apiClient}
+        onDirtySettingsChange={onDirtySettingsChange}
+        onDiscardSettingsNavigation={onDiscardSettingsNavigation}
         onNavigateToWriter={onNavigateToWriter}
+        onRequestShellNavigation={onRequestShellNavigation}
+        onStayOnSettings={onStayOnSettings}
         onStatusRefresh={onStatusRefresh}
+        pendingSettingsNavigationPath={pendingSettingsNavigationPath}
         route={route}
       />
     ) : (
@@ -552,6 +619,9 @@ export function AppShell({
   const [defaultApiClient] = useState(
     () => new EngineApiClient({ baseUrl: defaultEngineBaseUrl }),
   );
+  const [isSettingsDirty, setIsSettingsDirty] = useState(false);
+  const [pendingSettingsNavigationPath, setPendingSettingsNavigationPath] =
+    useState<RouteConfig["path"] | null>(null);
   const shellApiClient = apiClient ?? defaultApiClient;
   const settingsApiClient = hasSettingsApiClient(shellApiClient)
     ? shellApiClient
@@ -564,6 +634,55 @@ export function AppShell({
   const resolution = resolveRoutePath(pathname);
   const shouldReplace = resolution.shouldReplace;
   const canonicalPath = resolution.canonicalPath;
+  const lastAcceptedPathRef = useRef(canonicalPath);
+
+  const route = resolution.route;
+  const headingTarget = headingTargetForRoute(route);
+
+  const performNavigation = useCallback(
+    (to: RouteConfig["path"]) => {
+      const resolution = resolveRoutePath(to);
+
+      lastAcceptedPathRef.current = resolution.canonicalPath;
+      navigateShellRoute({
+        focusRouteHeading: (target) => {
+          onRouteHeadingFocus?.(target);
+          focusRouteHeading(target);
+        },
+        history,
+        preferencesStore,
+        to: resolution.canonicalPath,
+      });
+      setPendingSettingsNavigationPath(null);
+    },
+    [history, onRouteHeadingFocus, preferencesStore],
+  );
+
+  const requestShellNavigation = useCallback(
+    (to: RouteConfig["path"]) => {
+      guardSettingsNavigation({
+        activeRouteId: route.id,
+        isSettingsDirty,
+        onNavigate: performNavigation,
+        onWarnUnsavedSettings: setPendingSettingsNavigationPath,
+        to,
+      });
+    },
+    [isSettingsDirty, performNavigation, route.id],
+  );
+
+  const handleStayOnSettings = useCallback(() => {
+    setPendingSettingsNavigationPath(null);
+  }, []);
+
+  const handleDiscardSettingsNavigation = useCallback(
+    (to: RouteConfig["path"]) => {
+      setIsSettingsDirty(false);
+      setPendingSettingsNavigationPath(null);
+      performNavigation(to);
+    },
+    [performNavigation],
+  );
 
   useEffect(() => {
     if (shouldReplace) {
@@ -571,29 +690,52 @@ export function AppShell({
     }
   }, [canonicalPath, history, shouldReplace]);
 
-  const route = resolution.route;
-  const headingTarget = headingTargetForRoute(route);
+  useEffect(() => {
+    const previousPath = lastAcceptedPathRef.current;
+
+    if (previousPath === canonicalPath) {
+      return;
+    }
+
+    const previousRoute = resolveRoutePath(previousPath).route;
+
+    if (previousRoute.id === "settings" && isSettingsDirty) {
+      setPendingSettingsNavigationPath(canonicalPath);
+      setHistoryPath(history, previousPath, "replace");
+      return;
+    }
+
+    lastAcceptedPathRef.current = canonicalPath;
+  }, [canonicalPath, history, isSettingsDirty]);
+
+  useEffect(() => {
+    if (!isSettingsDirty) {
+      setPendingSettingsNavigationPath(null);
+    }
+  }, [isSettingsDirty]);
+
+  useEffect(() => {
+    if (!isSettingsDirty || route.id !== "settings") {
+      return;
+    }
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [isSettingsDirty, route.id]);
+
   const handleOpenSettings = () => {
-    navigateShellRoute({
-      focusRouteHeading: (target) => {
-        onRouteHeadingFocus?.(target);
-        focusRouteHeading(target);
-      },
-      history,
-      preferencesStore,
-      to: "/settings",
-    });
+    requestShellNavigation("/settings");
   };
   const handleNavigateToWriter = () => {
-    navigateShellRoute({
-      focusRouteHeading: (target) => {
-        onRouteHeadingFocus?.(target);
-        focusRouteHeading(target);
-      },
-      history,
-      preferencesStore,
-      to: "/writer",
-    });
+    requestShellNavigation("/writer");
   };
 
   return (
@@ -606,8 +748,7 @@ export function AppShell({
       </a>
       <SidebarNav
         activeRoute={route}
-        history={history}
-        onNavigate={onRouteHeadingFocus}
+        onNavigatePath={requestShellNavigation}
         preferences={preferences}
         preferencesStore={preferencesStore}
       />
@@ -621,9 +762,14 @@ export function AppShell({
         <section aria-labelledby={headingTarget.headingId} className="xb-shell__route-outlet">
           <RouteBody
             apiClient={settingsApiClient}
+            onDirtySettingsChange={setIsSettingsDirty}
+            onDiscardSettingsNavigation={handleDiscardSettingsNavigation}
             onOpenSettings={handleOpenSettings}
             onNavigateToWriter={handleNavigateToWriter}
+            onRequestShellNavigation={requestShellNavigation}
+            onStayOnSettings={handleStayOnSettings}
             onStatusRefresh={status.publish}
+            pendingSettingsNavigationPath={pendingSettingsNavigationPath}
             route={route}
             routeComponents={routeComponents}
           />

@@ -35,8 +35,14 @@ export type SettingsRouteApiClient = {
 
 export type SettingsRouteProps = {
   apiClient: SettingsRouteApiClient;
+  pendingNavigationPath?: RouteConfig["path"] | null;
   openedFrom?: RouteConfig["id"];
+  onDirtyChange?: (dirty: boolean) => void;
+  onDiscardNavigation?: (to: RouteConfig["path"]) => void;
+  onNavigate?: (to: RouteConfig["path"]) => void;
   onNavigateToWriter?: () => void;
+  onRequestNavigate?: (to: RouteConfig["path"]) => void;
+  onStayOnSettings?: () => void;
   onStatusRefresh?: (status: AppStatus) => void;
 };
 
@@ -504,10 +510,19 @@ function SettingsRouteView({
 export function SettingsRoute({
   apiClient,
   initialModel,
+  onDirtyChange,
+  onDiscardNavigation,
+  onNavigate,
   onNavigateToWriter,
+  onRequestNavigate,
+  onStayOnSettings,
   onStatusRefresh,
+  pendingNavigationPath,
 }: SettingsRouteInternalProps): ReactElement {
   const [model, setModel] = useState(initialModel ?? createInitialModel);
+  const dirty = isDirty(model);
+  const visiblePendingNavigationPath =
+    pendingNavigationPath ?? model.pendingNavigationPath;
 
   useEffect(() => {
     if (initialModel !== undefined) {
@@ -540,6 +555,35 @@ export function SettingsRoute({
       cancelled = true;
     };
   }, [apiClient, initialModel]);
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+
+  const navigateTo = (to: RouteConfig["path"]) => {
+    onNavigate?.(to);
+
+    if (to === "/writer") {
+      onNavigateToWriter?.();
+    }
+  };
+
+  const requestNavigation = (to: RouteConfig["path"]) => {
+    if (onRequestNavigate !== undefined) {
+      onRequestNavigate(to);
+      return;
+    }
+
+    if (dirty) {
+      setModel((current) => ({
+        ...current,
+        pendingNavigationPath: to,
+      }));
+      return;
+    }
+
+    navigateTo(to);
+  };
 
   const handleSave = async () => {
     setModel((current) => withValidatedEngineUrl({ ...current, isSaving: true }));
@@ -596,17 +640,34 @@ export function SettingsRoute({
 
   return (
     <SettingsRouteView
-      model={model}
+      model={{
+        ...model,
+        pendingNavigationPath: visiblePendingNavigationPath,
+      }}
       onBackToWriter={() => {
-        onNavigateToWriter?.();
+        requestNavigation("/writer");
       }}
       onDiscardNavigation={() => {
-        onNavigateToWriter?.();
+        if (visiblePendingNavigationPath === null) {
+          return;
+        }
+
+        if (onDiscardNavigation !== undefined) {
+          onDiscardNavigation(visiblePendingNavigationPath);
+          return;
+        }
+
+        setModel((current) => ({
+          ...current,
+          pendingNavigationPath: null,
+        }));
+        navigateTo(visiblePendingNavigationPath);
       }}
       onSave={() => {
         void handleSave();
       }}
       onStayOnSettings={() => {
+        onStayOnSettings?.();
         setModel((current) => ({ ...current, pendingNavigationPath: null }));
       }}
       onTestReadiness={() => {
@@ -633,6 +694,7 @@ function renderDriverRoute(
     initialModel: model,
     openedFrom: options.openedFrom,
     onNavigateToWriter: options.onNavigateToWriter,
+    onNavigate: options.onNavigate,
     onStatusRefresh: options.onStatusRefresh,
   };
 
@@ -654,10 +716,22 @@ export function createSettingsRoutePublicDriver(
 
   return {
     backToWriter: () => {
+      if (isDirty(model)) {
+        pendingNavigationPath = "/writer";
+        return render();
+      }
+
+      options.onNavigate?.("/writer");
       options.onNavigateToWriter?.();
       return render();
     },
     discardUnsavedNavigation: () => {
+      const target = pendingNavigationPath;
+
+      if (target !== null) {
+        options.onNavigate?.(target);
+      }
+
       if (pendingNavigationPath === "/writer") {
         options.onNavigateToWriter?.();
       }
