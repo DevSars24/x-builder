@@ -251,14 +251,25 @@ select {
   font: var(--type-caption);
 }
 
-.xb-writer-page [aria-label="Idea input"] {
+.xb-writer-page {
+  display: grid;
+  max-width: var(--overlay-width-lg);
+  gap: var(--space-4);
+}
+
+.xb-writer-form {
   display: grid;
   justify-items: start;
   gap: var(--space-2);
 }
 
+.xb-writer-form__label {
+  color: var(--text-heading);
+  font: var(--type-label);
+}
+
 .xb-writer-page textarea {
-  width: min(100%, var(--overlay-width-lg));
+  width: 100%;
   min-height: var(--overlay-height-sm);
   box-sizing: border-box;
   padding: var(--space-3);
@@ -267,17 +278,48 @@ select {
   background: var(--surface-panel);
   color: var(--text-primary);
   resize: vertical;
+  font: var(--type-body);
 }
 
-.xb-writer-page button {
-  min-height: var(--density-button-height);
-  padding-inline: var(--space-3);
-  border: var(--border-width-thin) solid var(--interactive-default);
+.xb-writer-form__helper,
+.xb-writer-form__error {
+  max-width: var(--text-measure-compact);
+  margin: 0;
+  font: var(--type-body-small);
+}
+
+.xb-writer-form__helper {
+  color: var(--text-secondary);
+}
+
+.xb-writer-form__error {
+  color: var(--text-danger);
+}
+
+.xb-writer-results {
+  min-height: var(--overlay-height-sm);
+}
+
+.xb-writer-results__skeletons,
+.xb-writer-candidates {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.xb-writer-candidate {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border-width-thin) solid var(--border-default);
   border-radius: var(--radius-md);
-  background: var(--interactive-default);
-  color: var(--text-on-accent);
-  cursor: pointer;
-  font: var(--type-label);
+  background: var(--surface-panel);
+}
+
+.xb-writer-candidate p {
+  margin: 0;
+  color: var(--text-primary);
+  font: var(--type-body);
+  overflow-wrap: anywhere;
 }
 
 .xb-page-header {

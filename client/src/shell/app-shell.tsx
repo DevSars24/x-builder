@@ -8,10 +8,15 @@ import {
   type MouseEvent,
   type ReactElement,
 } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import type { ApiError, AppStatus, RouteConfig } from "@x-builder/shared";
 
 import { EngineApiClient } from "../api/engine-api-client";
-import { WriterPage } from "../features/writer/writer-page";
+import {
+  WriterPage,
+  createWriterPagePublicDriver,
+  type WriterApiClient,
+} from "../features/writer/writer-page";
 import { EmptyState } from "../ui/foundation";
 import { appRoutes, resolveRoutePath } from "./route-registry";
 import { RouteErrorBanner } from "./route-error-banner";
@@ -53,11 +58,23 @@ export type ShellRouteComponents = Partial<
 >;
 
 export type AppShellProps = {
-  apiClient?: EngineStatusClient & Partial<SettingsRouteApiClient>;
+  apiClient?: EngineStatusClient &
+    Partial<SettingsRouteApiClient> &
+    Partial<WriterApiClient>;
   history: ShellHistory;
   preferencesStore: ShellPreferencesStore;
   routeComponents?: ShellRouteComponents;
   onRouteHeadingFocus?: (target: RouteHeadingFocusTarget) => void;
+};
+
+export type AppShellPublicDriverOptions = AppShellProps & {
+  renderShell?: (props: AppShellProps) => ReactElement;
+};
+
+export type AppShellPublicDriver = {
+  generateWriterIdea: () => Promise<string>;
+  openWriterErrorSettings: () => string;
+  updateWriterIdea: (idea: string) => string;
 };
 
 export type CreateMemoryShellHistoryOptions = {
@@ -360,8 +377,16 @@ function hasSettingsApiClient(
   );
 }
 
+function hasWriterApiClient(
+  apiClient: EngineStatusClient & Partial<WriterApiClient>,
+): apiClient is EngineStatusClient & WriterApiClient {
+  return typeof apiClient.generateIdea === "function";
+}
+
 function DefaultRouteBody({
-  apiClient,
+  onOpenSettings,
+  settingsApiClient,
+  writerApiClient,
   onDirtySettingsChange,
   onDiscardSettingsNavigation,
   onNavigateToWriter,
@@ -371,7 +396,9 @@ function DefaultRouteBody({
   pendingSettingsNavigationPath,
   route,
 }: ShellRouteComponentProps & {
-  apiClient: SettingsRouteApiClient;
+  onOpenSettings: () => void;
+  settingsApiClient: SettingsRouteApiClient;
+  writerApiClient: WriterApiClient;
   onDirtySettingsChange: (dirty: boolean) => void;
   onDiscardSettingsNavigation: (to: RouteConfig["path"]) => void;
   onNavigateToWriter: () => void;
@@ -381,13 +408,13 @@ function DefaultRouteBody({
   pendingSettingsNavigationPath: RouteConfig["path"] | null;
 }): ReactElement {
   if (route.id === "writer") {
-    return <WriterPage />;
+    return <WriterPage apiClient={writerApiClient} onOpenSettings={onOpenSettings} />;
   }
 
   if (route.id === "settings") {
     return (
       <SettingsRoute
-        apiClient={apiClient}
+        apiClient={settingsApiClient}
         onDirtyChange={onDirtySettingsChange}
         onDiscardNavigation={onDiscardSettingsNavigation}
         onNavigateToWriter={onNavigateToWriter}
@@ -489,7 +516,8 @@ function routeComponentFor(
 }
 
 function renderStaticRouteBody(
-  apiClient: SettingsRouteApiClient,
+  settingsApiClient: SettingsRouteApiClient,
+  writerApiClient: WriterApiClient,
   onDirtySettingsChange: (dirty: boolean) => void,
   onDiscardSettingsNavigation: (to: RouteConfig["path"]) => void,
   onOpenSettings: () => void,
@@ -506,7 +534,9 @@ function renderStaticRouteBody(
     if (RouteComponent === null) {
       return (
         <DefaultRouteBody
-          apiClient={apiClient}
+          onOpenSettings={onOpenSettings}
+          settingsApiClient={settingsApiClient}
+          writerApiClient={writerApiClient}
           onDirtySettingsChange={onDirtySettingsChange}
           onDiscardSettingsNavigation={onDiscardSettingsNavigation}
           onNavigateToWriter={onNavigateToWriter}
@@ -532,7 +562,8 @@ function renderStaticRouteBody(
 }
 
 function RouteBody({
-  apiClient,
+  settingsApiClient,
+  writerApiClient,
   onDirtySettingsChange,
   onDiscardSettingsNavigation,
   onOpenSettings,
@@ -544,7 +575,8 @@ function RouteBody({
   route,
   routeComponents,
 }: {
-  apiClient: SettingsRouteApiClient;
+  settingsApiClient: SettingsRouteApiClient;
+  writerApiClient: WriterApiClient;
   onDirtySettingsChange: (dirty: boolean) => void;
   onDiscardSettingsNavigation: (to: RouteConfig["path"]) => void;
   onOpenSettings: () => void;
@@ -560,7 +592,8 @@ function RouteBody({
 
   if (typeof window === "undefined") {
     return renderStaticRouteBody(
-      apiClient,
+      settingsApiClient,
+      writerApiClient,
       onDirtySettingsChange,
       onDiscardSettingsNavigation,
       onOpenSettings,
@@ -577,7 +610,9 @@ function RouteBody({
   const routeElement =
     RouteComponent === null ? (
       <DefaultRouteBody
-        apiClient={apiClient}
+        onOpenSettings={onOpenSettings}
+        settingsApiClient={settingsApiClient}
+        writerApiClient={writerApiClient}
         onDirtySettingsChange={onDirtySettingsChange}
         onDiscardSettingsNavigation={onDiscardSettingsNavigation}
         onNavigateToWriter={onNavigateToWriter}
@@ -624,6 +659,9 @@ export function AppShell({
     useState<RouteConfig["path"] | null>(null);
   const shellApiClient = apiClient ?? defaultApiClient;
   const settingsApiClient = hasSettingsApiClient(shellApiClient)
+    ? shellApiClient
+    : defaultApiClient;
+  const writerApiClient = hasWriterApiClient(shellApiClient)
     ? shellApiClient
     : defaultApiClient;
   const status = useAppStatus({
@@ -761,7 +799,8 @@ export function AppShell({
         </header>
         <section aria-labelledby={headingTarget.headingId} className="xb-shell__route-outlet">
           <RouteBody
-            apiClient={settingsApiClient}
+            settingsApiClient={settingsApiClient}
+            writerApiClient={writerApiClient}
             onDirtySettingsChange={setIsSettingsDirty}
             onDiscardSettingsNavigation={handleDiscardSettingsNavigation}
             onOpenSettings={handleOpenSettings}
@@ -777,4 +816,55 @@ export function AppShell({
       </main>
     </div>
   );
+}
+
+export function createAppShellPublicDriver(
+  options: AppShellPublicDriverOptions,
+): AppShellPublicDriver {
+  const defaultApiClient = new EngineApiClient({ baseUrl: defaultEngineBaseUrl });
+  const shellApiClient = options.apiClient ?? defaultApiClient;
+  const writerApiClient = hasWriterApiClient(shellApiClient)
+    ? shellApiClient
+    : defaultApiClient;
+  const renderShell = options.renderShell ?? AppShell;
+  const ShellComponent = renderShell;
+  const openSettings = () => {
+    navigateShellRoute({
+      focusRouteHeading: options.onRouteHeadingFocus ?? (() => undefined),
+      history: options.history,
+      preferencesStore: options.preferencesStore,
+      to: "/settings",
+    });
+  };
+  const writerDriver = createWriterPagePublicDriver({
+    apiClient: writerApiClient,
+    onOpenSettings: openSettings,
+    renderPage: WriterPage,
+  });
+
+  const renderCurrentShell = () =>
+    renderToStaticMarkup(
+      <ShellComponent
+        apiClient={options.apiClient}
+        history={options.history}
+        onRouteHeadingFocus={options.onRouteHeadingFocus}
+        preferencesStore={options.preferencesStore}
+        routeComponents={options.routeComponents}
+      />,
+    );
+
+  return {
+    generateWriterIdea: async () => {
+      const writerHtml = await writerDriver.generate();
+      return `${renderCurrentShell()}${writerHtml}`;
+    },
+    openWriterErrorSettings: () => {
+      writerDriver.openSettings();
+      return renderCurrentShell();
+    },
+    updateWriterIdea: (idea: string) => {
+      const writerHtml = writerDriver.updateIdea(idea);
+      return `${renderCurrentShell()}${writerHtml}`;
+    },
+  };
 }
