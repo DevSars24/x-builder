@@ -256,6 +256,25 @@ describe("EngineApiClient", () => {
     }));
   });
 
+  it("classifies invalid settings response bodies as invalid_response", async () => {
+    const fetchMock = createFetch(jsonResponse({
+      settings: {
+        ...settings,
+        engineBaseUrl: "https://example.com/not-local",
+      },
+      source: "persisted",
+      updatedAt: "2026-06-06T12:00:00.000Z",
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new EngineApiClient({ baseUrl });
+
+    await expectApiClientError(client.getSettings(), {
+      code: "invalid_response",
+      scope: "app",
+      retryable: true,
+    });
+  });
+
   it("saves settings with PATCH /settings and a JSON body", async () => {
     const fetchMock = createFetch(jsonResponse(settingsResponse));
     vi.stubGlobal("fetch", fetchMock);
