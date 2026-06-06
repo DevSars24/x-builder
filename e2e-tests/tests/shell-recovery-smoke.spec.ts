@@ -104,7 +104,7 @@ test("opens at root inside the shell and resolves to Writer", async ({ page }) =
   await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible();
   await expect(page.getByRole("status")).toBeVisible();
   await expect(page.getByRole("heading", { level: 1, name: "Writer" })).toBeVisible();
-  await expect(page.getByLabel("Idea")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Idea" })).toBeVisible();
 });
 
 test("sidebar navigation reaches every shell route with active state", async ({ page }) => {
@@ -160,20 +160,22 @@ test("writer preserves input during backend failure and opens settings from reco
   await page.goto("/writer");
 
   const idea = "Turn customer support surprises into launch-week content.";
-  await page.getByLabel("Idea").fill(idea);
+  const ideaInput = page.getByRole("textbox", { name: "Idea" });
+
+  await ideaInput.fill(idea);
   await page.getByRole("button", { name: "Generate" }).click();
 
   const recovery = page.getByRole("alert");
   await expect(recovery).toBeVisible();
   await expect(recovery.getByText("Route unavailable")).toBeVisible();
-  await expect(page.getByLabel("Idea")).toHaveValue(idea);
+  await expect(ideaInput).toHaveValue(idea);
   await expect(recovery.getByRole("button", { name: "Retry" })).toBeVisible();
   await expect(recovery.getByRole("button", { name: "Open Settings" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible();
   await expect(page.getByRole("status")).toBeVisible();
 
   const bannerBox = await recovery.boundingBox();
-  const ideaBox = await page.getByLabel("Idea").boundingBox();
+  const ideaBox = await ideaInput.boundingBox();
   expect(bannerBox).not.toBeNull();
   expect(ideaBox).not.toBeNull();
   expect(bannerBox!.y).toBeLessThan(ideaBox!.y);
