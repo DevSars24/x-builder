@@ -4,27 +4,13 @@ import type {
   AppSettings,
   AppSettingsResponse,
   AppStatus,
+  GenerateIdeaRequest,
+  GenerateIdeaResponse,
 } from "@x-builder/shared";
 
 import { ApiClientError, EngineApiClient } from "../engine-api-client";
 
 const baseUrl = "http://127.0.0.1:4173";
-
-type GenerateIdeaRequestContract = {
-  idea: string;
-  voiceProfileId?: string;
-  useKnownPostIds?: string[];
-};
-
-type GenerateIdeaCandidateContract = {
-  id: string;
-  format: "one-liner" | "mini-framework" | "debate-question";
-  text: string;
-};
-
-type GenerateIdeaResponseContract = {
-  candidates: GenerateIdeaCandidateContract[];
-};
 
 const statusResponse: AppStatus = {
   overall: "partial",
@@ -288,12 +274,12 @@ describe("EngineApiClient", () => {
   });
 
   it("generates ideas with POST /ideas/generate and a JSON idea body", async () => {
-    const generationRequest: GenerateIdeaRequestContract = {
+    const generationRequest: GenerateIdeaRequest = {
       idea: "Local-first tools need boring edges.",
       useKnownPostIds: ["post-one", "post-two"],
       voiceProfileId: "voice-default",
     };
-    const generationResponse: GenerateIdeaResponseContract = {
+    const generationResponse: GenerateIdeaResponse = {
       candidates: [
         {
           id: "one-liner",
@@ -316,7 +302,7 @@ describe("EngineApiClient", () => {
     vi.stubGlobal("fetch", fetchMock);
     const client = new EngineApiClient({ baseUrl });
 
-    const result: GenerateIdeaResponseContract = await client.generateIdea(generationRequest);
+    const result: GenerateIdeaResponse = await client.generateIdea(generationRequest);
 
     expect(result).toEqual(generationResponse);
     expect(fetchMock).toHaveBeenCalledWith(`${baseUrl}/ideas/generate`, expect.objectContaining({
