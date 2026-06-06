@@ -1,6 +1,6 @@
 import { constants } from "node:fs";
 import { access } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 import Fastify, { type FastifyInstance } from "fastify";
@@ -162,7 +162,7 @@ const defaultGenerateCandidates: GenerateCandidates = ({ idea }) => ({
 
 const readinessTimeoutMsDefault = 750;
 const packageVersion = "0.0.0";
-const defaultSettingsRoot = join(tmpdir(), "x-builder-engine-settings");
+const defaultSettingsRoot = join(homedir(), ".x-builder", "engine-settings");
 
 const nowIso = (): string => new Date().toISOString();
 
