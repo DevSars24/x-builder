@@ -54,6 +54,10 @@ const postCoachSectionSchema = z.object({
   items: z.array(voiceCheckSchema),
 });
 
+const learningCaveatSchema = z.literal(
+  "Static rule check. Imported performance data is not connected yet.",
+);
+
 const emptyPostCoachViewModelSchema = z.object({
   state: z.literal("empty"),
   title: z.literal("Post Coach"),
@@ -79,6 +83,7 @@ const readyPostCoachViewModelSchema = z.object({
   previewMode: z.boolean(),
   sections: z.array(postCoachSectionSchema),
   learnings: z.array(learningSchema),
+  learningCaveat: learningCaveatSchema,
   hiddenChecks: z.number().int().min(0),
   helperText: z.string().min(1).max(600),
   footerText: z.string().min(1).max(800),
