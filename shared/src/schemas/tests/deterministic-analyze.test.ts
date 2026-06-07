@@ -17,6 +17,7 @@ import {
 } from "../../index";
 
 const analyzedAt = "2026-06-07T12:00:00.000Z";
+const learningCaveat = "Static rule check. Imported performance data is not connected yet.";
 
 const score = {
   value: 72,
@@ -72,6 +73,7 @@ const postCoach = {
     },
   ],
   learnings: [],
+  learningCaveat,
   hiddenChecks: 0,
   helperText: "Signals, not verdicts.",
   footerText: "Static heuristic checks only.",
@@ -227,6 +229,7 @@ describe("deterministic analyze schemas", () => {
       postCoach: {
         state: "ready",
         title: "Post Coach",
+        learningCaveat,
       },
       prediction: {
         status: "available",
@@ -244,6 +247,31 @@ describe("deterministic analyze schemas", () => {
         items: [withoutPostCoach],
       }).success,
     ).toBe(false);
+  });
+
+  it("rejects ready Post Coach view models that omit the learning caveat", () => {
+    const { learningCaveat: _learningCaveat, ...withoutLearningCaveat } = postCoach;
+
+    expect(postCoachViewModelSchema.safeParse(withoutLearningCaveat).success).toBe(false);
+    expect(
+      analyzedPostItemSchema.safeParse({
+        ...scoredItem,
+        postCoach: withoutLearningCaveat,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("parses ready Post Coach view models with the day-one learning caveat", () => {
+    const result = postCoachViewModelSchema.safeParse(postCoach);
+
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      throw new Error("Expected ready Post Coach with learning caveat to parse.");
+    }
+    expect(result.data).toMatchObject({
+      state: "ready",
+      learningCaveat,
+    });
   });
 
   it("parses per-item score failures while preserving candidate text and retry metadata", () => {
