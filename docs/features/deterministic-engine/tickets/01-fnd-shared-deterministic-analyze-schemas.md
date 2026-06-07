@@ -39,12 +39,16 @@ Create the shared Zod contract for deterministic post analysis so backend and cl
   - `retryable`
 - Model prediction availability explicitly. Missing followers must not look like a real prediction.
 - Include `PostCoachViewModel` schema as an engine-produced view model.
+- `PostCoachViewModel` ready state must include `learningCaveat`.
+- Day-one `learningCaveat` value is the literal string `Static rule check. Imported performance data is not connected yet.`
 - Client schema validation must fail if a scored result omits `postCoach`.
 
 ## Tests
 
 - Shared schema accepts valid scored and score-failed fixtures.
 - Shared schema rejects a scored result without `postCoach`.
+- Shared schema rejects a ready `postCoach` without `learningCaveat`.
+- Shared schema accepts a ready `postCoach` with the day-one `learningCaveat` literal.
 - Shared schema rejects request batches with zero or more than ten items.
 - Shared schema accepts missing followers and represents prediction as disabled/missing.
 - Shared schema distinguishes writer `sourceFormat` from analyzer `detectedFormat`.
