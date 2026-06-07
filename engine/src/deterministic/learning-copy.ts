@@ -1,4 +1,17 @@
-import type { Learning, PostScore } from "./post-analyzer.js";
+import type {
+  Learning,
+  PostCoachViewModel,
+  PostScore,
+} from "./post-analyzer.js";
+
+const emptyPostCoachMessage =
+  "Start typing to see how the draft scores against static voice rules.";
+
+const postCoachCopyFallback =
+  "Static rule check. Imported performance data is not connected yet.";
+
+const importedPerformanceClaimPattern =
+  /\b(your data|last 30 days|averaged|replies for you|imported metrics|personal performance data|outperform(?:s|ed)?|highest like-to-reply ratio)\b/i;
 
 const staticLearningText = (text: string): string => {
   if (/one-liners under 12 words/i.test(text)) {
@@ -37,3 +50,26 @@ export const sanitizeScoreLearnings = (score: PostScore): PostScore => ({
   ...score,
   learnings: score.learnings.map(sanitizeLearning),
 });
+
+const sanitizePostCoachCopy = (text: string): string =>
+  importedPerformanceClaimPattern.test(text) ? postCoachCopyFallback : text;
+
+export const sanitizePostCoachViewModel = (
+  viewModel: PostCoachViewModel,
+): PostCoachViewModel => {
+  if (viewModel.state === "empty") {
+    return {
+      ...viewModel,
+      message: importedPerformanceClaimPattern.test(viewModel.message)
+        ? emptyPostCoachMessage
+        : viewModel.message,
+    };
+  }
+
+  return {
+    ...viewModel,
+    learnings: viewModel.learnings.map(sanitizeLearning),
+    helperText: sanitizePostCoachCopy(viewModel.helperText),
+    footerText: sanitizePostCoachCopy(viewModel.footerText),
+  };
+};

@@ -1,6 +1,7 @@
 import type { PostCoachViewModel as ApiPostCoachViewModel } from "@x-builder/shared";
 
 import { learningCaveat } from "./deterministic-analysis-constants.js";
+import { sanitizePostCoachViewModel } from "./learning-copy.js";
 import {
   derivePostCoachCard,
   type PostCoachScore,
@@ -34,5 +35,5 @@ export const deriveApiPostCoach = (input: {
     expanded: input.mode === "expanded",
   });
 
-  return addDayOneCaveat(viewModel);
+  return addDayOneCaveat(sanitizePostCoachViewModel(viewModel));
 };
