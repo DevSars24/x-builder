@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import {
+  analyzePostsResponseSchema,
+  type AnalyzedPostItem,
+  type AnalyzePostsRequest,
+  type PostCoachViewModel,
+} from "@x-builder/shared";
 import { DeterministicAnalysisService } from "../deterministic-analysis-service";
 
 const learningCaveat = "Static rule check. Imported performance data is not connected yet.";
@@ -7,119 +13,7 @@ const learningCaveat = "Static rule check. Imported performance data is not conn
 const strongQuestion =
   "genuine question: why do agent handoffs fail when the context is hidden from the next step?";
 
-type AnalyzePostsRequest = {
-  items: Array<{
-    id: string;
-    text: string;
-    sourceFormat?: "one-liner" | "mini-framework" | "debate-question";
-  }>;
-  scoringContext: {
-    followers?: number;
-  };
-  presentation: {
-    postCoachMode: "preview" | "expanded";
-  };
-};
-
-type PostCoachViewModel =
-  | {
-      state: "empty";
-      title: "Post Coach";
-      message: string;
-    }
-  | {
-      state: "ready";
-      title: "Post Coach";
-      value: number;
-      badge: {
-        label: "Top tier" | "Ship it" | "Almost there" | "Rework";
-        tone: "top" | "ship" | "almost" | "rework";
-        tooltip: string;
-      };
-      target: 60;
-      engageability: {
-        engageable: boolean;
-        reason: string;
-      };
-      failed: Array<{ id: string; label: string; status: "pass" | "warn" | "fail" }>;
-      warned: Array<{ id: string; label: string; status: "pass" | "warn" | "fail" }>;
-      passed: Array<{ id: string; label: string; status: "pass" | "warn" | "fail" }>;
-      counts: {
-        flagged: number;
-        nudges: number;
-        onPoint: number;
-      };
-      expanded: boolean;
-      previewMode: boolean;
-      sections: Array<{
-        title: "Worth a look" | "Nudges" | "On point" | "Sample";
-        items: Array<{ id: string; label: string; status: "pass" | "warn" | "fail" }>;
-      }>;
-      learnings: Array<{
-        text: string;
-        relevance: "matched" | "general";
-      }>;
-      learningCaveat: typeof learningCaveat;
-      hiddenChecks: number;
-      helperText: string;
-      footerText: string;
-    };
-
-type ScoredPostItem = {
-  status: "scored";
-  id: string;
-  text: string;
-  sourceFormat?: "one-liner" | "mini-framework" | "debate-question";
-  detectedFormat:
-    | "one_liner"
-    | "genuine_question"
-    | "hot_take"
-    | "audience_question"
-    | "story"
-    | "insight_share"
-    | "goal_share"
-    | "ab_choice"
-    | "connect"
-    | "other";
-  score: {
-    value: number;
-    checks: Array<{ id: string; label: string; status: "pass" | "warn" | "fail" }>;
-    learnings: Array<{
-      text: string;
-      relevance: "matched" | "general";
-    }>;
-    engageability: {
-      engageable: boolean;
-      reason: string;
-    };
-  };
-  postCoach: PostCoachViewModel;
-  prediction:
-    | {
-        status: "available";
-        rangeLow: number;
-        rangeHigh: number;
-        midpoint: number;
-        confidence: "low" | "medium" | "high";
-        signals: Array<{
-          signal_key: string;
-          label: string;
-          multiplier: number;
-        }>;
-      }
-    | {
-        status: "disabled";
-        reason: "missing_followers" | "text_too_short";
-        message: string;
-      };
-  heuristicLabel: "Heuristic rank, not prediction.";
-  analyzedAt: string;
-  analyzerVersion: string;
-};
-
-type AnalyzePostsResponse = {
-  items: ScoredPostItem[];
-};
+type ScoredPostItem = Extract<AnalyzedPostItem, { status: "scored" }>;
 
 function createService(): DeterministicAnalysisService {
   return new DeterministicAnalysisService();
@@ -128,14 +22,21 @@ function createService(): DeterministicAnalysisService {
 async function analyzeOne(
   request: AnalyzePostsRequest,
 ): Promise<ScoredPostItem> {
-  const response = (await createService().analyzePosts(request)) as AnalyzePostsResponse;
+  const response = analyzePostsResponseSchema.parse(await createService().analyzePosts(request));
 
   expect(response).toMatchObject({
     items: expect.any(Array),
   });
   expect(response.items).toHaveLength(1);
 
-  return response.items[0]!;
+  const item = response.items[0]!;
+  expect(item.status).toBe("scored");
+
+  if (item.status !== "scored") {
+    throw new Error("Expected scored analysis item.");
+  }
+
+  return item;
 }
 
 function readyPostCoach(postCoach: PostCoachViewModel): Extract<PostCoachViewModel, { state: "ready" }> {
