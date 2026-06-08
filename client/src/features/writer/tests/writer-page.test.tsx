@@ -43,6 +43,10 @@ type WriterPagePublicDriverOptions = WriterPageProps & {
 type WriterPagePublicDriver = {
   applyFollowers: () => Promise<string>;
   closeDetails: () => string;
+  closeDetailsWithEscape: () => {
+    activeTarget: string;
+    html: string;
+  };
   generate: () => Promise<string>;
   openDetails: (itemId: string) => Promise<string>;
   openSettings: () => void;
@@ -909,7 +913,7 @@ describe("WriterPage generation behavior", () => {
       hiddenChecks: 0,
       sections: [
         {
-          title: "Detail-only worth a look",
+          title: "Worth a look",
           items: [
             {
               id: "api-detail-check",
@@ -922,7 +926,7 @@ describe("WriterPage generation behavior", () => {
       learnings: [
         {
           text: "Detail learning from expanded API data.",
-          relevance: "similar",
+          relevance: "matched",
         },
       ],
     });
@@ -932,7 +936,7 @@ describe("WriterPage generation behavior", () => {
       .mockImplementationOnce(async () => ({
         items: [
           scoredAnalysisItem(miniFramework, {
-            detectedFormat: "framework_thread",
+            detectedFormat: "story",
             postCoach: detailPostCoach,
             prediction: availablePrediction({
               rangeLow: 410,
@@ -968,10 +972,10 @@ describe("WriterPage generation behavior", () => {
     expect(text).toContain("Source format");
     expect(text).toContain("mini-framework");
     expect(text).toContain("Detected format");
-    expect(text).toContain("framework_thread");
+    expect(text).toContain("story");
     expect(text).toContain("deterministic-v1");
     expect(text).toContain("2026-06-07T12:00:00.000Z");
-    expect(text).toContain("Detail-only worth a look");
+    expect(text).toContain("Worth a look");
     expect(text).toContain("API detail says the middle clause needs proof");
     expect(text).toContain("Detail learning from expanded API data.");
     expect(text).toContain("410 - 760");
@@ -1053,7 +1057,7 @@ describe("WriterPage generation behavior", () => {
               previewMode: false,
               sections: [
                 {
-                  title: "Recovered detail",
+                  title: "On point",
                   items: [
                     {
                       id: "recovered-detail",
@@ -1088,7 +1092,7 @@ describe("WriterPage generation behavior", () => {
     );
     expect(retryText).toContain(miniFramework.text);
     expect(retryText).toContain("88");
-    expect(retryText).toContain("Recovered detail");
+    expect(retryText).toContain("On point");
     expect(retryText).toContain("Recovered expanded Post Coach payload");
   });
 
@@ -1130,6 +1134,46 @@ describe("WriterPage generation behavior", () => {
     expect(closedText).toContain(oneLiner.text);
     expect(closedText).toContain(miniFramework.text);
     expect(closedText).toContain(debateQuestion.text);
+  });
+
+  it("closes details with Escape, keeps the board mounted, and returns focus to the details trigger", async () => {
+    const { WriterPage, createWriterPagePublicDriver } = await loadWriterPage();
+    const response = createValidIdeaResponse();
+    const [oneLiner, miniFramework, debateQuestion] = response.candidates;
+    if (
+      oneLiner === undefined ||
+      miniFramework === undefined ||
+      debateQuestion === undefined
+    ) {
+      throw new Error("Expected the writer fixture to include three candidates.");
+    }
+    const analyzePosts = vi
+      .fn<WriterApiClient["analyzePosts"]>()
+      .mockImplementationOnce(async () => createAnalyzePostsResponse(response))
+      .mockImplementationOnce(async () => ({
+        items: [scoredAnalysisItem(oneLiner)],
+      }));
+    const driver = createDriver(createWriterPagePublicDriver, {
+      apiClient: createApiClient(vi.fn(async () => response), analyzePosts),
+      onOpenSettings: vi.fn(),
+      renderPage: WriterPage,
+    });
+
+    driver.updateIdea("Escape should close details and restore focus.");
+    await driver.generate();
+    const openHtml = await driver.openDetails(oneLiner.id);
+
+    expect(openHtml).toContain('role="dialog"');
+
+    const result = driver.closeDetailsWithEscape();
+    const closedText = textContent(result.html);
+
+    expect(result.html).not.toContain('role="dialog"');
+    expect(closedText).not.toContain("Deterministic details");
+    expect(closedText).toContain(oneLiner.text);
+    expect(closedText).toContain(miniFramework.text);
+    expect(closedText).toContain(debateQuestion.text);
+    expect(result.activeTarget).toBe(`candidate-details:${oneLiner.id}`);
   });
 
   it("keeps overlong ideas local and shows the shared field validation message", async () => {

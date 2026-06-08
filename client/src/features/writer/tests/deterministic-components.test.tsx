@@ -549,7 +549,7 @@ describe("DeterministicDetailInspector", () => {
       postCoach: readyPostCoach({
         value: 18,
         badge: {
-          label: "Server-selected detail badge",
+          label: "Rework",
           tone: "rework",
           tooltip: "Expanded API copy should be rendered directly.",
         },
@@ -571,7 +571,7 @@ describe("DeterministicDetailInspector", () => {
         previewMode: false,
         sections: [
           {
-            title: "Expanded API detail",
+            title: "Worth a look",
             items: [
               {
                 id: "api-expanded-detail",
@@ -584,9 +584,11 @@ describe("DeterministicDetailInspector", () => {
         learnings: [
           {
             text: "Expanded detail learning from API data.",
-            relevance: "specific",
+            relevance: "matched",
           },
         ],
+        helperText: "Expanded helper text from the API payload.",
+        footerText: "Expanded footer text from the API payload.",
       }),
       prediction: missingFollowersPrediction(),
     });
@@ -614,12 +616,14 @@ describe("DeterministicDetailInspector", () => {
     expect(text).toContain("2026-06-07T12:00:00.000Z");
     expect(text).toContain("Post Coach");
     expect(text).toContain("18");
-    expect(text).toContain("Server-selected detail badge");
+    expect(text).toContain("Rework");
     expect(text).toContain("Expanded API copy should be rendered directly.");
+    expect(text).toContain("Expanded helper text from the API payload.");
+    expect(text).toContain("Expanded footer text from the API payload.");
     expect(text).toContain("4");
     expect(text).toContain("3");
     expect(text).toContain("2");
-    expect(text).toContain("Expanded API detail");
+    expect(text).toContain("Worth a look");
     expect(text).toContain("API detail says the opener is too abstract");
     expect(text).toContain("Expanded detail learning from API data.");
     expect(text).not.toContain("Derived failed check should not appear");
