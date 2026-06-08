@@ -55,6 +55,8 @@ type DeterministicDetailInspectorProps =
   | {
       state: "ready";
       item: ScoredAnalyzedPostItem;
+      onAddFollowers?: () => void;
+      onRetryExpandedPostCoach?: () => void;
     };
 
 type DeterministicComponentsModule = {
@@ -535,5 +537,95 @@ describe("DeterministicDetailInspector", () => {
     expect(text).toContain("120");
     expect(text).toContain("280");
     expect(text).toContain("Voice score 73");
+  });
+
+  it("renders detail metadata, API Post Coach data, and recovery actions", async () => {
+    const { DeterministicDetailInspector } = await loadDeterministicComponents();
+    const item = scoredItem({
+      score: {
+        ...scoredItem().score,
+        value: 91,
+      },
+      postCoach: readyPostCoach({
+        value: 18,
+        badge: {
+          label: "Server-selected detail badge",
+          tone: "rework",
+          tooltip: "Expanded API copy should be rendered directly.",
+        },
+        counts: {
+          flagged: 4,
+          nudges: 3,
+          onPoint: 2,
+        },
+        failed: [
+          {
+            id: "derived-fail",
+            label: "Derived failed check should not appear",
+            status: "fail",
+          },
+        ],
+        warned: [],
+        passed: [],
+        expanded: true,
+        previewMode: false,
+        sections: [
+          {
+            title: "Expanded API detail",
+            items: [
+              {
+                id: "api-expanded-detail",
+                label: "API detail says the opener is too abstract",
+                status: "warn",
+              },
+            ],
+          },
+        ],
+        learnings: [
+          {
+            text: "Expanded detail learning from API data.",
+            relevance: "specific",
+          },
+        ],
+      }),
+      prediction: missingFollowersPrediction(),
+    });
+
+    const html = render(
+      <DeterministicDetailInspector
+        state="ready"
+        item={item}
+        onAddFollowers={vi.fn()}
+        onRetryExpandedPostCoach={vi.fn()}
+      />,
+    );
+    const text = textContent(html);
+
+    expect(text).toContain("genuine question: what made your onboarding finally click?");
+    expect(text).toContain("Deterministic score");
+    expect(text).toContain("91");
+    expect(text).toContain("Source format");
+    expect(text).toContain("debate-question");
+    expect(text).toContain("Detected format");
+    expect(text).toContain("genuine_question");
+    expect(text).toContain("Analyzer");
+    expect(text).toContain("deterministic-v1");
+    expect(text).toContain("Analyzed at");
+    expect(text).toContain("2026-06-07T12:00:00.000Z");
+    expect(text).toContain("Post Coach");
+    expect(text).toContain("18");
+    expect(text).toContain("Server-selected detail badge");
+    expect(text).toContain("Expanded API copy should be rendered directly.");
+    expect(text).toContain("4");
+    expect(text).toContain("3");
+    expect(text).toContain("2");
+    expect(text).toContain("Expanded API detail");
+    expect(text).toContain("API detail says the opener is too abstract");
+    expect(text).toContain("Expanded detail learning from API data.");
+    expect(text).not.toContain("Derived failed check should not appear");
+    expect(text).toContain("Prediction needs follower count.");
+    expect(text).toContain("missing_followers");
+    expect(text).toContain("Add followers");
+    expect(text).toContain("Retry expanded Post Coach");
   });
 });

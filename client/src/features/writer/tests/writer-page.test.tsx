@@ -42,10 +42,13 @@ type WriterPagePublicDriverOptions = WriterPageProps & {
 
 type WriterPagePublicDriver = {
   applyFollowers: () => Promise<string>;
+  closeDetails: () => string;
   generate: () => Promise<string>;
+  openDetails: (itemId: string) => Promise<string>;
   openSettings: () => void;
   render: () => string;
   retry: () => Promise<string>;
+  retryDetails: () => Promise<string>;
   retryScore: (itemId: string) => Promise<string>;
   updateFollowers: (followers: string) => string;
   updateIdea: (idea: string) => string;
@@ -304,6 +307,18 @@ function expectedAnalyzePostsRequestFor(
   scoringContext: AnalyzePostsRequest["scoringContext"] = {},
 ): AnalyzePostsRequest {
   return expectedAnalyzePostsRequest([candidate], scoringContext);
+}
+
+function expectedExpandedAnalyzePostsRequestFor(
+  candidate: GeneratedIdeaCandidate,
+  scoringContext: AnalyzePostsRequest["scoringContext"] = {},
+): AnalyzePostsRequest {
+  return {
+    ...expectedAnalyzePostsRequestFor(candidate, scoringContext),
+    presentation: {
+      postCoachMode: "expanded",
+    },
+  };
 }
 
 function candidateTextSegment(
@@ -875,6 +890,246 @@ describe("WriterPage generation behavior", () => {
     expect(retryText).toContain(miniFramework.text);
     expect(retryText).toContain("91");
     expect(retryText).toContain("Top tier");
+  });
+
+  it("opens details for a scored candidate with expanded Post Coach analysis", async () => {
+    const { WriterPage, createWriterPagePublicDriver } = await loadWriterPage();
+    const response = createValidIdeaResponse();
+    const [oneLiner, miniFramework, debateQuestion] = response.candidates;
+    if (
+      oneLiner === undefined ||
+      miniFramework === undefined ||
+      debateQuestion === undefined
+    ) {
+      throw new Error("Expected the writer fixture to include three candidates.");
+    }
+    const detailPostCoach = readyPostCoach({
+      expanded: true,
+      previewMode: false,
+      hiddenChecks: 0,
+      sections: [
+        {
+          title: "Detail-only worth a look",
+          items: [
+            {
+              id: "api-detail-check",
+              label: "API detail says the middle clause needs proof",
+              status: "warn",
+            },
+          ],
+        },
+      ],
+      learnings: [
+        {
+          text: "Detail learning from expanded API data.",
+          relevance: "similar",
+        },
+      ],
+    });
+    const analyzePosts = vi
+      .fn<WriterApiClient["analyzePosts"]>()
+      .mockImplementationOnce(async () => createAnalyzePostsResponse(response))
+      .mockImplementationOnce(async () => ({
+        items: [
+          scoredAnalysisItem(miniFramework, {
+            detectedFormat: "framework_thread",
+            postCoach: detailPostCoach,
+            prediction: availablePrediction({
+              rangeLow: 410,
+              rangeHigh: 760,
+              midpoint: 585,
+            }),
+          }),
+        ],
+      }));
+    const generateIdea = vi.fn<WriterApiClient["generateIdea"]>(async () => response);
+    const apiClient = createApiClient(generateIdea, analyzePosts);
+    const driver = createDriver(createWriterPagePublicDriver, {
+      apiClient,
+      onOpenSettings: vi.fn(),
+      renderPage: WriterPage,
+    });
+
+    driver.updateIdea("Open the scored candidate detail inspector.");
+    await driver.generate();
+    const html = await driver.openDetails(miniFramework.id);
+    const text = textContent(html);
+
+    expect(generateIdea).toHaveBeenCalledOnce();
+    expect(analyzePosts).toHaveBeenCalledTimes(2);
+    expect(analyzePosts).toHaveBeenNthCalledWith(
+      2,
+      expectedExpandedAnalyzePostsRequestFor(miniFramework),
+    );
+    expect(html).toContain('role="dialog"');
+    expect(text).toContain("Deterministic details");
+    expect(text).toContain(miniFramework.text);
+    expect(text).toContain("74");
+    expect(text).toContain("Source format");
+    expect(text).toContain("mini-framework");
+    expect(text).toContain("Detected format");
+    expect(text).toContain("framework_thread");
+    expect(text).toContain("deterministic-v1");
+    expect(text).toContain("2026-06-07T12:00:00.000Z");
+    expect(text).toContain("Detail-only worth a look");
+    expect(text).toContain("API detail says the middle clause needs proof");
+    expect(text).toContain("Detail learning from expanded API data.");
+    expect(text).toContain("410 - 760");
+    expect(text).toContain("585");
+    expect(text).not.toContain(oneLiner.text);
+    expect(text).not.toContain(debateQuestion.text);
+  });
+
+  it("shows missing follower recovery in details without hiding candidate text", async () => {
+    const { WriterPage, createWriterPagePublicDriver } = await loadWriterPage();
+    const response = createValidIdeaResponse();
+    const [oneLiner] = response.candidates;
+    if (oneLiner === undefined) {
+      throw new Error("Expected the writer fixture to include a candidate.");
+    }
+    const analyzePosts = vi
+      .fn<WriterApiClient["analyzePosts"]>()
+      .mockImplementationOnce(async () => createAnalyzePostsResponse(response))
+      .mockImplementationOnce(async () => ({
+        items: [
+          scoredAnalysisItem(oneLiner, {
+            prediction: {
+              status: "disabled",
+              reason: "missing_followers",
+              message: "Prediction needs follower count.",
+            },
+          }),
+        ],
+      }));
+    const apiClient = createApiClient(vi.fn(async () => response), analyzePosts);
+    const driver = createDriver(createWriterPagePublicDriver, {
+      apiClient,
+      onOpenSettings: vi.fn(),
+      renderPage: WriterPage,
+    });
+
+    driver.updateIdea("Details should keep the selected text visible.");
+    await driver.generate();
+    const html = await driver.openDetails(oneLiner.id);
+    const text = textContent(html);
+
+    expect(text).toContain(oneLiner.text);
+    expect(text).toContain("Prediction needs follower count.");
+    expect(text).toContain("missing_followers");
+    expect(text).toContain("Add followers");
+  });
+
+  it("retries detail analysis without regenerating candidates", async () => {
+    const { WriterPage, createWriterPagePublicDriver } = await loadWriterPage();
+    const response = createValidIdeaResponse();
+    const [, miniFramework] = response.candidates;
+    if (miniFramework === undefined) {
+      throw new Error("Expected the writer fixture to include a candidate.");
+    }
+    const generateIdea = vi.fn<WriterApiClient["generateIdea"]>(async () => response);
+    const analyzePosts = vi
+      .fn<WriterApiClient["analyzePosts"]>()
+      .mockImplementationOnce(async () => createAnalyzePostsResponse(response))
+      .mockImplementationOnce(async () => ({
+        items: [
+          scoredAnalysisItem(miniFramework, {
+            postCoach: readyPostCoach({
+              title: "Post Coach",
+              helperText: "Expanded details could not be loaded.",
+            }),
+          }),
+        ],
+      }))
+      .mockImplementationOnce(async () => ({
+        items: [
+          scoredAnalysisItem(miniFramework, {
+            score: {
+              ...scoredAnalysisItem(miniFramework).score,
+              value: 88,
+            },
+            postCoach: readyPostCoach({
+              value: 88,
+              expanded: true,
+              previewMode: false,
+              sections: [
+                {
+                  title: "Recovered detail",
+                  items: [
+                    {
+                      id: "recovered-detail",
+                      label: "Recovered expanded Post Coach payload",
+                      status: "pass",
+                    },
+                  ],
+                },
+              ],
+            }),
+          }),
+        ],
+      }));
+    const apiClient = createApiClient(generateIdea, analyzePosts);
+    const driver = createDriver(createWriterPagePublicDriver, {
+      apiClient,
+      onOpenSettings: vi.fn(),
+      renderPage: WriterPage,
+    });
+
+    driver.updateIdea("Retrying details should stay in analysis only.");
+    await driver.generate();
+    await driver.openDetails(miniFramework.id);
+    const retryHtml = await driver.retryDetails();
+    const retryText = textContent(retryHtml);
+
+    expect(generateIdea).toHaveBeenCalledOnce();
+    expect(analyzePosts).toHaveBeenCalledTimes(3);
+    expect(analyzePosts).toHaveBeenNthCalledWith(
+      3,
+      expectedExpandedAnalyzePostsRequestFor(miniFramework),
+    );
+    expect(retryText).toContain(miniFramework.text);
+    expect(retryText).toContain("88");
+    expect(retryText).toContain("Recovered detail");
+    expect(retryText).toContain("Recovered expanded Post Coach payload");
+  });
+
+  it("closes details and returns to the candidate board", async () => {
+    const { WriterPage, createWriterPagePublicDriver } = await loadWriterPage();
+    const response = createValidIdeaResponse();
+    const [oneLiner, miniFramework, debateQuestion] = response.candidates;
+    if (
+      oneLiner === undefined ||
+      miniFramework === undefined ||
+      debateQuestion === undefined
+    ) {
+      throw new Error("Expected the writer fixture to include three candidates.");
+    }
+    const analyzePosts = vi
+      .fn<WriterApiClient["analyzePosts"]>()
+      .mockImplementationOnce(async () => createAnalyzePostsResponse(response))
+      .mockImplementationOnce(async () => ({
+        items: [scoredAnalysisItem(oneLiner)],
+      }));
+    const apiClient = createApiClient(vi.fn(async () => response), analyzePosts);
+    const driver = createDriver(createWriterPagePublicDriver, {
+      apiClient,
+      onOpenSettings: vi.fn(),
+      renderPage: WriterPage,
+    });
+
+    driver.updateIdea("Close behavior should leave the board intact.");
+    await driver.generate();
+    const openHtml = await driver.openDetails(oneLiner.id);
+
+    expect(openHtml).toContain('role="dialog"');
+
+    const closedHtml = driver.closeDetails();
+    const closedText = textContent(closedHtml);
+
+    expect(closedHtml).not.toContain('role="dialog"');
+    expect(closedText).not.toContain("Deterministic details");
+    expect(closedText).toContain(oneLiner.text);
+    expect(closedText).toContain(miniFramework.text);
+    expect(closedText).toContain(debateQuestion.text);
   });
 
   it("keeps overlong ideas local and shows the shared field validation message", async () => {
