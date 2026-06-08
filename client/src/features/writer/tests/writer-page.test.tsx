@@ -840,6 +840,42 @@ describe("WriterPage generation behavior", () => {
     expect(text).toContain(debateQuestion.text);
   });
 
+  it("surfaces full analysis route failures without turning every card into score_failed", async () => {
+    const { WriterPage, createWriterPagePublicDriver } = await loadWriterPage();
+    const response = createValidIdeaResponse();
+    const analysisError = createApiError({
+      code: "deterministic_analysis_failed",
+      message: "Deterministic scoring is temporarily unavailable.",
+      retryable: true,
+      scope: "writer",
+      status: 503,
+    });
+    const analyzePosts = vi.fn<WriterApiClient["analyzePosts"]>(async () =>
+      throwApiError(analysisError),
+    );
+    const apiClient = createApiClient(vi.fn(async () => response), analyzePosts);
+    const driver = createDriver(createWriterPagePublicDriver, {
+      apiClient,
+      onOpenSettings: vi.fn(),
+      renderPage: WriterPage,
+    });
+
+    driver.updateIdea("Full scoring outages should keep drafts visible.");
+    await driver.generate();
+    await flushAsyncTasks();
+    const text = textContent(driver.render());
+
+    expect(analyzePosts).toHaveBeenCalledOnce();
+    for (const candidate of response.candidates) {
+      expect(text).toContain(candidate.text);
+    }
+    expect(text).toContain("Route unavailable");
+    expect(text).toContain("Deterministic scoring is temporarily unavailable.");
+    expect(text).toContain("Retry");
+    expect(text).not.toContain("Deterministic analysis failed for this candidate.");
+    expect(text).not.toContain("Retry score");
+  });
+
   it("retries scoring for an existing candidate without regenerating text", async () => {
     const { WriterPage, createWriterPagePublicDriver } = await loadWriterPage();
     const response = createValidIdeaResponse();
@@ -901,6 +937,61 @@ describe("WriterPage generation behavior", () => {
     expect(retryText).toContain(miniFramework.text);
     expect(retryText).toContain("91");
     expect(retryText).toContain("Top tier");
+  });
+
+  it("keeps the existing score_failed card when score retry hits a route failure", async () => {
+    const { WriterPage, createWriterPagePublicDriver } = await loadWriterPage();
+    const response = createValidIdeaResponse();
+    const [oneLiner, miniFramework, debateQuestion] = response.candidates;
+    if (
+      oneLiner === undefined ||
+      miniFramework === undefined ||
+      debateQuestion === undefined
+    ) {
+      throw new Error("Expected the writer fixture to include three candidates.");
+    }
+    const analysisError = createApiError({
+      code: "deterministic_analysis_failed",
+      message: "Deterministic scoring is temporarily unavailable.",
+      retryable: true,
+      scope: "writer",
+      status: 503,
+    });
+    const generateIdea = vi.fn<WriterApiClient["generateIdea"]>(async () => response);
+    const analyzePosts = vi
+      .fn<WriterApiClient["analyzePosts"]>()
+      .mockImplementationOnce(async () => ({
+        items: [
+          scoredAnalysisItem(oneLiner),
+          scoreFailedAnalysisItem(miniFramework),
+          scoredAnalysisItem(debateQuestion),
+        ],
+      }))
+      .mockImplementationOnce(async () => throwApiError(analysisError));
+    const apiClient = createApiClient(generateIdea, analyzePosts);
+    const driver = createDriver(createWriterPagePublicDriver, {
+      apiClient,
+      onOpenSettings: vi.fn(),
+      renderPage: WriterPage,
+    });
+
+    driver.updateIdea("Retry score route failures should not regenerate.");
+    await driver.generate();
+    await flushAsyncTasks();
+    const retryHtml = await driver.retryScore(miniFramework.id);
+    const retryText = textContent(retryHtml);
+
+    expect(generateIdea).toHaveBeenCalledOnce();
+    expect(analyzePosts).toHaveBeenCalledTimes(2);
+    expect(analyzePosts).toHaveBeenNthCalledWith(
+      2,
+      expectedAnalyzePostsRequestFor(miniFramework),
+    );
+    expect(retryText).toContain("Route unavailable");
+    expect(retryText).toContain("Deterministic scoring is temporarily unavailable.");
+    expect(retryText).toContain(miniFramework.text);
+    expect(retryText).toContain("Deterministic analysis failed for this candidate.");
+    expect(retryText).toContain("Retry score");
   });
 
   it("opens details for a scored candidate with expanded Post Coach analysis", async () => {

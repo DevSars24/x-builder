@@ -15,25 +15,35 @@ export type WriterApiClient = {
   generateIdea: (input: GenerateIdeaRequest) => Promise<GenerateIdeaResponse>;
 };
 
+type CandidateReadyAnalysisState = {
+  item: AnalyzedPostItem;
+  status: "ready";
+};
+
+type CandidateFailedAnalysisState = {
+  item: AnalyzedPostItem;
+  status: "failed";
+};
+
+type CandidateStaleAnalysisState = {
+  item: AnalyzedPostItem;
+  status: "stale";
+};
+
+type CandidateVisibleAnalysisState =
+  | CandidateFailedAnalysisState
+  | CandidateReadyAnalysisState
+  | CandidateStaleAnalysisState;
+
 export type CandidateAnalysisState =
   | {
       status: "idle";
     }
   | {
+      previous?: CandidateVisibleAnalysisState;
       status: "loading";
     }
-  | {
-      item: AnalyzedPostItem;
-      status: "ready";
-    }
-  | {
-      item: AnalyzedPostItem;
-      status: "failed";
-    }
-  | {
-      item: AnalyzedPostItem;
-      status: "stale";
-    };
+  | CandidateVisibleAnalysisState;
 
 type ScoredAnalyzedPostItem = Extract<AnalyzedPostItem, { status: "scored" }>;
 type ScoreFailedAnalyzedPostItem = Extract<
@@ -243,14 +253,32 @@ function applyParsedFollowers(
 
 function createLoadingAnalysis(
   candidates: GeneratedIdeaCandidate[],
+  analysisByCandidateId: Record<string, CandidateAnalysisState> = {},
 ): Record<string, CandidateAnalysisState> {
   return Object.fromEntries(
-    candidates.map((candidate) => [
-      candidate.id,
-      {
-        status: "loading" as const,
-      },
-    ]),
+    candidates.map((candidate) => {
+      const currentState = analysisByCandidateId[candidate.id];
+      const previous =
+        currentState?.status === "failed" ||
+        currentState?.status === "ready" ||
+        currentState?.status === "stale"
+          ? currentState
+          : currentState?.status === "loading"
+            ? currentState.previous
+            : undefined;
+
+      return [
+        candidate.id,
+        previous === undefined
+          ? {
+              status: "loading" as const,
+            }
+          : {
+              previous,
+              status: "loading" as const,
+            },
+      ];
+    }),
   );
 }
 
@@ -416,20 +444,24 @@ function applyAnalysisResult(
   }
 
   if (result.type === "error") {
+    const nextAnalysisByCandidateId = {
+      ...model.analysisByCandidateId,
+    };
+
+    for (const candidate of requestedCandidates) {
+      const currentState = nextAnalysisByCandidateId[candidate.id];
+
+      if (currentState?.status === "loading" && currentState.previous !== undefined) {
+        nextAnalysisByCandidateId[candidate.id] = currentState.previous;
+      } else {
+        delete nextAnalysisByCandidateId[candidate.id];
+      }
+    }
+
     return {
       ...model,
-      analysisByCandidateId: {
-        ...model.analysisByCandidateId,
-        ...Object.fromEntries(
-          requestedCandidates.map((candidate) => [
-            candidate.id,
-            {
-              item: createScoreFailedItem(candidate, result.error),
-              status: "failed" as const,
-            },
-          ]),
-        ),
-      },
+      analysisByCandidateId: nextAnalysisByCandidateId,
+      routeError: result.error,
     };
   }
 
@@ -449,6 +481,7 @@ function applyAnalysisResult(
         }),
       ),
     },
+    routeError: null,
   };
 }
 
@@ -534,8 +567,9 @@ function applyAnalysisLoading(
     ...model,
     analysisByCandidateId: {
       ...model.analysisByCandidateId,
-      ...createLoadingAnalysis(candidates),
+      ...createLoadingAnalysis(candidates, model.analysisByCandidateId),
     },
+    routeError: null,
   };
 }
 
