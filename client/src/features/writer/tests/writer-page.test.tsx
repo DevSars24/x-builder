@@ -323,6 +323,26 @@ function candidateTextSegment(
   return text.slice(start, end);
 }
 
+function candidateHtmlSegment(
+  html: string,
+  currentCandidateText: string,
+  nextCandidateText?: string,
+) {
+  const escapedCurrentText = escapeHtml(currentCandidateText);
+  const escapedNextText =
+    nextCandidateText === undefined ? undefined : escapeHtml(nextCandidateText);
+  const start = html.indexOf(escapedCurrentText);
+  expect(start).toBeGreaterThanOrEqual(0);
+  const end =
+    escapedNextText === undefined
+      ? html.length
+      : html.indexOf(escapedNextText, start + escapedCurrentText.length);
+
+  expect(end).toBeGreaterThan(start);
+
+  return html.slice(start, end);
+}
+
 function createApiError(overrides: Partial<ApiError> = {}): ApiError {
   return {
     code: "engine_unreachable",
@@ -706,6 +726,55 @@ describe("WriterPage generation behavior", () => {
     expect(candidateTextSegment(text, debateQuestion.text)).toContain("Post Coach");
     expect(text).toContain("Prediction needs follower count.");
     expect(text).toContain("missing_followers");
+  });
+
+  it("keeps generated source slot in candidate metadata when analysis reports a different format", async () => {
+    const { WriterPage, createWriterPagePublicDriver } = await loadWriterPage();
+    const response = createValidIdeaResponse();
+    const [oneLiner, miniFramework, debateQuestion] = response.candidates;
+    if (
+      oneLiner === undefined ||
+      miniFramework === undefined ||
+      debateQuestion === undefined
+    ) {
+      throw new Error("Expected the writer fixture to include three candidates.");
+    }
+    const analyzePosts = vi.fn<WriterApiClient["analyzePosts"]>(async () => ({
+      items: [
+        scoredAnalysisItem(oneLiner),
+        scoredAnalysisItem(miniFramework, {
+          sourceFormat: oneLiner.format,
+          detectedFormat: "insight_share",
+        }),
+        scoredAnalysisItem(debateQuestion),
+      ],
+    }));
+    const apiClient = createApiClient(vi.fn(async () => response), analyzePosts);
+    const driver = createDriver(createWriterPagePublicDriver, {
+      apiClient,
+      onOpenSettings: vi.fn(),
+      renderPage: WriterPage,
+    });
+
+    driver.updateIdea("Render the writer slot separately from analyzer metadata.");
+    await driver.generate();
+    await flushAsyncTasks();
+    const html = driver.render();
+    const miniFrameworkHtml = candidateHtmlSegment(
+      html,
+      miniFramework.text,
+      debateQuestion.text,
+    );
+
+    expect(miniFrameworkHtml).toContain(
+      '<dt class="xb-key-value-list__label">Source format</dt><dd class="xb-key-value-list__value">mini-framework</dd>',
+    );
+    expect(miniFrameworkHtml).toContain(
+      '<dt class="xb-key-value-list__label">Detected format</dt><dd class="xb-key-value-list__value">insight_share</dd>',
+    );
+    expect(miniFrameworkHtml).not.toContain(
+      '<dt class="xb-key-value-list__label">Source format</dt><dd class="xb-key-value-list__value">one-liner</dd>',
+    );
   });
 
   it("keeps failed scored candidate text visible with a score retry action", async () => {
