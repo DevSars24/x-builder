@@ -233,16 +233,24 @@ function createScoreFailedItem(
   };
 }
 
-function analysisStateFromItem(item: AnalyzedPostItem): CandidateAnalysisState {
+function analysisStateFromItem(
+  candidate: GeneratedIdeaCandidate,
+  item: AnalyzedPostItem,
+): CandidateAnalysisState {
+  const candidateItem = {
+    ...item,
+    sourceFormat: candidate.format,
+  };
+
   if (item.status === "score_failed") {
     return {
-      item,
+      item: candidateItem,
       status: "failed",
     };
   }
 
   return {
-    item,
+    item: candidateItem,
     status: "ready",
   };
 }
@@ -398,7 +406,9 @@ function applyAnalysisResult(
         requestedCandidates.flatMap((candidate) => {
           const item = itemsById.get(candidate.id);
 
-          return item === undefined ? [] : [[candidate.id, analysisStateFromItem(item)]];
+          return item === undefined
+            ? []
+            : [[candidate.id, analysisStateFromItem(candidate, item)]];
         }),
       ),
     },
