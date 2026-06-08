@@ -1,45 +1,10 @@
 import type { VoiceCheck } from "./voice-check.js";
 
-const sentenceStarterProperNouns = new Set([
-  "This",
-  "That",
-  "Nobody",
-  "Everyone",
-  "Everybody",
-  "What",
-  "Why",
-  "How",
-  "Should",
-  "Who",
-  "When",
-  "Where",
-  "Which",
-  "Also",
-  "Plus",
-  "Thanks",
-  "Activation",
-  "Onboarding",
-  "Signup",
-  "Pricing",
-  "Docs",
-  "Support",
-  "Trial",
-  "Invite",
-  "Workspace",
-  "Email",
-  "Emails",
-  "Launch",
-  "Feature",
-  "Flow",
-  "Screen",
-  "Teardown",
-  "Checklist",
-]);
+const namedExamplePattern =
+  /\b(?:Acme|Stripe|GitHub|Linear|Notion|Slack|Figma|Vercel|Supabase|OpenAI|ChatGPT|Claude|Shopify)\b/;
 
 function hasNamedExample(text: string): boolean {
-  return (text.match(/\b[A-Z][a-z]{2,}\b/g) ?? []).some(
-    (word) => !sentenceStarterProperNouns.has(word),
-  );
+  return namedExamplePattern.test(text);
 }
 
 function hasConcreteAnchor(text: string): boolean {
@@ -52,13 +17,12 @@ function hasConcreteAnchor(text: string): boolean {
 
 function hasEvidenceMarker(text: string): boolean {
   return (
-    /\d/.test(text) ||
+    /\b\d+(?:[.,]\d+)?\b/.test(text) ||
     hasNamedExample(text) ||
     /\b(in|after|over|during|from)\s+\d+\b/i.test(text) ||
     /\b(today|yesterday|this week|this month|last week|last month|last year|last quarter)\b/i.test(text) ||
     /\b(i|we)\s+(saw|learned|noticed|tested|shipped|analyzed|measured|found|wrote|built|ran|removed|changed)\b/i.test(text) ||
-    /\b(could|might|often|usually|sometimes|tends? to|can|may)\b/i.test(text) ||
-    /\bfor\s+(b2b|saas|founders?|builders?|creators?|teams?|users?|customers?)\b/i.test(text)
+    /\b(could|might|often|usually|sometimes|tends? to|can|may)\b/i.test(text)
   );
 }
 
