@@ -518,6 +518,20 @@ function runTextEnrichmentChecks(input: {
   ];
 }
 
+function isTextEnrichmentCheck(check: VoiceCheck): boolean {
+  return (
+    check.id === "quality_answerable_question" ||
+    check.id === "quality_vague_curiosity" ||
+    check.id === "quality_standalone_context" ||
+    check.id === "quality_claim_evidence" ||
+    check.id === "quality_profile_click_reason" ||
+    check.id === "quality_one_idea_focus" ||
+    check.id === "line_length" ||
+    check.id === "link_density" ||
+    check.id === "mention_density"
+  );
+}
+
 export function recordPostHistory(
   history: readonly PostHistoryItem[],
   input: RecordPostHistoryInput,
@@ -654,9 +668,8 @@ function runQualityChecks(input: {
   lower: string;
   lines: string[];
   wordCount: number;
-  includeTextEnrichment?: boolean;
 }): VoiceCheck[] {
-  const { trimmed, lower, lines, wordCount, includeTextEnrichment = true } = input;
+  const { trimmed, lower, lines, wordCount } = input;
   const hasPrefix =
     /^(hot take|genuine question|popular opinion|unpopular opinion|real talk|fun fact|reminder):/i.test(trimmed);
   const hasAudienceOpener =
@@ -835,13 +848,11 @@ function runQualityChecks(input: {
         : "No question to bait replies",
       status: endsQuestion ? "pass" : "fail",
     },
-    ...(includeTextEnrichment
-      ? runTextEnrichmentChecks({
-          trimmed,
-          lines,
-          wordCount,
-        })
-      : []),
+    ...runTextEnrichmentChecks({
+      trimmed,
+      lines,
+      wordCount,
+    }),
   ];
 }
 
@@ -1204,13 +1215,15 @@ export function runVoiceChecks(
           lower,
           lines,
           wordCount: words,
-          includeTextEnrichment: !options.varietyCheck,
         })),
   ];
   const checks = options.enabled
     ? checksBeforeFilter.filter((check) => options.enabled?.[check.id] !== false)
     : checksBeforeFilter;
   const engageability = analyzeEngageability(trimmed, lines);
+  const scoringChecks = options.varietyCheck
+    ? checks.filter((check) => !isTextEnrichmentCheck(check))
+    : checks;
 
   if (empty) {
     return {
@@ -1221,8 +1234,8 @@ export function runVoiceChecks(
     };
   }
 
-  const nonQualityChecks = checks.filter((check) => check.kind !== "quality");
-  const qualityChecks = checks.filter((check) => check.kind === "quality");
+  const nonQualityChecks = scoringChecks.filter((check) => check.kind !== "quality");
+  const qualityChecks = scoringChecks.filter((check) => check.kind === "quality");
   const nonQualityPoints = nonQualityChecks.reduce((sum, check) => {
     if (check.status === "pass") {
       return sum + 1;
@@ -1442,9 +1455,13 @@ export function derivePostCoachCard({
   }
 
   const badge = getPostCoachBadge(score.value);
-  const failed = score.checks.filter((check) => check.status === "fail");
-  const warned = score.checks.filter((check) => check.status === "warn");
-  const passed = score.checks.filter((check) => check.status === "pass");
+  const hasVarietyCheck = score.checks.some((check) => check.id.startsWith("variety"));
+  const visibleChecks = hasVarietyCheck
+    ? score.checks.filter((check) => !isTextEnrichmentCheck(check) || check.status === "fail")
+    : score.checks;
+  const failed = visibleChecks.filter((check) => check.status === "fail");
+  const warned = visibleChecks.filter((check) => check.status === "warn");
+  const passed = visibleChecks.filter((check) => check.status === "pass");
   const helperText =
     "Signals, not verdicts. These checks flag patterns worth weighing - none of them are rules you have to follow. 60+ usually reads ship-ready; the goal is the post, not the score.";
   const footerText =
