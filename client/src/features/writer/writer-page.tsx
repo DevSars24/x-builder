@@ -4,17 +4,7 @@ import {
   type ReactElement,
 } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import {
-  apiErrorSchema,
-  generateIdeaRequestSchema,
-  type AnalyzedPostItem,
-  type AnalyzePostsRequest,
-  type AnalyzePostsResponse,
-  type ApiError,
-  type GenerateIdeaRequest,
-  type GenerateIdeaResponse,
-  type GeneratedIdeaCandidate,
-} from "@x-builder/shared";
+import type { GeneratedIdeaCandidate } from "@x-builder/shared";
 
 import { RouteErrorBanner } from "../../shell/route-error-banner";
 import { Badge, Button, Skeleton } from "../../ui/foundation";
@@ -22,48 +12,24 @@ import {
   CandidateDeterministicSummary,
   ManualScoringContextPanel,
 } from "./deterministic/components";
+import {
+  applyFollowerDraftChange,
+  applyIdeaChange,
+  createInitialModel,
+  runApplyFollowers,
+  runGenerate,
+  runRetry,
+  runRetryScore,
+  type CandidateAnalysisState,
+  type WriterApiClient,
+  type WriterPageModel,
+} from "./writer-workflow";
 
-export type WriterApiClient = {
-  analyzePosts: (input: AnalyzePostsRequest) => Promise<AnalyzePostsResponse>;
-  generateIdea: (input: GenerateIdeaRequest) => Promise<GenerateIdeaResponse>;
-};
-
-type CandidateAnalysisState =
-  | {
-      status: "idle";
-    }
-  | {
-      status: "loading";
-    }
-  | {
-      item: AnalyzedPostItem;
-      status: "ready";
-    }
-  | {
-      item: AnalyzedPostItem;
-      status: "failed";
-    }
-  | {
-      item: AnalyzedPostItem;
-      status: "stale";
-    };
+export type { WriterApiClient } from "./writer-workflow";
 
 export type WriterPageProps = {
   apiClient: WriterApiClient;
   onOpenSettings: () => void;
-};
-
-type WriterPageModel = {
-  analysisByCandidateId: Record<string, CandidateAnalysisState>;
-  appliedFollowers: number | undefined;
-  candidates: GeneratedIdeaCandidate[];
-  fieldError: string | null;
-  followerDraft: string;
-  followerError: string | null;
-  idea: string;
-  isGenerating: boolean;
-  lastPayload: GenerateIdeaRequest | null;
-  routeError: ApiError | null;
 };
 
 export type WriterPagePublicDriverOptions = WriterPageProps & {
@@ -81,207 +47,8 @@ export type WriterPagePublicDriver = {
   updateIdea: (idea: string) => string;
 };
 
-const emptyIdeaError = "Enter an idea before generating.";
-const invalidFollowersError = "Enter your current follower count to estimate impressions.";
-
-function createInitialModel(): WriterPageModel {
-  return {
-    analysisByCandidateId: {},
-    appliedFollowers: undefined,
-    candidates: [],
-    fieldError: null,
-    followerDraft: "",
-    followerError: null,
-    idea: "",
-    isGenerating: false,
-    lastPayload: null,
-    routeError: null,
-  };
-}
-
-function normalizeWriterError(error: unknown): ApiError {
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "apiError" in error
-  ) {
-    const parsed = apiErrorSchema.safeParse((error as { apiError: unknown }).apiError);
-
-    if (parsed.success) {
-      return parsed.data;
-    }
-  }
-
-  return {
-    code: "generation_failed",
-    message: "Generation failed. Your idea is still here.",
-    retryable: true,
-    scope: "writer",
-    status: 500,
-  };
-}
-
-function normalizeAnalysisError(error: unknown): ApiError {
-  const normalizedError = normalizeWriterError(error);
-
-  if (normalizedError.code !== "generation_failed") {
-    return normalizedError;
-  }
-
-  return {
-    ...normalizedError,
-    code: "deterministic_analysis_failed",
-    message: "Scoring failed for this candidate.",
-  };
-}
-
-type PayloadResult =
-  | {
-      payload: GenerateIdeaRequest;
-      type: "valid";
-    }
-  | {
-      fieldError: string;
-      type: "field-error";
-    };
-
-function payloadFromIdea(idea: string): PayloadResult {
-  const trimmedIdea = idea.trim();
-
-  if (trimmedIdea.length === 0) {
-    return {
-      fieldError: emptyIdeaError,
-      type: "field-error",
-    };
-  }
-
-  const parsed = generateIdeaRequestSchema.safeParse({
-    idea: trimmedIdea,
-  });
-
-  if (!parsed.success) {
-    return {
-      fieldError: parsed.error.flatten().fieldErrors.idea?.[0] ?? "Idea is invalid.",
-      type: "field-error",
-    };
-  }
-
-  return {
-    payload: parsed.data,
-    type: "valid",
-  };
-}
-
 function candidateLabel(format: GeneratedIdeaCandidate["format"]): string {
   return format;
-}
-
-function candidateAnalysisRequest(
-  candidates: GeneratedIdeaCandidate[],
-  followers: number | undefined,
-): AnalyzePostsRequest {
-  return {
-    items: candidates.map((candidate) => ({
-      id: candidate.id,
-      text: candidate.text,
-      sourceFormat: candidate.format,
-    })),
-    presentation: {
-      postCoachMode: "preview",
-    },
-    scoringContext: followers === undefined ? {} : { followers },
-  };
-}
-
-type FollowersParseResult =
-  | {
-      followers: number | undefined;
-      type: "valid";
-    }
-  | {
-      error: string;
-      type: "error";
-    };
-
-function parseFollowerDraft(followerDraft: string): FollowersParseResult {
-  const trimmedFollowers = followerDraft.trim();
-
-  if (trimmedFollowers.length === 0) {
-    return {
-      followers: undefined,
-      type: "valid",
-    };
-  }
-
-  const followers = Number(trimmedFollowers);
-
-  if (!Number.isInteger(followers) || followers <= 0) {
-    return {
-      error: invalidFollowersError,
-      type: "error",
-    };
-  }
-
-  return {
-    followers,
-    type: "valid",
-  };
-}
-
-function createLoadingAnalysis(
-  candidates: GeneratedIdeaCandidate[],
-): Record<string, CandidateAnalysisState> {
-  return Object.fromEntries(
-    candidates.map((candidate) => [
-      candidate.id,
-      {
-        status: "loading" as const,
-      },
-    ]),
-  );
-}
-
-function createScoreFailedItem(
-  candidate: GeneratedIdeaCandidate,
-  error: ApiError,
-): AnalyzedPostItem {
-  return {
-    status: "score_failed",
-    id: candidate.id,
-    text: candidate.text,
-    sourceFormat: candidate.format,
-    reason: error.code,
-    message: error.message,
-    retryable: error.retryable,
-  };
-}
-
-function analysisStateFromItem(item: AnalyzedPostItem): CandidateAnalysisState {
-  if (item.status === "score_failed") {
-    return {
-      item,
-      status: "failed",
-    };
-  }
-
-  return {
-    item,
-    status: "ready",
-  };
-}
-
-function candidatesStillPresent(
-  currentCandidates: GeneratedIdeaCandidate[],
-  requestedCandidates: GeneratedIdeaCandidate[],
-): boolean {
-  return requestedCandidates.every(
-    (candidate) =>
-      currentCandidates.some(
-        (currentCandidate) =>
-          currentCandidate.id === candidate.id &&
-          currentCandidate.text === candidate.text,
-      ),
-  );
 }
 
 type WriterPageViewProps = WriterPageModel & {
@@ -458,219 +225,6 @@ function WriterPageView({
   );
 }
 
-type GenerationResult =
-  | {
-      candidates: GeneratedIdeaCandidate[];
-      type: "success";
-    }
-  | {
-      error: ApiError;
-      type: "error";
-    };
-
-type AnalysisResult =
-  | {
-      items: AnalyzedPostItem[];
-      type: "success";
-    }
-  | {
-      error: ApiError;
-      type: "error";
-    };
-
-async function requestGeneration(
-  apiClient: WriterApiClient,
-  payload: GenerateIdeaRequest,
-): Promise<GenerationResult> {
-  try {
-    const response = await apiClient.generateIdea(payload);
-
-    return {
-      candidates: response.candidates,
-      type: "success",
-    };
-  } catch (error) {
-    return {
-      error: normalizeWriterError(error),
-      type: "error",
-    };
-  }
-}
-
-async function requestAnalysis(
-  apiClient: WriterApiClient,
-  candidates: GeneratedIdeaCandidate[],
-  followers: number | undefined,
-): Promise<AnalysisResult> {
-  try {
-    const response = await apiClient.analyzePosts(
-      candidateAnalysisRequest(candidates, followers),
-    );
-
-    return {
-      items: response.items,
-      type: "success",
-    };
-  } catch (error) {
-    return {
-      error: normalizeAnalysisError(error),
-      type: "error",
-    };
-  }
-}
-
-function applyGenerationResult(
-  model: WriterPageModel,
-  payload: GenerateIdeaRequest,
-  result: GenerationResult,
-): WriterPageModel {
-  if (result.type === "success") {
-    return {
-      ...model,
-      analysisByCandidateId: createLoadingAnalysis(result.candidates),
-      candidates: result.candidates,
-      fieldError: null,
-      isGenerating: false,
-      lastPayload: payload,
-      routeError: null,
-    };
-  }
-
-  const ideaFieldError = result.error.fieldErrors?.idea?.[0];
-
-  if (result.error.scope === "field" && ideaFieldError !== undefined) {
-    return {
-      ...model,
-      fieldError: ideaFieldError,
-      isGenerating: false,
-      lastPayload: payload,
-      routeError: null,
-    };
-  }
-
-  return {
-    ...model,
-    fieldError: null,
-    isGenerating: false,
-    lastPayload: payload,
-    routeError: result.error,
-  };
-}
-
-function applyAnalysisResult(
-  model: WriterPageModel,
-  requestedCandidates: GeneratedIdeaCandidate[],
-  result: AnalysisResult,
-): WriterPageModel {
-  if (!candidatesStillPresent(model.candidates, requestedCandidates)) {
-    return model;
-  }
-
-  if (result.type === "error") {
-    return {
-      ...model,
-      analysisByCandidateId: {
-        ...model.analysisByCandidateId,
-        ...Object.fromEntries(
-          requestedCandidates.map((candidate) => [
-            candidate.id,
-            {
-              item: createScoreFailedItem(candidate, result.error),
-              status: "failed" as const,
-            },
-          ]),
-        ),
-      },
-    };
-  }
-
-  const itemsById = new Map(result.items.map((item) => [item.id, item]));
-
-  return {
-    ...model,
-    analysisByCandidateId: {
-      ...model.analysisByCandidateId,
-      ...Object.fromEntries(
-        requestedCandidates.flatMap((candidate) => {
-          const item = itemsById.get(candidate.id);
-
-          return item === undefined
-            ? []
-            : [[candidate.id, analysisStateFromItem(item)]];
-        }),
-      ),
-    },
-  };
-}
-
-function applyAnalysisLoading(
-  model: WriterPageModel,
-  candidates: GeneratedIdeaCandidate[],
-): WriterPageModel {
-  return {
-    ...model,
-    analysisByCandidateId: {
-      ...model.analysisByCandidateId,
-      ...createLoadingAnalysis(candidates),
-    },
-  };
-}
-
-function markAnalysisStale(
-  analysisByCandidateId: Record<string, CandidateAnalysisState>,
-): Record<string, CandidateAnalysisState> {
-  return Object.fromEntries(
-    Object.entries(analysisByCandidateId).map(([candidateId, state]) => {
-      if (state.status === "ready" || state.status === "failed") {
-        return [
-          candidateId,
-          {
-            item: state.item,
-            status: "stale" as const,
-          },
-        ];
-      }
-
-      return [candidateId, state];
-    }),
-  );
-}
-
-function applyFollowerDraftChange(
-  model: WriterPageModel,
-  followerDraft: string,
-): WriterPageModel {
-  return {
-    ...model,
-    analysisByCandidateId: markAnalysisStale(model.analysisByCandidateId),
-    followerDraft,
-    followerError: null,
-  };
-}
-
-function applyFollowerValidation(
-  model: WriterPageModel,
-  followerDraft: string,
-): WriterPageModel | { followers: number | undefined; model: WriterPageModel } {
-  const parsedFollowers = parseFollowerDraft(followerDraft);
-
-  if (parsedFollowers.type === "error") {
-    return {
-      ...model,
-      followerError: parsedFollowers.error,
-    };
-  }
-
-  return {
-    followers: parsedFollowers.followers,
-    model: {
-      ...model,
-      appliedFollowers: parsedFollowers.followers,
-      followerError: null,
-    },
-  };
-}
-
 export function WriterPage({
   apiClient,
   onOpenSettings,
@@ -678,27 +232,7 @@ export function WriterPage({
   const [model, setModel] = useState(createInitialModel);
 
   const applyFollowers = () => {
-    void (async () => {
-      const validation = applyFollowerValidation(model, model.followerDraft);
-
-      if (!("model" in validation)) {
-        setModel(validation);
-        return;
-      }
-
-      const nextModel = validation.model;
-
-      if (nextModel.candidates.length === 0) {
-        setModel(nextModel);
-        return;
-      }
-
-      const { candidates } = nextModel;
-
-      setModel(applyAnalysisLoading(nextModel, candidates));
-      const result = await requestAnalysis(apiClient, candidates, validation.followers);
-      setModel((current) => applyAnalysisResult(current, candidates, result));
-    })();
+    void runApplyFollowers(apiClient, model, setModel);
   };
 
   const updateFollowers = (followers: string) => {
@@ -706,103 +240,19 @@ export function WriterPage({
   };
 
   const updateIdea = (idea: string) => {
-    setModel((current) => ({
-      ...current,
-      analysisByCandidateId: markAnalysisStale(current.analysisByCandidateId),
-      fieldError: null,
-      idea,
-    }));
+    setModel((current) => applyIdeaChange(current, idea));
   };
 
   const generate = () => {
-    void (async () => {
-      const payloadResult = payloadFromIdea(model.idea);
-      const followerValidation = applyFollowerValidation(model, model.followerDraft);
-
-      if (payloadResult.type === "field-error") {
-        setModel((current) => ({
-          ...current,
-          fieldError: payloadResult.fieldError,
-          routeError: null,
-        }));
-        return;
-      }
-
-      if (!("model" in followerValidation)) {
-        setModel(followerValidation);
-        return;
-      }
-
-      const { payload } = payloadResult;
-      const nextModel = followerValidation.model;
-
-      setModel({
-        ...nextModel,
-        fieldError: null,
-        isGenerating: true,
-        lastPayload: payload,
-      });
-      const result = await requestGeneration(apiClient, payload);
-      setModel((current) => applyGenerationResult(current, payload, result));
-
-      if (result.type === "success") {
-        const analysisResult = await requestAnalysis(
-          apiClient,
-          result.candidates,
-          followerValidation.followers,
-        );
-        setModel((current) =>
-          applyAnalysisResult(current, result.candidates, analysisResult),
-        );
-      }
-    })();
+    void runGenerate(apiClient, model, setModel);
   };
 
   const retry = async () => {
-    const payload = model.lastPayload;
-
-    if (payload === null) {
-      return;
-    }
-
-    const followerValidation = applyFollowerValidation(model, model.followerDraft);
-
-    if (!("model" in followerValidation)) {
-      setModel(followerValidation);
-      return;
-    }
-
-    setModel((current) => ({
-      ...current,
-      appliedFollowers: followerValidation.followers,
-      followerError: null,
-      isGenerating: true,
-    }));
-    const result = await requestGeneration(apiClient, payload);
-    setModel((current) => applyGenerationResult(current, payload, result));
-
-    if (result.type === "success") {
-      const analysisResult = await requestAnalysis(
-        apiClient,
-        result.candidates,
-        followerValidation.followers,
-      );
-      setModel((current) =>
-        applyAnalysisResult(current, result.candidates, analysisResult),
-      );
-    }
+    await runRetry(apiClient, model, setModel);
   };
 
   const retryScore = async (itemId: string) => {
-    const candidate = model.candidates.find((item) => item.id === itemId);
-
-    if (candidate === undefined) {
-      return;
-    }
-
-    setModel((current) => applyAnalysisLoading(current, [candidate]));
-    const result = await requestAnalysis(apiClient, [candidate], model.appliedFollowers);
-    setModel((current) => applyAnalysisResult(current, [candidate], result));
+    await runRetryScore(apiClient, model, itemId, setModel);
   };
 
   return (
@@ -841,129 +291,31 @@ export function createWriterPagePublicDriver(
   options: WriterPagePublicDriverOptions,
 ): WriterPagePublicDriver {
   let model = createInitialModel();
+  const publishModel = (nextModel: WriterPageModel) => {
+    model = nextModel;
+  };
 
   const render = () => renderDriverPage(options.onOpenSettings, model);
 
-  const applyFollowers = async () => {
-    const validation = applyFollowerValidation(model, model.followerDraft);
-
-    if (!("model" in validation)) {
-      model = validation;
-      return render();
-    }
-
-    model = validation.model;
-
-    if (model.candidates.length === 0) {
-      return render();
-    }
-
-    const { candidates } = model;
-
-    model = applyAnalysisLoading(model, candidates);
-    model = applyAnalysisResult(
-      model,
-      candidates,
-      await requestAnalysis(options.apiClient, candidates, validation.followers),
-    );
-
-    return render();
-  };
-
-  const generate = async () => {
-    const payloadResult = payloadFromIdea(model.idea);
-    const followerValidation = applyFollowerValidation(model, model.followerDraft);
-
-    if (payloadResult.type === "field-error") {
-      model = {
-        ...model,
-        fieldError: payloadResult.fieldError,
-        routeError: null,
-      };
-      return render();
-    }
-
-    if (!("model" in followerValidation)) {
-      model = followerValidation;
-      return render();
-    }
-
-    const { payload } = payloadResult;
-
-    model = {
-      ...followerValidation.model,
-      fieldError: null,
-      isGenerating: true,
-      lastPayload: payload,
-    };
-    const result = await requestGeneration(options.apiClient, payload);
-    model = applyGenerationResult(model, payload, result);
-
-    if (result.type === "success") {
-      const { candidates } = result;
-      model = applyAnalysisResult(
-        model,
-        candidates,
-        await requestAnalysis(options.apiClient, candidates, followerValidation.followers),
-      );
-    }
-
-    return render();
-  };
-
   return {
-    applyFollowers,
-    generate,
+    applyFollowers: async () => {
+      await runApplyFollowers(options.apiClient, model, publishModel);
+      return render();
+    },
+    generate: async () => {
+      await runGenerate(options.apiClient, model, publishModel);
+      return render();
+    },
     openSettings: () => {
       options.onOpenSettings();
     },
     render,
     retry: async () => {
-      const payload = model.lastPayload;
-
-      if (payload === null) {
-        return render();
-      }
-
-      const followerValidation = applyFollowerValidation(model, model.followerDraft);
-
-      if (!("model" in followerValidation)) {
-        model = followerValidation;
-        return render();
-      }
-
-      model = {
-        ...followerValidation.model,
-        isGenerating: true,
-      };
-      const result = await requestGeneration(options.apiClient, payload);
-      model = applyGenerationResult(model, payload, result);
-
-      if (result.type === "success") {
-        const { candidates } = result;
-        model = applyAnalysisResult(
-          model,
-          candidates,
-          await requestAnalysis(options.apiClient, candidates, followerValidation.followers),
-        );
-      }
-
+      await runRetry(options.apiClient, model, publishModel);
       return render();
     },
     retryScore: async (itemId: string) => {
-      const candidate = model.candidates.find((item) => item.id === itemId);
-
-      if (candidate === undefined) {
-        return render();
-      }
-
-      model = applyAnalysisLoading(model, [candidate]);
-      model = applyAnalysisResult(
-        model,
-        [candidate],
-        await requestAnalysis(options.apiClient, [candidate], model.appliedFollowers),
-      );
-
+      await runRetryScore(options.apiClient, model, itemId, publishModel);
       return render();
     },
     updateFollowers: (followers: string) => {
@@ -971,12 +323,7 @@ export function createWriterPagePublicDriver(
       return render();
     },
     updateIdea: (idea: string) => {
-      model = {
-        ...model,
-        analysisByCandidateId: markAnalysisStale(model.analysisByCandidateId),
-        fieldError: null,
-        idea,
-      };
+      model = applyIdeaChange(model, idea);
       return render();
     },
   };
