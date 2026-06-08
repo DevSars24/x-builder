@@ -47,16 +47,19 @@ export type CandidateDetailState =
     }
   | {
       candidate: GeneratedIdeaCandidate;
+      requestId: number;
       status: "loading";
     }
   | {
       candidate: GeneratedIdeaCandidate;
       item: ScoredAnalyzedPostItem;
+      requestId: number;
       status: "ready";
     }
   | {
       candidate: GeneratedIdeaCandidate;
       item: ScoreFailedAnalyzedPostItem;
+      requestId: number;
       status: "failed";
     };
 
@@ -77,6 +80,7 @@ export type WriterPageModel = {
 
 const emptyIdeaError = "Enter an idea before generating.";
 const invalidFollowersError = "Enter your current follower count to estimate impressions.";
+let nextDetailRequestId = 1;
 
 export function createInitialModel(): WriterPageModel {
   return {
@@ -451,6 +455,7 @@ function applyAnalysisResult(
 function applyDetailAnalysisResult(
   model: WriterPageModel,
   candidate: GeneratedIdeaCandidate,
+  requestId: number,
   result: Awaited<ReturnType<typeof requestAnalysis>>,
 ): WriterPageModel {
   if (!candidatesStillPresent(model.candidates, [candidate])) {
@@ -465,6 +470,7 @@ function applyDetailAnalysisResult(
       detail: {
         candidate,
         item,
+        requestId,
         status: "failed",
       },
     };
@@ -486,6 +492,7 @@ function applyDetailAnalysisResult(
       detail: {
         candidate,
         item: createScoreFailedItem(candidate, fallbackError),
+        requestId,
         status: "failed",
       },
     };
@@ -499,13 +506,10 @@ function applyDetailAnalysisResult(
   if (candidateItem.status === "score_failed") {
     return {
       ...model,
-      analysisByCandidateId: {
-        ...model.analysisByCandidateId,
-        [candidate.id]: analysisStateFromItem(candidate, candidateItem),
-      },
       detail: {
         candidate,
         item: candidateItem,
+        requestId,
         status: "failed",
       },
     };
@@ -513,13 +517,10 @@ function applyDetailAnalysisResult(
 
   return {
     ...model,
-    analysisByCandidateId: {
-      ...model.analysisByCandidateId,
-      [candidate.id]: analysisStateFromItem(candidate, candidateItem),
-    },
     detail: {
       candidate,
       item: candidateItem,
+      requestId,
       status: "ready",
     },
   };
@@ -579,7 +580,9 @@ export function applyIdeaChange(model: WriterPageModel, idea: string): WriterPag
   };
 }
 
-type PublishModel = (model: WriterPageModel) => void;
+type PublishModel = (
+  update: WriterPageModel | ((current: WriterPageModel) => WriterPageModel),
+) => void;
 
 type GenerationStart =
   | {
@@ -775,6 +778,8 @@ export async function runOpenDetails(
     return model;
   }
 
+  const requestId = nextDetailRequestId;
+  nextDetailRequestId += 1;
   const followerContext = parseFollowerDraft(model.followerDraft);
   let currentModel = applyParsedFollowers(
     {
@@ -782,6 +787,7 @@ export async function runOpenDetails(
       activeFocusTarget: null,
       detail: {
         candidate,
+        requestId,
         status: "loading",
       },
     },
@@ -804,6 +810,7 @@ export async function runOpenDetails(
       detail: {
         candidate,
         item,
+        requestId,
         status: "failed",
       },
     };
@@ -817,8 +824,25 @@ export async function runOpenDetails(
     followerContext.followers,
     "expanded",
   );
-  currentModel = applyDetailAnalysisResult(currentModel, candidate, analysisResult);
-  publish(currentModel);
+
+  publish((latestModel) => {
+    if (
+      latestModel.detail.status === "closed" ||
+      latestModel.detail.requestId !== requestId ||
+      latestModel.detail.candidate.id !== candidate.id ||
+      latestModel.detail.candidate.text !== candidate.text
+    ) {
+      return latestModel;
+    }
+
+    currentModel = applyDetailAnalysisResult(
+      latestModel,
+      candidate,
+      requestId,
+      analysisResult,
+    );
+    return currentModel;
+  });
 
   return currentModel;
 }

@@ -225,7 +225,7 @@ function WriterPageView({
             <Skeleton height={92} label="Generating candidate three" width={540} />
           </div>
         ) : null}
-        {!isGenerating && candidates.length > 0 && detail.status === "closed" ? (
+        {!isGenerating && candidates.length > 0 ? (
           <div className="xb-writer-candidates">
             {candidates.map((candidate) => (
               <article className="xb-writer-candidate" key={candidate.id}>
@@ -397,8 +397,10 @@ export function createWriterPagePublicDriver(
   options: WriterPagePublicDriverOptions,
 ): WriterPagePublicDriver {
   let model = createInitialModel();
-  const publishModel = (nextModel: WriterPageModel) => {
-    model = nextModel;
+  const publishModel = (
+    update: WriterPageModel | ((current: WriterPageModel) => WriterPageModel),
+  ) => {
+    model = typeof update === "function" ? update(model) : update;
   };
 
   const render = () => renderDriverPage(options.onOpenSettings, model);
