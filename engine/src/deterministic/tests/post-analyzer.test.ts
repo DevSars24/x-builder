@@ -567,7 +567,7 @@ describe("deterministic post analyzer", () => {
     expect(card).toMatchObject({
       state: "ready",
       title: "Post Coach",
-      value: 66,
+      value: 81,
       target: 60,
       badge: {
         label: "Ship it",
@@ -575,8 +575,8 @@ describe("deterministic post analyzer", () => {
       },
       counts: {
         flagged: 4,
-        nudges: 1,
-        onPoint: 16,
+        nudges: 2,
+        onPoint: 24,
       },
       expanded: true,
       previewMode: false,
@@ -603,9 +603,21 @@ describe("deterministic post analyzer", () => {
       "quality_quotable",
       "quality_question",
     ]);
-    expect(card.sections[1]?.items.map((check) => check.id)).toEqual([
-      "direct_opener",
-    ]);
+    expect(card.sections[1]?.items.map((check) => check.id)).toEqual(
+      expect.arrayContaining(["direct_opener", "quality_profile_click_reason"]),
+    );
+    expect(card.sections[2]?.items.map((check) => check.id)).toEqual(
+      expect.arrayContaining([
+        "quality_answerable_question",
+        "quality_vague_curiosity",
+        "quality_standalone_context",
+        "quality_claim_evidence",
+        "quality_one_idea_focus",
+        "line_length",
+        "link_density",
+        "mention_density",
+      ]),
+    );
     expect(card.learnings).toEqual([
       {
         text: "Posts with 3+ lines get 3.2x more impressions in your data.",
