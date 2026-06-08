@@ -272,6 +272,28 @@ describe("CandidateDeterministicSummary", () => {
     expect(text).toContain("Voice score 73");
   });
 
+  it("renders missing source format gracefully while preserving detected format", async () => {
+    const { CandidateDeterministicSummary } = await loadDeterministicComponents();
+
+    const item = scoredItem({
+      text: "manual draft: what changed after you stopped optimizing for demos?",
+      detectedFormat: "genuine_question",
+    });
+    delete item.sourceFormat;
+    const html = render(
+      <CandidateDeterministicSummary item={item} onRetryScore={vi.fn()} />,
+    );
+    const text = textContent(html);
+
+    expect(text).toContain(
+      "manual draft: what changed after you stopped optimizing for demos?",
+    );
+    expect(text).toContain("Source format");
+    expect(text).toContain("Unknown");
+    expect(text).toContain("Detected format");
+    expect(text).toContain("genuine_question");
+  });
+
   it("renders disabled prediction state from the item without inventing a range", async () => {
     const { CandidateDeterministicSummary } = await loadDeterministicComponents();
 
