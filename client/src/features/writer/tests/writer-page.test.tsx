@@ -48,6 +48,10 @@ type WriterPagePublicDriver = {
     html: string;
   };
   generate: () => Promise<string>;
+  focusFollowers: () => {
+    activeTarget: string;
+    html: string;
+  };
   openDetails: (itemId: string) => Promise<string>;
   openSettings: () => void;
   render: () => string;
@@ -660,6 +664,35 @@ describe("WriterPage generation behavior", () => {
     await generate;
   });
 
+  it("keeps newer idea edits when generation resolves from an older request", async () => {
+    const { WriterPage, createWriterPagePublicDriver } = await loadWriterPage();
+    const generation = createDeferred<GenerateIdeaResponse>();
+    const response = createValidIdeaResponse();
+    const generateIdea = vi.fn<WriterApiClient["generateIdea"]>(
+      () => generation.promise,
+    );
+    const apiClient = createApiClient(generateIdea);
+    const driver = createDriver(createWriterPagePublicDriver, {
+      apiClient,
+      onOpenSettings: vi.fn(),
+      renderPage: WriterPage,
+    });
+    const originalIdea = "Generate from this request-start draft.";
+    const editedIdea = "Keep this newer draft edit visible.";
+
+    driver.updateIdea(originalIdea);
+    const generate = driver.generate();
+    await flushAsyncTasks();
+    driver.updateIdea(editedIdea);
+    generation.resolve(response);
+    const html = await generate;
+
+    expect(generateIdea).toHaveBeenCalledWith({
+      idea: originalIdea,
+    });
+    expectIdeaPreserved(html, editedIdea);
+  });
+
   it("attaches successful scoring results to their generated candidates by candidate id", async () => {
     const { WriterPage, createWriterPagePublicDriver } = await loadWriterPage();
     const response = createValidIdeaResponse();
@@ -876,6 +909,47 @@ describe("WriterPage generation behavior", () => {
     expect(text).not.toContain("Retry score");
   });
 
+  it("retries a full analysis route failure without regenerating candidates", async () => {
+    const { WriterPage, createWriterPagePublicDriver } = await loadWriterPage();
+    const response = createValidIdeaResponse();
+    const analysisError = createApiError({
+      code: "deterministic_analysis_failed",
+      message: "Deterministic scoring is temporarily unavailable.",
+      retryable: true,
+      scope: "writer",
+      status: 503,
+    });
+    const generateIdea = vi.fn<WriterApiClient["generateIdea"]>(async () => response);
+    const analyzePosts = vi
+      .fn<WriterApiClient["analyzePosts"]>()
+      .mockImplementationOnce(async () => throwApiError(analysisError))
+      .mockImplementationOnce(async () => createAnalyzePostsResponse(response));
+    const apiClient = createApiClient(generateIdea, analyzePosts);
+    const driver = createDriver(createWriterPagePublicDriver, {
+      apiClient,
+      onOpenSettings: vi.fn(),
+      renderPage: WriterPage,
+    });
+
+    driver.updateIdea("Route retry should resume deterministic scoring only.");
+    await driver.generate();
+    await flushAsyncTasks();
+    const retryHtml = await driver.retry();
+    const retryText = textContent(retryHtml);
+
+    expect(generateIdea).toHaveBeenCalledOnce();
+    expect(analyzePosts).toHaveBeenCalledTimes(2);
+    expect(analyzePosts).toHaveBeenNthCalledWith(
+      2,
+      expectedAnalyzePostsRequest(response.candidates),
+    );
+    expect(retryText).not.toContain("Route unavailable");
+    expect(retryText).toContain("Deterministic score");
+    for (const candidate of response.candidates) {
+      expect(retryText).toContain(candidate.text);
+    }
+  });
+
   it("retries scoring for an existing candidate without regenerating text", async () => {
     const { WriterPage, createWriterPagePublicDriver } = await loadWriterPage();
     const response = createValidIdeaResponse();
@@ -992,6 +1066,87 @@ describe("WriterPage generation behavior", () => {
     expect(retryText).toContain(miniFramework.text);
     expect(retryText).toContain("Deterministic analysis failed for this candidate.");
     expect(retryText).toContain("Retry score");
+  });
+
+  it("keeps newer edits when follower recompute resolves from an older draft", async () => {
+    const { WriterPage, createWriterPagePublicDriver } = await loadWriterPage();
+    const response = createValidIdeaResponse();
+    const recompute = createDeferred<AnalyzePostsResponse>();
+    const analyzePosts = vi
+      .fn<WriterApiClient["analyzePosts"]>()
+      .mockImplementationOnce(async () => createAnalyzePostsResponse(response))
+      .mockImplementationOnce(() => recompute.promise);
+    const apiClient = createApiClient(vi.fn(async () => response), analyzePosts);
+    const driver = createDriver(createWriterPagePublicDriver, {
+      apiClient,
+      onOpenSettings: vi.fn(),
+      renderPage: WriterPage,
+    });
+
+    driver.updateIdea("Follower recompute should merge into latest state.");
+    await driver.generate();
+    driver.updateFollowers("4200");
+    const applyFollowers = driver.applyFollowers();
+    await flushAsyncTasks();
+    driver.updateFollowers("7777");
+    recompute.resolve(createAnalyzePostsResponse(response));
+    const html = await applyFollowers;
+
+    expect(analyzePosts).toHaveBeenNthCalledWith(
+      2,
+      expectedAnalyzePostsRequest(response.candidates, {
+        followers: 4200,
+      }),
+    );
+    expect(html).toContain('value="7777"');
+  });
+
+  it("keeps newer idea edits when score retry resolves", async () => {
+    const { WriterPage, createWriterPagePublicDriver } = await loadWriterPage();
+    const response = createValidIdeaResponse();
+    const [oneLiner, miniFramework, debateQuestion] = response.candidates;
+    if (
+      oneLiner === undefined ||
+      miniFramework === undefined ||
+      debateQuestion === undefined
+    ) {
+      throw new Error("Expected the writer fixture to include three candidates.");
+    }
+    const retryAnalysis = createDeferred<AnalyzePostsResponse>();
+    const analyzePosts = vi
+      .fn<WriterApiClient["analyzePosts"]>()
+      .mockImplementationOnce(async () => ({
+        items: [
+          scoredAnalysisItem(oneLiner),
+          scoreFailedAnalysisItem(miniFramework),
+          scoredAnalysisItem(debateQuestion),
+        ],
+      }))
+      .mockImplementationOnce(() => retryAnalysis.promise);
+    const apiClient = createApiClient(vi.fn(async () => response), analyzePosts);
+    const driver = createDriver(createWriterPagePublicDriver, {
+      apiClient,
+      onOpenSettings: vi.fn(),
+      renderPage: WriterPage,
+    });
+    const editedIdea = "Keep the user edit while retry scoring completes.";
+
+    driver.updateIdea("Retry scoring should preserve later idea edits.");
+    await driver.generate();
+    const retryScore = driver.retryScore(miniFramework.id);
+    await flushAsyncTasks();
+    driver.updateIdea(editedIdea);
+    retryAnalysis.resolve({
+      items: [scoredAnalysisItem(miniFramework)],
+    });
+    const html = await retryScore;
+
+    expect(analyzePosts).toHaveBeenNthCalledWith(
+      2,
+      expectedAnalyzePostsRequestFor(miniFramework),
+    );
+    expectIdeaPreserved(html, editedIdea);
+    expect(textContent(html)).toContain(miniFramework.text);
   });
 
   it("opens details for a scored candidate with expanded Post Coach analysis", async () => {
@@ -1120,6 +1275,11 @@ describe("WriterPage generation behavior", () => {
     expect(text).toContain("Prediction needs follower count.");
     expect(text).toContain("missing_followers");
     expect(text).toContain("Add followers");
+
+    const focusResult = driver.focusFollowers();
+
+    expect(focusResult.activeTarget).toBe("manual-followers");
+    expect(focusResult.html).toContain('data-focus-target="manual-followers"');
   });
 
   it("retries detail analysis without regenerating candidates", async () => {

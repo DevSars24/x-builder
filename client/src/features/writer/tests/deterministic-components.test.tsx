@@ -27,6 +27,7 @@ type DisabledEngagementPrediction = Extract<
 
 type CandidateDeterministicSummaryProps = {
   item: AnalyzedPostItem;
+  onAddFollowers?: () => void;
   onRetryScore: (itemId: string) => void;
 };
 
@@ -37,6 +38,7 @@ type ManualScoringContextPanelProps = {
     skipped: boolean;
   };
   disabled?: boolean;
+  focusTarget?: string;
 };
 
 type DeterministicDetailInspectorProps =
@@ -67,6 +69,7 @@ type DeterministicComponentsModule = {
     props: DeterministicDetailInspectorProps,
   ) => ReactElement;
   EngagementPredictionCard: (props: {
+    onAddFollowers?: () => void;
     prediction: EngagementPrediction;
   }) => ReactElement;
   ManualScoringContextPanel: (
@@ -459,6 +462,21 @@ describe("EngagementPredictionCard", () => {
     expect(text).not.toContain("120");
     expect(text).not.toContain("280");
   });
+
+  it("offers follower recovery when the missing-followers handler is provided", async () => {
+    const { EngagementPredictionCard } = await loadDeterministicComponents();
+
+    const html = render(
+      <EngagementPredictionCard
+        onAddFollowers={vi.fn()}
+        prediction={missingFollowersPrediction()}
+      />,
+    );
+    const text = textContent(html);
+
+    expect(text).toContain("Prediction needs follower count.");
+    expect(text).toContain("Add followers");
+  });
 });
 
 describe("ManualScoringContextPanel", () => {
@@ -473,12 +491,14 @@ describe("ManualScoringContextPanel", () => {
           skipped: true,
         }}
         disabled
+        focusTarget="manual-followers"
       />,
     );
     const text = textContent(html);
 
     expect(text).toContain("Followers");
     expect(html).toContain('value="2400"');
+    expect(html).toContain('data-focus-target="manual-followers"');
     expect(html).toContain("disabled");
     expect(text).toContain("manual");
     expect(text).toContain("skipped");

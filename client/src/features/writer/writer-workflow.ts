@@ -618,6 +618,21 @@ type PublishModel = (
   update: WriterPageModel | ((current: WriterPageModel) => WriterPageModel),
 ) => void;
 
+function publishLatest(
+  publish: PublishModel,
+  fallbackModel: WriterPageModel,
+  update: (current: WriterPageModel) => WriterPageModel,
+): WriterPageModel {
+  let nextModel = fallbackModel;
+
+  publish((currentModel) => {
+    nextModel = update(currentModel);
+    return nextModel;
+  });
+
+  return nextModel;
+}
+
 type GenerationStart =
   | {
       model: WriterPageModel;
@@ -699,10 +714,11 @@ async function runGenerationFromStart(
   publish(start.model);
 
   const generationResult = await requestGeneration(apiClient, start.payload);
-  let currentModel = applyGenerationResult(start.model, start.payload, generationResult, {
-    analysisPending: start.followerContext.type === "valid",
-  });
-  publish(currentModel);
+  let currentModel = publishLatest(publish, start.model, (latestModel) =>
+    applyGenerationResult(latestModel, start.payload, generationResult, {
+      analysisPending: start.followerContext.type === "valid",
+    }),
+  );
 
   if (generationResult.type === "success" && start.followerContext.type === "valid") {
     const analysisResult = await requestAnalysis(
@@ -710,12 +726,16 @@ async function runGenerationFromStart(
       generationResult.candidates,
       start.followerContext.followers,
     );
-    currentModel = applyAnalysisResult(
+    currentModel = publishLatest(
+      publish,
       currentModel,
-      generationResult.candidates,
-      analysisResult,
+      (latestModel) =>
+        applyAnalysisResult(
+          latestModel,
+          generationResult.candidates,
+          analysisResult,
+        ),
     );
-    publish(currentModel);
   }
 
   return currentModel;
@@ -737,20 +757,19 @@ export async function runRetry(
   return runGenerationFromStart(apiClient, beginRetry(model), publish);
 }
 
-export async function runApplyFollowers(
+async function runAnalysisForCandidates(
   apiClient: WriterApiClient,
   model: WriterPageModel,
+  candidates: GeneratedIdeaCandidate[],
   publish: PublishModel,
 ): Promise<WriterPageModel> {
   const followerContext = parseFollowerDraft(model.followerDraft);
   let currentModel = applyParsedFollowers(model, followerContext);
 
-  if (followerContext.type === "error" || currentModel.candidates.length === 0) {
+  if (followerContext.type === "error" || candidates.length === 0) {
     publish(currentModel);
     return currentModel;
   }
-
-  const { candidates } = currentModel;
 
   currentModel = applyAnalysisLoading(currentModel, candidates);
   publish(currentModel);
@@ -760,10 +779,27 @@ export async function runApplyFollowers(
     candidates,
     followerContext.followers,
   );
-  currentModel = applyAnalysisResult(currentModel, candidates, analysisResult);
-  publish(currentModel);
+  currentModel = publishLatest(publish, currentModel, (latestModel) =>
+    applyAnalysisResult(latestModel, candidates, analysisResult),
+  );
 
   return currentModel;
+}
+
+export async function runRetryAnalysis(
+  apiClient: WriterApiClient,
+  model: WriterPageModel,
+  publish: PublishModel,
+): Promise<WriterPageModel> {
+  return runAnalysisForCandidates(apiClient, model, model.candidates, publish);
+}
+
+export async function runApplyFollowers(
+  apiClient: WriterApiClient,
+  model: WriterPageModel,
+  publish: PublishModel,
+): Promise<WriterPageModel> {
+  return runAnalysisForCandidates(apiClient, model, model.candidates, publish);
 }
 
 export async function runRetryScore(
@@ -778,26 +814,7 @@ export async function runRetryScore(
     return model;
   }
 
-  const followerContext = parseFollowerDraft(model.followerDraft);
-  let currentModel = applyParsedFollowers(model, followerContext);
-
-  if (followerContext.type === "error") {
-    publish(currentModel);
-    return currentModel;
-  }
-
-  currentModel = applyAnalysisLoading(currentModel, [candidate]);
-  publish(currentModel);
-
-  const analysisResult = await requestAnalysis(
-    apiClient,
-    [candidate],
-    followerContext.followers,
-  );
-  currentModel = applyAnalysisResult(currentModel, [candidate], analysisResult);
-  publish(currentModel);
-
-  return currentModel;
+  return runAnalysisForCandidates(apiClient, model, [candidate], publish);
 }
 
 export async function runOpenDetails(
@@ -910,5 +927,12 @@ export function closeDetailsWithEscape(model: WriterPageModel): WriterPageModel 
   return {
     ...closeDetails(model),
     activeFocusTarget: `candidate-details:${model.detail.candidate.id}`,
+  };
+}
+
+export function focusManualFollowers(model: WriterPageModel): WriterPageModel {
+  return {
+    ...model,
+    activeFocusTarget: "manual-followers",
   };
 }

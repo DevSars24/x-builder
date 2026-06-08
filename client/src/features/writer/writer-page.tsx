@@ -20,10 +20,12 @@ import {
   closeDetails,
   closeDetailsWithEscape,
   createInitialModel,
+  focusManualFollowers,
   runApplyFollowers,
   runGenerate,
   runOpenDetails,
   runRetry,
+  runRetryAnalysis,
   runRetryDetails,
   runRetryScore,
   type CandidateAnalysisState,
@@ -50,6 +52,10 @@ export type WriterPagePublicDriver = {
     html: string;
   };
   generate: () => Promise<string>;
+  focusFollowers: () => {
+    activeTarget: string;
+    html: string;
+  };
   openDetails: (itemId: string) => Promise<string>;
   openSettings: () => void;
   render: () => string;
@@ -67,6 +73,7 @@ function candidateLabel(format: GeneratedIdeaCandidate["format"]): string {
 type WriterPageViewProps = WriterPageModel & {
   onApplyFollowers: () => void;
   onCloseDetails: () => void;
+  onFocusFollowers: () => void;
   onFollowersChange: (followers: string) => void;
   onGenerate: () => void;
   onIdeaChange: (idea: string) => void;
@@ -80,11 +87,13 @@ type WriterPageViewProps = WriterPageModel & {
 function CandidateAnalysis({
   candidate,
   onApplyFollowers,
+  onFocusFollowers,
   onRetryScore,
   state,
 }: {
   candidate: GeneratedIdeaCandidate;
   onApplyFollowers: () => void;
+  onFocusFollowers: () => void;
   onRetryScore: (itemId: string) => void;
   state: CandidateAnalysisState;
 }): ReactElement {
@@ -92,6 +101,7 @@ function CandidateAnalysis({
     return (
       <CandidateDeterministicSummary
         item={state.item}
+        onAddFollowers={onFocusFollowers}
         onRetryScore={onRetryScore}
       />
     );
@@ -103,6 +113,7 @@ function CandidateAnalysis({
         <p>{candidate.text}</p>
         <CandidateDeterministicSummary
           item={state.item}
+          onAddFollowers={onFocusFollowers}
           onRetryScore={onRetryScore}
         />
         <p>Prediction needs refresh.</p>
@@ -142,6 +153,7 @@ function WriterPageView({
   isGenerating,
   onApplyFollowers,
   onCloseDetails,
+  onFocusFollowers,
   onFollowersChange,
   onGenerate,
   onIdeaChange,
@@ -209,6 +221,7 @@ function WriterPageView({
         isStale={Object.values(analysisByCandidateId).some(
           (state) => state.status === "stale",
         )}
+        focusTarget="manual-followers"
         onApplyFollowers={onApplyFollowers}
         onFollowersDraftChange={onFollowersChange}
         value={followerDraft}
@@ -241,6 +254,7 @@ function WriterPageView({
                 <CandidateAnalysis
                   candidate={candidate}
                   onApplyFollowers={onApplyFollowers}
+                  onFocusFollowers={onFocusFollowers}
                   onRetryScore={onRetryScore}
                   state={analysisByCandidateId[candidate.id] ?? { status: "idle" }}
                 />
@@ -274,7 +288,7 @@ function WriterPageView({
         ) : (
           <DeterministicDetailInspector
             item={detail.item}
-            onAddFollowers={onApplyFollowers}
+            onAddFollowers={onFocusFollowers}
             onRetryExpandedPostCoach={onRetryDetails}
             state="ready"
           />
@@ -294,6 +308,10 @@ export function WriterPage({
     void runApplyFollowers(apiClient, model, setModel);
   };
 
+  const focusFollowers = () => {
+    setModel((current) => focusManualFollowers(current));
+  };
+
   const closeDetailInspector = () => {
     setModel((current) => closeDetailsWithEscape(current));
   };
@@ -311,6 +329,14 @@ export function WriterPage({
   };
 
   const retry = async () => {
+    if (
+      model.routeError?.code === "deterministic_analysis_failed" &&
+      model.candidates.length > 0
+    ) {
+      await runRetryAnalysis(apiClient, model, setModel);
+      return;
+    }
+
     await runRetry(apiClient, model, setModel);
   };
 
@@ -360,6 +386,7 @@ export function WriterPage({
       {...model}
       onApplyFollowers={applyFollowers}
       onCloseDetails={closeDetailInspector}
+      onFocusFollowers={focusFollowers}
       onFollowersChange={updateFollowers}
       onGenerate={generate}
       onIdeaChange={updateIdea}
@@ -381,6 +408,7 @@ function renderDriverPage(
       {...model}
       onApplyFollowers={() => undefined}
       onCloseDetails={() => undefined}
+      onFocusFollowers={() => undefined}
       onFollowersChange={() => undefined}
       onGenerate={() => undefined}
       onIdeaChange={() => undefined}
@@ -426,6 +454,14 @@ export function createWriterPagePublicDriver(
       await runGenerate(options.apiClient, model, publishModel);
       return render();
     },
+    focusFollowers: () => {
+      model = focusManualFollowers(model);
+
+      return {
+        activeTarget: model.activeFocusTarget ?? "",
+        html: render(),
+      };
+    },
     openDetails: async (itemId: string) => {
       await runOpenDetails(options.apiClient, model, itemId, publishModel);
       return render();
@@ -435,7 +471,14 @@ export function createWriterPagePublicDriver(
     },
     render,
     retry: async () => {
-      await runRetry(options.apiClient, model, publishModel);
+      if (
+        model.routeError?.code === "deterministic_analysis_failed" &&
+        model.candidates.length > 0
+      ) {
+        await runRetryAnalysis(options.apiClient, model, publishModel);
+      } else {
+        await runRetry(options.apiClient, model, publishModel);
+      }
       return render();
     },
     retryDetails: async () => {

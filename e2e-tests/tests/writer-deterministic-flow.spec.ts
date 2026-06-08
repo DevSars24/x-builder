@@ -443,6 +443,53 @@ test("writer generates and scores candidates with deterministic Post Coach detai
   expect(pageText).not.toMatch(/live trend/i);
 });
 
+test("writer missing-followers recovery focuses the manual context panel", async ({
+  page,
+}) => {
+  const captured: CapturedRequests = {
+    analyze: [],
+    generate: [],
+  };
+  const idea = "Show deterministic scoring without follower context.";
+
+  await stubEngine(page, captured, {
+    analyze: async (route, body) => {
+      await fulfillJson(route, 200, {
+        items: body.items.map((item, index) => {
+          const candidate = candidates.find((entry) => entry.id === item.id);
+
+          if (candidate === undefined) {
+            throw new Error(`Unexpected candidate id ${item.id}.`);
+          }
+
+          return {
+            ...scoredCandidate(candidate, body.presentation.postCoachMode, index + 1),
+            prediction: {
+              status: "disabled",
+              reason: "missing_followers",
+              message: "Prediction needs follower count.",
+            },
+          };
+        }),
+      });
+    },
+  });
+  await page.goto("/writer");
+
+  const followersInput = page.getByRole("spinbutton", { name: "Followers" });
+  await page.getByRole("textbox", { name: "Idea" }).fill(idea);
+  await page.getByRole("button", { name: "Generate" }).click();
+
+  await expect.poll(() => captured.generate.length).toBe(1);
+  await expect.poll(() => captured.analyze.length).toBe(1);
+
+  const firstCandidate = page.locator("article", { hasText: candidates[0].text });
+  await expect(firstCandidate.getByText("Prediction needs follower count.")).toBeVisible();
+  await firstCandidate.getByRole("button", { name: "Add followers" }).click();
+
+  await expect(followersInput).toBeFocused();
+});
+
 test("writer retries deterministic scoring without regenerating candidates", async ({
   page,
 }) => {
@@ -546,7 +593,22 @@ test("writer keeps candidates visible when deterministic analysis route fails", 
   const idea = "Keep generated drafts on screen when scoring cannot reach the route.";
 
   await stubEngine(page, captured, {
-    analyze: async (route) => {
+    analyze: async (route, body, requestCount) => {
+      if (requestCount > 1) {
+        await fulfillJson(route, 200, {
+          items: body.items.map((item, index) => {
+            const candidate = candidates.find((entry) => entry.id === item.id);
+
+            if (candidate === undefined) {
+              throw new Error(`Unexpected candidate id ${item.id}.`);
+            }
+
+            return scoredCandidate(candidate, body.presentation.postCoachMode, index + 1);
+          }),
+        });
+        return;
+      }
+
       await fulfillJson(
         route,
         503,
@@ -575,7 +637,24 @@ test("writer keeps candidates visible when deterministic analysis route fails", 
   await expect(
     recovery.getByText("Deterministic scoring is temporarily unavailable."),
   ).toBeVisible();
-  await expect(recovery.getByRole("button", { name: "Retry" })).toBeVisible();
+  await recovery.getByRole("button", { name: "Retry" }).click();
+
+  await expect.poll(() => captured.generate.length).toBe(1);
+  await expect.poll(() => captured.analyze.length).toBe(2);
+  expect(captured.analyze[1]).toEqual({
+    items: candidates.map((candidate) => ({
+      id: candidate.id,
+      sourceFormat: candidate.format,
+      text: candidate.text,
+    })),
+    presentation: {
+      postCoachMode: "preview",
+    },
+    scoringContext: {},
+  });
+  await expect(
+    results.getByRole("progressbar", { name: "Deterministic score" }).first(),
+  ).toHaveAttribute("aria-valuenow", "77");
 });
 
 test("writer generation retry still calls the generation route again", async ({

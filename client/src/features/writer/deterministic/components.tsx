@@ -27,6 +27,7 @@ type ScoreFailedAnalyzedPostItem = Extract<
 
 export type CandidateDeterministicSummaryProps = {
   item: AnalyzedPostItem;
+  onAddFollowers?: () => void;
   onRetryScore: (itemId: string) => void;
 };
 
@@ -39,6 +40,7 @@ export type ManualScoringContextPanelProps = {
   applyLabel?: string;
   disabled?: boolean;
   error?: string | null;
+  focusTarget?: string;
   isStale?: boolean;
   onApplyFollowers?: () => void;
   onFollowersDraftChange?: (followers: string) => void;
@@ -119,14 +121,31 @@ function Card({
 }
 
 export function EngagementPredictionCard({
+  onAddFollowers,
   prediction,
 }: {
+  onAddFollowers?: () => void;
   prediction: EngagementPrediction;
 }): ReactElement {
+  const showFollowersRecovery =
+    prediction.status === "disabled" &&
+    prediction.reason === "missing_followers" &&
+    onAddFollowers !== undefined;
+
   if (prediction.status === "disabled") {
     return (
       <Card title="Engagement Prediction">
-        <Alert variant="warning" title="Prediction unavailable">
+        <Alert
+          recovery={
+            showFollowersRecovery ? (
+              <Button onClick={onAddFollowers} type="button" variant="secondary">
+                Add followers
+              </Button>
+            ) : null
+          }
+          variant="warning"
+          title="Prediction unavailable"
+        >
           {prediction.message}
         </Alert>
         <KeyValueList
@@ -251,6 +270,7 @@ export function PostCoachCard({
 
 export function CandidateDeterministicSummary({
   item,
+  onAddFollowers,
   onRetryScore,
 }: CandidateDeterministicSummaryProps): ReactElement {
   if (item.status === "score_failed") {
@@ -314,7 +334,10 @@ export function CandidateDeterministicSummary({
         helpText={item.heuristicLabel}
       />
       <PostCoachCard postCoach={item.postCoach} />
-      <EngagementPredictionCard prediction={item.prediction} />
+      <EngagementPredictionCard
+        onAddFollowers={onAddFollowers}
+        prediction={item.prediction}
+      />
     </article>
   );
 }
@@ -324,6 +347,7 @@ export function ManualScoringContextPanel({
   context,
   disabled = false,
   error,
+  focusTarget,
   isStale = false,
   onApplyFollowers,
   onFollowersDraftChange,
@@ -349,6 +373,7 @@ export function ManualScoringContextPanel({
         onChange={handleFollowersChange}
         readOnly={onFollowersChange === undefined && onFollowersDraftChange === undefined}
         type="number"
+        data-focus-target={focusTarget}
         value={value ?? context.followers ?? ""}
       />
       {isStale ? (
