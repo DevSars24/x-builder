@@ -26,11 +26,12 @@ import { z } from "zod";
 
 import { DeterministicAnalysisService } from "../deterministic/deterministic-analysis-service.js";
 import { CodexReadinessProbe } from "../llm/codex-readiness-probe.js";
-import { NodeProcessRunner } from "../llm/process-runner.js";
+import { NodeProcessRunner, type ProcessRunner } from "../llm/process-runner.js";
 import {
   JsonFileAppSettingsRepository,
   type AppSettingsRepository,
 } from "./settings-repository.js";
+import { resolveWorkspaceRoot } from "./workspace-root.js";
 
 export type AnalyzePosts = (request: AnalyzePostsRequest) => Promise<AnalyzePostsResponse> | AnalyzePostsResponse;
 
@@ -48,6 +49,11 @@ export type ReadinessDependencies = {
 
 export type ReadinessService = {
   getStatus: () => Promise<AppStatus> | AppStatus;
+};
+
+export type DefaultReadinessDependenciesOptions = {
+  codexRunner?: ProcessRunner;
+  startupCwd?: string;
 };
 
 export interface BuildServerOptions {
@@ -216,37 +222,55 @@ const failedProbeStatus = (label: string): SubsystemStatus =>
     retryable: true,
   });
 
-const defaultReadinessDependencies: ReadinessDependencies = {
-  deterministic: {
-    check: () =>
-      subsystem("ready", "Deterministic scorer", {
-        retryable: false,
-        details: {
-          mode: "in-process",
-        },
-      }),
-  },
-  codex: {
-    check: () =>
-      new CodexReadinessProbe({
-        runner: new NodeProcessRunner(),
-        workspaceRoot: process.cwd(),
-        executionTimeoutMs: readinessTimeoutMsDefault,
-      }).check(),
-  },
-  storage: {
-    check: async () => {
-      await access(process.cwd(), constants.W_OK);
-
-      return subsystem("ready", "Storage", {
-        retryable: true,
-        details: {
-          boundary: "working-directory",
-        },
-      });
+const unresolvedWorkspaceRootStatus = (): SubsystemStatus =>
+  subsystem("unavailable", "Codex judge", {
+    message: "Workspace root could not be resolved.",
+    retryable: true,
+    details: {
+      reason: "workspace_root_unresolved",
     },
-  },
-};
+  });
+
+export function createDefaultReadinessDependencies(
+  options: DefaultReadinessDependenciesOptions = {},
+): ReadinessDependencies {
+  const startupCwd = options.startupCwd ?? process.cwd();
+  const workspaceRoot = resolveWorkspaceRoot(startupCwd);
+  const codexProbe = workspaceRoot
+    ? new CodexReadinessProbe({
+        runner: options.codexRunner ?? new NodeProcessRunner(),
+        workspaceRoot,
+        executionTimeoutMs: readinessTimeoutMsDefault,
+      })
+    : null;
+
+  return {
+    deterministic: {
+      check: () =>
+        subsystem("ready", "Deterministic scorer", {
+          retryable: false,
+          details: {
+            mode: "in-process",
+          },
+        }),
+    },
+    codex: {
+      check: () => (codexProbe ? codexProbe.check() : unresolvedWorkspaceRootStatus()),
+    },
+    storage: {
+      check: async () => {
+        await access(process.cwd(), constants.W_OK);
+
+        return subsystem("ready", "Storage", {
+          retryable: true,
+          details: {
+            boundary: "working-directory",
+          },
+        });
+      },
+    },
+  };
+}
 
 const probeLabels: Record<keyof ReadinessDependencies, string> = {
   deterministic: "Deterministic scorer",
@@ -285,7 +309,7 @@ const withTimeout = async <T>(operation: Promise<T>, timeoutMs: number, timeoutV
 
 class DefaultReadinessService implements ReadinessService {
   constructor(
-    private readonly dependencies: ReadinessDependencies = defaultReadinessDependencies,
+    private readonly dependencies: ReadinessDependencies = createDefaultReadinessDependencies(),
     private readonly timeoutMs = readinessTimeoutMsDefault,
   ) {}
 
@@ -374,7 +398,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   const readinessService =
     options.readinessService ??
     new DefaultReadinessService(
-      options.readinessDependencies,
+      options.readinessDependencies ?? createDefaultReadinessDependencies(),
       options.readinessTimeoutMs ?? readinessTimeoutMsDefault,
     );
 

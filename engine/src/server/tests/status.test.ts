@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   apiErrorSchema,
@@ -14,7 +17,7 @@ import type {
   ProcessRunOptions,
   ProcessRunResult,
 } from "../../llm/process-runner";
-import { buildServer } from "../server";
+import { buildServer, createDefaultReadinessDependencies } from "../server";
 
 type ReadinessProbe = {
   check: () => Promise<SubsystemStatus> | SubsystemStatus;
@@ -185,6 +188,19 @@ const settingsRepository = (settings: AppSettings): AppSettingsRepositoryFake =>
     updatedAt: now,
   })),
 });
+
+async function withTempDirectory<T>(callback: (root: string) => Promise<T>): Promise<T> {
+  const root = await mkdtemp(join(tmpdir(), "x-builder-status-"));
+
+  try {
+    return await callback(root);
+  } finally {
+    await rm(root, {
+      recursive: true,
+      force: true,
+    });
+  }
+}
 
 const readinessDependencies = (
   overrides: Partial<ReadinessDependencies> = {},
@@ -547,6 +563,83 @@ describe("engine status readiness", () => {
       vi.useRealTimers();
       await app.close();
     }
+  });
+
+  it("uses the startup-resolved workspace root for default Codex readiness", async () => {
+    await withTempDirectory(async (root) => {
+      const workspaceRoot = join(root, "workspace");
+      const nestedStartupCwd = join(workspaceRoot, "engine", "src");
+      const liveCwd = join(root, "live-cwd");
+      const originalCwd = process.cwd();
+      const runner = fakeProcessRunner(() => successfulProcessResult("codex-cli 0.42.0\n"));
+
+      await mkdir(join(workspaceRoot, ".git"), { recursive: true });
+      await mkdir(nestedStartupCwd, { recursive: true });
+      await mkdir(liveCwd, { recursive: true });
+
+      const dependencies = createDefaultReadinessDependencies({
+        codexRunner: runner,
+        startupCwd: nestedStartupCwd,
+      });
+      const app = buildServerWithReadinessDependencies(dependencies);
+
+      try {
+        process.chdir(liveCwd);
+
+        const response = await app.inject({
+          method: "GET",
+          url: "/status",
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(runner.run).toHaveBeenCalledOnce();
+        const [call] = runner.calls;
+
+        expect(call?.options.cwd).toBe(workspaceRoot);
+        expect(call?.options.cwd).not.toBe(liveCwd);
+        const status = appStatusSchema.parse(parseJsonPayload(response.body));
+
+        expect(status.codex.state).toBe("ready");
+      } finally {
+        process.chdir(originalCwd);
+        await app.close();
+      }
+    });
+  });
+
+  it("reports Codex unavailable without running a probe when no startup workspace root resolves", async () => {
+    await withTempDirectory(async (root) => {
+      const nestedStartupCwd = join(root, "not-a-repo", "engine", "src");
+      const runner = fakeProcessRunner(() => successfulProcessResult("codex-cli 0.42.0\n"));
+
+      await mkdir(nestedStartupCwd, { recursive: true });
+
+      const dependencies = createDefaultReadinessDependencies({
+        codexRunner: runner,
+        startupCwd: nestedStartupCwd,
+      });
+      const app = buildServerWithReadinessDependencies(dependencies);
+
+      try {
+        const response = await app.inject({
+          method: "GET",
+          url: "/status",
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(runner.run).not.toHaveBeenCalled();
+        const status = appStatusSchema.parse(parseJsonPayload(response.body));
+
+        expect(status.overall).toBe("partial");
+        expect(status.codex.state).toBe("unavailable");
+        expect(status.codex.message).toBe("Workspace root could not be resolved.");
+        expect(status.codex.details).toEqual({
+          reason: "workspace_root_unresolved",
+        });
+      } finally {
+        await app.close();
+      }
+    });
   });
 
   it("keeps Codex readiness independent from stored judge settings", async () => {

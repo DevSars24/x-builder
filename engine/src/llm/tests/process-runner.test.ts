@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
@@ -200,13 +200,13 @@ describe("node process runner", () => {
           marker: string;
           argv: string[];
         };
+        const runtimeRootRealPath = await realpath(runtimeRoot);
+        const payloadCwdRealPath = await realpath(payload.cwd);
 
         expect(result.status).toBe("success");
-        expect(payload).toEqual({
-          cwd: runtimeRoot,
-          marker: "from-runtime-root",
-          argv: [requestSuppliedCwd],
-        });
+        expect(payloadCwdRealPath).toBe(runtimeRootRealPath);
+        expect(payload.marker).toBe("from-runtime-root");
+        expect(payload.argv).toEqual([requestSuppliedCwd]);
       } finally {
         await rm(requestSuppliedCwd, {
           recursive: true,
