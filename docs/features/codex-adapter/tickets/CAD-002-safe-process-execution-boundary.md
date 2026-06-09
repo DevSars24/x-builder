@@ -60,6 +60,7 @@ Create a safe local process execution boundary that Codex CLI can use without sh
 - Timeout must terminate the process and return a timeout-shaped result.
 - stdout and stderr must be capped independently.
 - Oversized output must terminate the process and return an `output_too_large`-compatible result.
+- Timeout and output-cap termination must not rely on cooperative child shutdown. If a child ignores `SIGTERM`, the runner must escalate termination, such as with `SIGKILL` after a short grace period, and settle the request within a bounded time.
 - Non-zero exit must return exit code, signal, duration, and bounded output metadata.
 - The runner must not redact on its own by guessing. It should return bounded process data to the provider, and the provider decides what is safe to expose.
 
@@ -79,14 +80,16 @@ Create a safe local process execution boundary that Codex CLI can use without sh
 - Given a process exits with code `0`, then stdout, stderr, exit code, signal, duration, and byte counts are returned.
 - Given a process exits non-zero, then the runner returns non-zero metadata without throwing for normal exit failure.
 - Given a process exceeds timeout, then it is terminated and returns a timeout result.
+- Given a process ignores timeout termination, then the runner escalates termination and still returns a timeout result within a bounded time.
 - Given stdout exceeds its byte cap, then the process is terminated and returns an output-too-large result.
 - Given stderr exceeds its byte cap, then the process is terminated and returns an output-too-large result.
+- Given a process ignores output-cap termination, then the runner escalates termination and still returns an output-too-large result within a bounded time.
 - Given an impossible command, then the runner returns a process-start failure shape without leaking stack traces.
 
 ## Test Strategy
 
 - Suite: engine Vitest unit tests.
-- Fixture strategy: tiny local Node fixtures or test-owned child commands that print, sleep, and exit with controlled codes.
+- Fixture strategy: tiny local Node fixtures or test-owned child commands that print, sleep, exit with controlled codes, and deliberately ignore `SIGTERM` for termination-hardening coverage.
 - Dependency category: local-substitutable process fixtures.
 - Isolation: no Codex CLI, no network, no shell-specific behavior required.
 
