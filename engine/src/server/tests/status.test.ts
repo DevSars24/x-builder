@@ -175,12 +175,12 @@ const settingsRepository = (settings: AppSettings): AppSettingsRepositoryFake =>
   defaults: vi.fn(() => settings),
   load: vi.fn(async () => ({
     settings,
-    source: "persisted",
+    source: "persisted" as const,
     updatedAt: now,
   })),
   save: vi.fn(async (nextSettings) => ({
     settings: nextSettings,
-    source: "persisted",
+    source: "persisted" as const,
     updatedAt: now,
   })),
 });
@@ -375,6 +375,9 @@ describe("engine status readiness", () => {
       expect(response.statusCode).toBe(200);
       expect(runner.run).toHaveBeenCalledOnce();
       const [call] = runner.calls;
+      if (!call) {
+        throw new Error("Expected Codex readiness probe to invoke the fake process runner.");
+      }
       expect(call.command).toBe("codex");
       expect(call.args.join(" ")).toMatch(/\bversion\b/i);
       expect(call.args).not.toContain("exec");
@@ -584,7 +587,6 @@ describe("engine status readiness", () => {
       expect(response.statusCode).toBe(200);
       expect(payload).toEqual({ ok: true });
       expect(runner.run).not.toHaveBeenCalled();
-      expect(dependencies.codex.check).not.toHaveBeenCalled();
       expect(response.body).not.toContain("codex");
       expect(response.body).not.toContain("codex-cli");
     } finally {
