@@ -96,6 +96,8 @@ class BoundedOutput {
 }
 
 const elapsedMs = (startedAt: number): number => Math.max(0, Date.now() - startedAt);
+const terminationGraceMs = 100;
+const forcedSettlementGraceMs = 500;
 
 const logicalCwdOutputNormalizer = (cwd: string): ((value: string) => string) => {
   if (process.platform !== "darwin" || !cwd.startsWith("/var/")) {
@@ -202,23 +204,51 @@ const nonzeroExitFailure = (exitCode: number | null, signal: NodeJS.Signals | nu
   },
 });
 
-export class NodeProcessRunner implements ProcessRunner {
-  async run(command: string, args: readonly string[], options: ProcessRunOptions): Promise<ProcessRunResult> {
-    const startedAt = Date.now();
-    const normalizeOutputText = logicalCwdOutputNormalizer(options.cwd);
-    const stdout = new BoundedOutput(options.maxStdoutBytes, normalizeOutputText);
-    const stderr = new BoundedOutput(options.maxStderrBytes, normalizeOutputText);
-    let child: ChildProcessWithoutNullStreams;
+type ProcessOutput = {
+  stdout: BoundedOutput;
+  stderr: BoundedOutput;
+};
 
-    try {
-      child = spawn(command, [...args], {
+type SpawnProcessResult =
+  | {
+      status: "started";
+      child: ChildProcessWithoutNullStreams;
+    }
+  | {
+      status: "failed";
+      result: ProcessRunResult;
+    };
+
+const createProcessOutput = (options: ProcessRunOptions): ProcessOutput => {
+  const normalizeOutputText = logicalCwdOutputNormalizer(options.cwd);
+
+  return {
+    stdout: new BoundedOutput(options.maxStdoutBytes, normalizeOutputText),
+    stderr: new BoundedOutput(options.maxStderrBytes, normalizeOutputText),
+  };
+};
+
+const spawnProcess = (
+  command: string,
+  args: readonly string[],
+  options: ProcessRunOptions,
+  output: ProcessOutput,
+  startedAt: number,
+): SpawnProcessResult => {
+  try {
+    return {
+      status: "started",
+      child: spawn(command, [...args], {
         cwd: options.cwd,
         env: buildChildEnv(options),
         shell: false,
         stdio: "pipe",
-      });
-    } catch (error) {
-      return failureResult(
+      }),
+    };
+  } catch (error) {
+    return {
+      status: "failed",
+      result: failureResult(
         {
           code: "process_failed",
           retryable: false,
@@ -226,93 +256,227 @@ export class NodeProcessRunner implements ProcessRunner {
           details: processFailedDetails(error as NodeJS.ErrnoException),
         },
         startedAt,
-        stdout,
-        stderr,
+        output.stdout,
+        output.stderr,
         null,
         null,
+      ),
+    };
+  }
+};
+
+class ProcessTerminator {
+  private terminationRequested = false;
+  private sigkillTimer: ReturnType<typeof setTimeout> | undefined;
+  private forcedSettleTimer: ReturnType<typeof setTimeout> | undefined;
+
+  constructor(
+    private readonly child: ChildProcessWithoutNullStreams,
+    private readonly forceSettle: () => void,
+  ) {}
+
+  request(): void {
+    if (this.terminationRequested) {
+      return;
+    }
+
+    this.terminationRequested = true;
+    this.child.kill("SIGTERM");
+    this.sigkillTimer = setTimeout(this.escalate, terminationGraceMs);
+  }
+
+  cleanup(): void {
+    if (this.sigkillTimer) {
+      clearTimeout(this.sigkillTimer);
+    }
+
+    if (this.forcedSettleTimer) {
+      clearTimeout(this.forcedSettleTimer);
+    }
+  }
+
+  private readonly escalate = (): void => {
+    this.child.kill("SIGKILL");
+    this.forcedSettleTimer ??= setTimeout(this.forceSettle, forcedSettlementGraceMs);
+  };
+}
+
+class ProcessLifecycle {
+  private pendingFailure: PendingFailure | undefined;
+  private exitCode: number | null = null;
+  private signal: NodeJS.Signals | null = null;
+  private settled = false;
+  private outputCaptureStopped = false;
+  private readonly timeout: ReturnType<typeof setTimeout>;
+  private readonly terminator: ProcessTerminator;
+
+  constructor(
+    private readonly child: ChildProcessWithoutNullStreams,
+    private readonly options: ProcessRunOptions,
+    private readonly output: ProcessOutput,
+    private readonly startedAt: number,
+    private readonly resolve: (result: ProcessRunResult) => void,
+  ) {
+    this.terminator = new ProcessTerminator(this.child, this.forceSettle);
+    this.timeout = setTimeout(() => {
+      this.terminate({
+        code: "request_timeout",
+        retryable: true,
+        message: "Process exceeded its timeout.",
+        timedOut: true,
+      });
+    }, this.options.timeoutMs);
+  }
+
+  start(): void {
+    this.child.stdout.on("data", this.handleStdout);
+    this.child.stderr.on("data", this.handleStderr);
+    this.child.on("error", this.handleError);
+    this.child.on("exit", this.handleExit);
+    this.child.on("close", this.handleClose);
+  }
+
+  private readonly handleStdout = (chunk: Buffer): void => {
+    this.captureOutput("stdout", chunk);
+  };
+
+  private readonly handleStderr = (chunk: Buffer): void => {
+    this.captureOutput("stderr", chunk);
+  };
+
+  private captureOutput(stream: OutputStreamName, chunk: Buffer): void {
+    if (this.settled || this.outputCaptureStopped) {
+      return;
+    }
+
+    const output = this.output[stream];
+    const maxBytes = stream === "stdout" ? this.options.maxStdoutBytes : this.options.maxStderrBytes;
+
+    if (output.append(chunk)) {
+      this.terminate({
+        code: "output_too_large",
+        retryable: false,
+        message: `Process ${stream} exceeded its byte limit.`,
+        stream,
+        details: {
+          maxBytes,
+        },
+      });
+    }
+  }
+
+  private terminate(failure: PendingFailure): void {
+    this.pendingFailure ??= failure;
+    this.stopOutputCapture();
+    this.terminator.request();
+  }
+
+  private stopOutputCapture(): void {
+    if (this.outputCaptureStopped) {
+      return;
+    }
+
+    this.outputCaptureStopped = true;
+    this.child.stdout.off("data", this.handleStdout);
+    this.child.stderr.off("data", this.handleStderr);
+    this.child.stdout.pause();
+    this.child.stderr.pause();
+  }
+
+  private readonly handleError = (error: NodeJS.ErrnoException): void => {
+    this.pendingFailure ??= {
+      code: "process_failed",
+      retryable: false,
+      message: "Process failed to start.",
+      details: processFailedDetails(error),
+    };
+    this.settle();
+  };
+
+  private readonly handleExit = (code: number | null, childSignal: NodeJS.Signals | null): void => {
+    this.exitCode = code;
+    this.signal = childSignal;
+  };
+
+  private readonly handleClose = (code: number | null, childSignal: NodeJS.Signals | null): void => {
+    this.exitCode = code;
+    this.signal = childSignal;
+    this.settle();
+  };
+
+  private readonly forceSettle = (): void => {
+    this.settle();
+  };
+
+  private settle(): void {
+    if (this.settled) {
+      return;
+    }
+
+    this.settled = true;
+    this.cleanup();
+    this.resolve(this.result());
+  }
+
+  private result(): ProcessRunResult {
+    if (this.pendingFailure) {
+      const metadata = failureExitMetadata(this.pendingFailure, this.exitCode, this.signal);
+
+      return failureResult(
+        this.pendingFailure,
+        this.startedAt,
+        this.output.stdout,
+        this.output.stderr,
+        metadata.exitCode,
+        metadata.signal,
       );
     }
 
-    return await new Promise<ProcessRunResult>((resolve) => {
-      let pendingFailure: PendingFailure | undefined;
-      let exitCode: number | null = null;
-      let signal: NodeJS.Signals | null = null;
-      let settled = false;
+    if (this.exitCode === 0) {
+      return successResult(this.startedAt, this.output.stdout, this.output.stderr, this.exitCode, this.signal);
+    }
 
-      const timeout = setTimeout(() => {
-        pendingFailure ??= {
-          code: "request_timeout",
-          retryable: true,
-          message: "Process exceeded its timeout.",
-          timedOut: true,
-        };
-        child.kill("SIGTERM");
-      }, options.timeoutMs);
+    return failureResult(
+      nonzeroExitFailure(this.exitCode, this.signal),
+      this.startedAt,
+      this.output.stdout,
+      this.output.stderr,
+      this.exitCode,
+      this.signal,
+    );
+  }
 
-      const settle = (): void => {
-        if (settled) {
-          return;
-        }
+  private cleanup(): void {
+    clearTimeout(this.timeout);
+    this.terminator.cleanup();
 
-        settled = true;
-        clearTimeout(timeout);
+    this.child.off("error", this.handleError);
+    this.child.off("exit", this.handleExit);
+    this.child.off("close", this.handleClose);
+    this.stopOutputCapture();
+  }
+}
 
-        if (pendingFailure) {
-          const metadata = failureExitMetadata(pendingFailure, exitCode, signal);
+const waitForProcessResult = (
+  child: ChildProcessWithoutNullStreams,
+  options: ProcessRunOptions,
+  output: ProcessOutput,
+  startedAt: number,
+): Promise<ProcessRunResult> =>
+  new Promise((resolve) => {
+    new ProcessLifecycle(child, options, output, startedAt, resolve).start();
+  });
 
-          resolve(failureResult(pendingFailure, startedAt, stdout, stderr, metadata.exitCode, metadata.signal));
-          return;
-        }
+export class NodeProcessRunner implements ProcessRunner {
+  async run(command: string, args: readonly string[], options: ProcessRunOptions): Promise<ProcessRunResult> {
+    const startedAt = Date.now();
+    const output = createProcessOutput(options);
+    const process = spawnProcess(command, args, options, output, startedAt);
 
-        if (exitCode === 0) {
-          resolve(successResult(startedAt, stdout, stderr, exitCode, signal));
-          return;
-        }
+    if (process.status === "failed") {
+      return process.result;
+    }
 
-        resolve(failureResult(nonzeroExitFailure(exitCode, signal), startedAt, stdout, stderr, exitCode, signal));
-      };
-
-      const terminateForOutputCap = (stream: OutputStreamName): void => {
-        pendingFailure ??= {
-          code: "output_too_large",
-          retryable: false,
-          message: `Process ${stream} exceeded its byte limit.`,
-          stream,
-        };
-        child.kill("SIGTERM");
-      };
-
-      child.stdout.on("data", (chunk: Buffer) => {
-        if (stdout.append(chunk)) {
-          terminateForOutputCap("stdout");
-        }
-      });
-
-      child.stderr.on("data", (chunk: Buffer) => {
-        if (stderr.append(chunk)) {
-          terminateForOutputCap("stderr");
-        }
-      });
-
-      child.on("error", (error: NodeJS.ErrnoException) => {
-        pendingFailure ??= {
-          code: "process_failed",
-          retryable: false,
-          message: "Process failed to start.",
-          details: processFailedDetails(error),
-        };
-      });
-
-      child.on("exit", (code, childSignal) => {
-        exitCode = code;
-        signal = childSignal;
-      });
-
-      child.on("close", (code, childSignal) => {
-        exitCode = code;
-        signal = childSignal;
-        settle();
-      });
-    });
+    return await waitForProcessResult(process.child, options, output, startedAt);
   }
 }
