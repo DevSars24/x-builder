@@ -24,11 +24,25 @@ type ScoreFailedAnalyzedPostItem = Extract<
   AnalyzedPostItem,
   { status: "score_failed" }
 >;
+type ReadyPostCoachViewModel = Extract<PostCoachViewModel, { state: "ready" }>;
+const postCoachDisplayTitle = "Draft Review";
 
 export type CandidateDeterministicSummaryProps = {
   item: AnalyzedPostItem;
   onAddFollowers?: () => void;
   onRetryScore: (itemId: string) => void;
+};
+
+export type DraftDeterministicEvaluationProps = {
+  item: AnalyzedPostItem;
+  onAddFollowers?: () => void;
+  onRetryScore: (itemId: string) => void;
+};
+
+export type DraftEvaluationEmptyStateProps = {
+  hasDraft: boolean;
+  hasFollowers: boolean;
+  onAddFollowers?: () => void;
 };
 
 export type ManualScoringContextPanelProps = {
@@ -121,6 +135,58 @@ function Card({
   );
 }
 
+function predictionSummary(prediction: EngagementPrediction): {
+  label: string;
+  tone: "info" | "warning";
+} {
+  if (prediction.status === "available") {
+    return {
+      label: `${prediction.rangeLow} - ${prediction.rangeHigh} impressions, ${prediction.confidence}`,
+      tone: "info",
+    };
+  }
+
+  if (prediction.reason === "missing_followers") {
+    return {
+      label: "Prediction needs follower count.",
+      tone: "warning",
+    };
+  }
+
+  return {
+    label: prediction.message,
+    tone: "warning",
+  };
+}
+
+function summaryChecks(postCoach: PostCoachViewModel) {
+  if (postCoach.state !== "ready") {
+    return [];
+  }
+
+  return [...postCoach.failed, ...postCoach.warned].slice(0, 2);
+}
+
+function compactCheckGroups(postCoach: ReadyPostCoachViewModel) {
+  return [
+    {
+      defaultOpen: true,
+      title: "Flagged",
+      items: postCoach.failed,
+    },
+    {
+      defaultOpen: true,
+      title: "Nudges",
+      items: postCoach.warned,
+    },
+    {
+      defaultOpen: false,
+      title: "On point",
+      items: postCoach.passed,
+    },
+  ].filter((group) => group.items.length > 0);
+}
+
 export function EngagementPredictionCard({
   onAddFollowers,
   prediction,
@@ -149,14 +215,6 @@ export function EngagementPredictionCard({
         >
           {prediction.message}
         </Alert>
-        <KeyValueList
-          items={[
-            {
-              label: "Reason",
-              value: prediction.reason,
-            },
-          ]}
-        />
       </Card>
     );
   }
@@ -192,26 +250,36 @@ export function EngagementPredictionCard({
 }
 
 export function PostCoachCard({
+  density = "full",
   postCoach,
 }: {
+  density?: "compact" | "full";
   postCoach: PostCoachViewModel;
 }): ReactElement {
   if (postCoach.state === "empty") {
     return (
-      <EmptyState title={postCoach.title}>
+      <EmptyState title={postCoachDisplayTitle}>
         <p>{postCoach.message}</p>
       </EmptyState>
     );
   }
 
+  const isCompact = density === "compact";
+  const sections = postCoach.sections;
+  const checkGroups = compactCheckGroups(postCoach);
+
   return (
-    <Card title={postCoach.title}>
+    <section
+      aria-label={postCoachDisplayTitle}
+      className={`xb-deterministic-card xb-post-coach-card xb-post-coach-card--${density}`}
+    >
+      <h3 className="xb-deterministic-card__title">{postCoachDisplayTitle}</h3>
       <div className="xb-post-coach-card__summary">
         <ScoreBar
-          label={postCoach.title}
+          label={postCoachDisplayTitle}
           value={postCoach.value}
           bandLabel={postCoach.badge.label}
-          helpText={postCoach.helperText}
+          helpText={isCompact ? undefined : postCoach.helperText}
         />
         <Tooltip label={postCoach.badge.tooltip}>
           <Badge variant={coachBadgeVariant(postCoach.badge.tone)}>
@@ -219,30 +287,57 @@ export function PostCoachCard({
           </Badge>
         </Tooltip>
       </div>
-      <KeyValueList
-        items={[
-          {
-            label: "Flagged",
-            value: postCoach.counts.flagged,
-          },
-          {
-            label: "Nudges",
-            value: postCoach.counts.nudges,
-          },
-          {
-            label: "On point",
-            value: postCoach.counts.onPoint,
-          },
-        ]}
-      />
+      {isCompact ? null : (
+        <KeyValueList
+          items={[
+            {
+              label: "Flagged",
+              value: postCoach.counts.flagged,
+            },
+            {
+              label: "Nudges",
+              value: postCoach.counts.nudges,
+            },
+            {
+              label: "On point",
+              value: postCoach.counts.onPoint,
+            },
+          ]}
+        />
+      )}
       <div className="xb-post-coach-card__engageability">
         <Badge variant={postCoach.engageability.engageable ? "success" : "warning"}>
           {postCoach.engageability.engageable ? "Engageable" : "Needs review"}
         </Badge>
         <span>{postCoach.engageability.reason}</span>
       </div>
-      <div className="xb-post-coach-card__sections">
-        {postCoach.sections.map((section) => (
+      {isCompact && checkGroups.length > 0 ? (
+        <div className="xb-post-coach-card__check-groups" aria-label="Draft Review checks">
+          {checkGroups.map((group) => (
+            <details
+              className="xb-post-coach-card__check-group"
+              key={group.title}
+              open={group.defaultOpen}
+            >
+              <summary>
+                <span>{group.title}</span>
+                <span>{group.items.length}</span>
+              </summary>
+              <ul>
+                {group.items.map((item) => (
+                  <li key={item.id}>
+                    <Badge variant={scoreBadgeVariant(item.status)}>{item.status}</Badge>
+                    <span>{item.label}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ))}
+        </div>
+      ) : null}
+      {!isCompact && sections.length > 0 ? (
+        <div className="xb-post-coach-card__sections">
+          {sections.map((section) => (
           <section className="xb-post-coach-card__section" key={section.title}>
             <h4>{section.title}</h4>
             <ul>
@@ -254,9 +349,10 @@ export function PostCoachCard({
               ))}
             </ul>
           </section>
-        ))}
-      </div>
-      {postCoach.learnings.length > 0 ? (
+          ))}
+        </div>
+      ) : null}
+      {!isCompact && postCoach.learnings.length > 0 ? (
         <div className="xb-post-coach-card__learnings">
           {postCoach.learnings.map((learning) => (
             <p key={learning.text}>{learning.text}</p>
@@ -264,8 +360,10 @@ export function PostCoachCard({
         </div>
       ) : null}
       <p className="xb-post-coach-card__caveat">{postCoach.learningCaveat}</p>
-      <p className="xb-post-coach-card__footer">{postCoach.footerText}</p>
-    </Card>
+      {isCompact ? null : (
+        <p className="xb-post-coach-card__footer">{postCoach.footerText}</p>
+      )}
+    </section>
   );
 }
 
@@ -312,34 +410,140 @@ export function CandidateDeterministicSummary({
   return (
     <article className="xb-candidate-deterministic-summary">
       <p className="xb-candidate-deterministic-summary__text">{item.text}</p>
-      <KeyValueList
-        items={[
-          {
-            label: "Source format",
-            value: item.sourceFormat ?? "Unknown",
-          },
-          {
-            label: "Detected format",
-            value: item.detectedFormat,
-          },
-          {
-            label: "Analyzer",
-            value: item.analyzerVersion,
-          },
-        ]}
-      />
       <ScoreBar
-        label="Deterministic score"
+        label="Static score"
         value={item.score.value}
         bandLabel={item.postCoach.state === "ready" ? item.postCoach.badge.label : undefined}
         helpText={item.heuristicLabel}
       />
-      <PostCoachCard postCoach={item.postCoach} />
+      {item.postCoach.state === "ready" ? (
+        <div className="xb-candidate-deterministic-summary__counts">
+          <span>
+            <b>{item.postCoach.counts.flagged}</b> flagged
+          </span>
+          <span>
+            <b>{item.postCoach.counts.nudges}</b> nudges
+          </span>
+          <span>
+            <b>{item.postCoach.counts.onPoint}</b> on point
+          </span>
+        </div>
+      ) : null}
+      {summaryChecks(item.postCoach).length > 0 ? (
+        <ul className="xb-candidate-deterministic-summary__checks">
+          {summaryChecks(item.postCoach).map((check) => (
+            <li key={check.id}>
+              <Badge variant={scoreBadgeVariant(check.status)}>{check.status}</Badge>
+              <span>{check.label}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="xb-candidate-deterministic-summary__prediction">
+        <Badge variant={predictionSummary(item.prediction).tone}>
+          {predictionSummary(item.prediction).label}
+        </Badge>
+        {item.prediction.status === "disabled" &&
+        item.prediction.reason === "missing_followers" &&
+        onAddFollowers !== undefined ? (
+          <Button onClick={onAddFollowers} type="button" variant="secondary">
+            Add followers
+          </Button>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+export function DraftDeterministicEvaluation({
+  item,
+  onAddFollowers,
+  onRetryScore,
+}: DraftDeterministicEvaluationProps): ReactElement {
+  if (item.status === "score_failed") {
+    return (
+      <div className="xb-draft-evaluation">
+        <Alert
+          variant="warning"
+          title="Score failed"
+          recovery={
+            <Button
+              disabled={!item.retryable}
+              onClick={() => onRetryScore(item.id)}
+              variant="secondary"
+            >
+              Retry score
+            </Button>
+          }
+        >
+          {item.message}
+        </Alert>
+      </div>
+    );
+  }
+
+  return (
+    <div className="xb-draft-evaluation">
       <EngagementPredictionCard
         onAddFollowers={onAddFollowers}
         prediction={item.prediction}
       />
-    </article>
+      <PostCoachCard density="compact" postCoach={item.postCoach} />
+    </div>
+  );
+}
+
+export function DraftEvaluationEmptyState({
+  hasDraft,
+  hasFollowers,
+  onAddFollowers,
+}: DraftEvaluationEmptyStateProps): ReactElement {
+  const missingItems = [
+    ...(hasDraft ? [] : ["Draft text"]),
+    ...(hasFollowers ? [] : ["Followers"]),
+  ];
+  const message =
+    !hasDraft && !hasFollowers
+      ? "Paste a draft and add followers to estimate impressions."
+      : !hasDraft
+        ? "Paste a draft to estimate impressions."
+        : !hasFollowers
+          ? "Add followers to estimate impressions."
+          : "Scoring starts after you pause typing.";
+
+  return (
+    <div className="xb-draft-evaluation">
+      <Card title="Engagement Prediction">
+        <Alert
+          recovery={
+            !hasFollowers && onAddFollowers !== undefined ? (
+              <Button onClick={onAddFollowers} type="button" variant="secondary">
+                Add followers
+              </Button>
+            ) : null
+          }
+          title="Prediction unavailable"
+          variant="warning"
+        >
+          {message}
+        </Alert>
+        {missingItems.length > 0 ? (
+          <KeyValueList
+            items={[
+              {
+                label: "Missing",
+                value: missingItems.join(", "),
+              },
+            ]}
+          />
+        ) : null}
+      </Card>
+      <Card title={postCoachDisplayTitle}>
+        <p className="xb-draft-evaluation__empty-copy">
+          Paste a draft to see static review checks.
+        </p>
+      </Card>
+    </div>
   );
 }
 
@@ -380,7 +584,7 @@ export function ManualScoringContextPanel({
       {isStale ? (
         <p className="xb-manual-scoring-context__stale">Prediction needs refresh.</p>
       ) : null}
-      {onApplyFollowers === undefined ? null : (
+      {onApplyFollowers === undefined || !isStale ? null : (
         <Button disabled={disabled} onClick={onApplyFollowers} type="button" variant="secondary">
           {applyLabel}
         </Button>
@@ -443,7 +647,7 @@ export function DeterministicDetailInspector(
                 type="button"
                 variant="secondary"
               >
-                Retry expanded Post Coach
+                Retry expanded review
               </Button>
             )
           }
@@ -482,7 +686,7 @@ export function DeterministicDetailInspector(
                 type="button"
                 variant="secondary"
               >
-                Retry expanded Post Coach
+                Retry expanded review
               </Button>
             )
           }
@@ -534,6 +738,16 @@ export function DeterministicDetailInspector(
       />
       <PostCoachCard postCoach={props.item.postCoach} />
       <EngagementPredictionCard prediction={props.item.prediction} />
+      {props.item.prediction.status === "disabled" ? (
+        <KeyValueList
+          items={[
+            {
+              label: "Prediction reason",
+              value: props.item.prediction.reason,
+            },
+          ]}
+        />
+      ) : null}
       <div className="xb-deterministic-detail-inspector__actions">
         {showFollowersRecovery ? (
           <Button onClick={props.onAddFollowers} type="button" variant="secondary">
@@ -546,7 +760,7 @@ export function DeterministicDetailInspector(
             type="button"
             variant="secondary"
           >
-            Retry expanded Post Coach
+            Retry expanded review
           </Button>
         )}
       </div>

@@ -31,7 +31,6 @@ const candidates = [
   },
 ] as const;
 
-type Candidate = (typeof candidates)[number];
 type AnalyzeRequest = {
   items: Array<{
     id: string;
@@ -49,6 +48,12 @@ type AnalyzeRequest = {
 type CapturedRequests = {
   analyze: AnalyzeRequest[];
   generate: unknown[];
+};
+
+type AnalysisSource = {
+  format?: string;
+  id: string;
+  text: string;
 };
 
 type StubEngineOptions = {
@@ -195,13 +200,20 @@ function prediction(index: number) {
   };
 }
 
-function scoredCandidate(candidate: Candidate, mode: "preview" | "expanded", index: number) {
+function scoredCandidate(
+  candidate: AnalysisSource,
+  mode: "preview" | "expanded",
+  index: number,
+) {
+  const detectedFormat =
+    candidate.format === "debate-question" ? "genuine_question" : "insight_share";
+
   return {
     status: "scored",
     id: candidate.id,
     text: candidate.text,
     sourceFormat: candidate.format,
-    detectedFormat: candidate.format === "debate-question" ? "genuine_question" : "insight_share",
+    detectedFormat,
     score: {
       value: mode === "expanded" ? 84 : 76 + index,
       checks: [
@@ -231,7 +243,10 @@ function scoredCandidate(candidate: Candidate, mode: "preview" | "expanded", ind
   };
 }
 
-function scoreFailedCandidate(candidate: Candidate, message = "Deterministic scoring timed out.") {
+function scoreFailedCandidate(
+  candidate: AnalysisSource,
+  message = "Deterministic scoring timed out.",
+) {
   return {
     status: "score_failed",
     id: candidate.id,
@@ -329,11 +344,13 @@ async function stubEngine(
 
     await fulfillJson(route, 200, {
       items: body.items.map((item, index) => {
-        const candidate = candidates.find((entry) => entry.id === item.id);
-
-        if (candidate === undefined) {
-          throw new Error(`Unexpected candidate id ${item.id}.`);
-        }
+        const candidate =
+          candidates.find((entry) => entry.id === item.id) ??
+          {
+            format: item.sourceFormat,
+            id: item.id,
+            text: item.text,
+          };
 
         return scoredCandidate(candidate, body.presentation.postCoachMode, index + 1);
       }),
@@ -341,41 +358,37 @@ async function stubEngine(
   });
 }
 
-test("writer generates and scores candidates with deterministic Post Coach details", async ({
+test("studio scores pasted draft automatically with prediction above coach", async ({
   page,
 }) => {
   const captured: CapturedRequests = {
     analyze: [],
     generate: [],
   };
-  const idea = "Turn launch tradeoffs into useful builder-facing posts.";
+  const draft = "Launch notes get better when they name the tradeoff, not just the feature.";
 
   await stubEngine(page, captured);
   await page.goto("/writer");
   await page.waitForLoadState("networkidle");
-  await expect(page.getByRole("heading", { level: 1, name: "Writer" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Studio" })).toBeVisible();
 
-  const ideaInput = page.getByRole("textbox", { name: "Idea" });
+  const draftInput = page.getByRole("textbox", { name: "Draft" });
   const followersInput = page.getByRole("spinbutton", { name: "Followers" });
 
-  await ideaInput.pressSequentially(idea);
-  await followersInput.pressSequentially("4200");
-  await expect(ideaInput).toHaveValue(idea);
+  await followersInput.fill("4200");
+  await draftInput.fill(draft);
+  await expect(draftInput).toHaveValue(draft);
   await expect(followersInput).toHaveValue("4200");
-  await page.getByRole("button", { name: "Generate" }).click();
 
-  await expect.poll(() => captured.generate.length).toBe(1);
   await expect.poll(() => captured.analyze.length).toBe(1);
 
-  expect(captured.generate[0]).toEqual({
-    idea,
-  });
   expect(captured.analyze[0]).toEqual({
-    items: candidates.map((candidate) => ({
-      id: candidate.id,
-      sourceFormat: candidate.format,
-      text: candidate.text,
-    })),
+    items: [
+      {
+        id: "draft-post",
+        text: draft,
+      },
+    ],
     presentation: {
       postCoachMode: "preview",
     },
@@ -383,58 +396,22 @@ test("writer generates and scores candidates with deterministic Post Coach detai
       followers: 4200,
     },
   });
+  expect(captured.generate).toHaveLength(0);
 
-  const results = page.getByRole("region", { name: "Generated candidates" });
-  for (const [index, candidate] of candidates.entries()) {
-    const candidateNumber = index + 1;
-    const candidateArticle = results.locator("article", {
-      hasText: candidate.text,
-    });
+  const results = page.getByRole("region", { name: "Studio evaluation" });
+  await expect(results.getByRole("heading", { name: "Engagement Prediction" })).toBeVisible();
+  await expect(results.getByRole("heading", { name: "Draft Review" })).toBeVisible();
+  await expect(results.getByText("340 - 620")).toBeVisible();
+  await expect(results.getByText("480")).toBeVisible();
+  await expect(results.getByText("high")).toBeVisible();
+  await expect(results.getByText("Manual follower context")).toBeVisible();
+  await expect(results.getByText("Preview API learning 1: keep the reader payoff explicit.")).toBeVisible();
+  await expect(results.getByText(learningCaveat)).toBeVisible();
 
-    await expect(candidateArticle.getByText(candidate.text)).toBeVisible();
-    await expect(candidateArticle.getByRole("progressbar", { name: "Deterministic score" })).toHaveAttribute(
-      "aria-valuenow",
-      String(76 + candidateNumber),
-    );
-    await expect(candidateArticle.getByRole("heading", { name: "Post Coach" })).toBeVisible();
-    await expect(candidateArticle.getByText(`Preview API learning ${candidateNumber}: keep the reader payoff explicit.`)).toBeVisible();
-    await expect(candidateArticle.getByText(learningCaveat)).toBeVisible();
-    await expect(candidateArticle.getByText(heuristicLabel)).toBeVisible();
-    await expect(candidateArticle.getByText(`${340 + index} - ${620 + index}`)).toBeVisible();
-    await expect(candidateArticle.getByText(String(480 + index))).toBeVisible();
-    await expect(candidateArticle.getByText("high")).toBeVisible();
-    await expect(candidateArticle.getByText("Manual follower context")).toBeVisible();
-  }
-
-  const firstCandidate = page.locator("article", { hasText: candidates[0].text });
-  await firstCandidate.getByRole("button", { name: "Details" }).click();
-
-  await expect.poll(() => captured.analyze.length).toBe(2);
-  expect(captured.analyze[1]).toEqual({
-    items: [
-      {
-        id: candidates[0].id,
-        sourceFormat: candidates[0].format,
-        text: candidates[0].text,
-      },
-    ],
-    presentation: {
-      postCoachMode: "expanded",
-    },
-    scoringContext: {
-      followers: 4200,
-    },
-  });
-
-  const dialog = page.getByRole("dialog", { name: "Deterministic details" });
-  await expect(dialog).toBeVisible();
-  await expect(dialog.getByText(candidates[0].text)).toBeVisible();
-  await expect(dialog.getByText("Expanded API detail: add one specific proof point before shipping.")).toBeVisible();
-  await expect(dialog.getByText("Expanded deterministic API helper.")).toBeVisible();
-  await expect(dialog.getByText(heuristicLabel)).toBeVisible();
-  await expect(dialog.getByText("340 - 620")).toBeVisible();
-  await expect(dialog.getByText("480")).toBeVisible();
-  await expect(dialog.getByText("high")).toBeVisible();
+  const resultText = await results.innerText();
+  expect(resultText.indexOf("Engagement Prediction")).toBeLessThan(
+    resultText.indexOf("Draft Review"),
+  );
 
   const pageText = await page.locator("body").innerText();
   expect(pageText).not.toMatch(/measured performance/i);
@@ -443,24 +420,26 @@ test("writer generates and scores candidates with deterministic Post Coach detai
   expect(pageText).not.toMatch(/live trend/i);
 });
 
-test("writer missing-followers recovery focuses the manual context panel", async ({
+test("studio missing-followers recovery focuses the manual context panel", async ({
   page,
 }) => {
   const captured: CapturedRequests = {
     analyze: [],
     generate: [],
   };
-  const idea = "Show deterministic scoring without follower context.";
+  const draft = "Show deterministic scoring without follower context.";
 
   await stubEngine(page, captured, {
     analyze: async (route, body) => {
       await fulfillJson(route, 200, {
         items: body.items.map((item, index) => {
-          const candidate = candidates.find((entry) => entry.id === item.id);
-
-          if (candidate === undefined) {
-            throw new Error(`Unexpected candidate id ${item.id}.`);
-          }
+          const candidate =
+            candidates.find((entry) => entry.id === item.id) ??
+            {
+              format: item.sourceFormat,
+              id: item.id,
+              text: item.text,
+            };
 
           return {
             ...scoredCandidate(candidate, body.presentation.postCoachMode, index + 1),
@@ -477,90 +456,74 @@ test("writer missing-followers recovery focuses the manual context panel", async
   await page.goto("/writer");
 
   const followersInput = page.getByRole("spinbutton", { name: "Followers" });
-  await page.getByRole("textbox", { name: "Idea" }).fill(idea);
-  await page.getByRole("button", { name: "Generate" }).click();
+  await page.getByRole("textbox", { name: "Draft" }).fill(draft);
 
-  await expect.poll(() => captured.generate.length).toBe(1);
   await expect.poll(() => captured.analyze.length).toBe(1);
+  expect(captured.generate).toHaveLength(0);
 
-  const firstCandidate = page.locator("article", { hasText: candidates[0].text });
-  await expect(firstCandidate.getByText("Prediction needs follower count.")).toBeVisible();
-  await firstCandidate.getByRole("button", { name: "Add followers" }).click();
+  const results = page.getByRole("region", { name: "Studio evaluation" });
+  await expect(results.getByText("Prediction needs follower count.")).toBeVisible();
+  await results.getByRole("button", { name: "Add followers" }).click();
 
   await expect(followersInput).toBeFocused();
 });
 
-test("writer retries deterministic scoring without regenerating candidates", async ({
+test("studio retries deterministic scoring without generating alternatives", async ({
   page,
 }) => {
   const captured: CapturedRequests = {
     analyze: [],
     generate: [],
   };
-  const idea = "Make deterministic recovery obvious without changing the generated copy.";
-  const failedCandidate = candidates[1];
+  const draft = "Make deterministic recovery obvious without changing the draft copy.";
+  const draftCandidate = {
+    id: "draft-post",
+    text: draft,
+  };
 
   await stubEngine(page, captured, {
     analyze: async (route, body, requestCount) => {
       if (requestCount === 1) {
         await fulfillJson(route, 200, {
-          items: body.items.map((item, index) => {
-            const candidate = candidates.find((entry) => entry.id === item.id);
-
-            if (candidate === undefined) {
-              throw new Error(`Unexpected candidate id ${item.id}.`);
-            }
-
-            return candidate.id === failedCandidate.id
-              ? scoreFailedCandidate(candidate)
-              : scoredCandidate(candidate, "preview", index + 1);
-          }),
+          items: [scoreFailedCandidate(draftCandidate)],
         });
         return;
       }
 
       expect(body.items).toEqual([
         {
-          id: failedCandidate.id,
-          sourceFormat: failedCandidate.format,
-          text: failedCandidate.text,
+          id: draftCandidate.id,
+          text: draftCandidate.text,
         },
       ]);
 
       await fulfillJson(route, 200, {
-        items: [scoredCandidate(failedCandidate, "preview", 2)],
+        items: [scoredCandidate(draftCandidate, "preview", 1)],
       });
     },
   });
   await page.goto("/writer");
 
-  await page.getByRole("textbox", { name: "Idea" }).fill(idea);
   await page.getByRole("spinbutton", { name: "Followers" }).fill("4200");
-  await page.getByRole("button", { name: "Generate" }).click();
+  await page.getByRole("textbox", { name: "Draft" }).fill(draft);
 
-  await expect.poll(() => captured.generate.length).toBe(1);
   await expect.poll(() => captured.analyze.length).toBe(1);
-  expect(captured.generate[0]).toEqual({ idea });
+  expect(captured.generate).toHaveLength(0);
 
-  const results = page.getByRole("region", { name: "Generated candidates" });
-  const failedArticle = results.locator("article", {
-    hasText: failedCandidate.text,
-  });
+  const results = page.getByRole("region", { name: "Studio evaluation" });
 
-  await expect(failedArticle.getByText(failedCandidate.text)).toBeVisible();
-  await expect(failedArticle.getByText("Score failed")).toBeVisible();
-  await expect(failedArticle.getByText("Deterministic scoring timed out.")).toBeVisible();
+  await expect(results.getByText("Score failed")).toBeVisible();
+  await expect(results.getByText("Deterministic scoring timed out.")).toBeVisible();
 
-  await failedArticle.getByRole("button", { name: "Retry score" }).click();
+  await results.getByRole("button", { name: "Retry score" }).click();
 
   await expect.poll(() => captured.analyze.length).toBe(2);
-  expect(captured.generate).toHaveLength(1);
+  expect(captured.generate).toHaveLength(0);
   expect(captured.analyze[1]).toEqual({
     items: [
       {
-        id: failedCandidate.id,
-        sourceFormat: failedCandidate.format,
-        text: failedCandidate.text,
+        id: draftCandidate.id,
+        text: draftCandidate.text,
       },
     ],
     presentation: {
@@ -571,37 +534,37 @@ test("writer retries deterministic scoring without regenerating candidates", asy
     },
   });
 
-  await expect(failedArticle.getByText(failedCandidate.text)).toBeVisible();
-  await expect(failedArticle.getByRole("progressbar", { name: "Deterministic score" })).toHaveAttribute(
-    "aria-valuenow",
-    "78",
-  );
-  await expect(failedArticle.getByText("Preview API learning 2: keep the reader payoff explicit.")).toBeVisible();
-  await expect(failedArticle.getByText(learningCaveat)).toBeVisible();
-  await expect(failedArticle.getByText("341 - 621")).toBeVisible();
-  await expect(failedArticle.getByText("481")).toBeVisible();
-  await expect(failedArticle.getByText("Manual follower context")).toBeVisible();
+  await expect(results.getByRole("heading", { name: "Engagement Prediction" })).toBeVisible();
+  await expect(results.getByRole("heading", { name: "Draft Review" })).toBeVisible();
+  await expect(results.getByText("Preview API learning 1: keep the reader payoff explicit.")).toBeVisible();
+  await expect(results.getByText(learningCaveat)).toBeVisible();
+  await expect(results.getByText("340 - 620")).toBeVisible();
+  await expect(results.getByText("480")).toBeVisible();
+  await expect(results.getByText("Manual follower context")).toBeVisible();
 });
 
-test("writer keeps candidates visible when deterministic analysis route fails", async ({
+test("studio keeps draft visible when deterministic analysis route fails", async ({
   page,
 }) => {
   const captured: CapturedRequests = {
     analyze: [],
     generate: [],
   };
-  const idea = "Keep generated drafts on screen when scoring cannot reach the route.";
+  const draft = "Keep the pasted draft on screen when scoring cannot reach the route.";
+  const draftInput = () => page.getByRole("textbox", { name: "Draft" });
 
   await stubEngine(page, captured, {
     analyze: async (route, body, requestCount) => {
       if (requestCount > 1) {
         await fulfillJson(route, 200, {
           items: body.items.map((item, index) => {
-            const candidate = candidates.find((entry) => entry.id === item.id);
-
-            if (candidate === undefined) {
-              throw new Error(`Unexpected candidate id ${item.id}.`);
-            }
+            const candidate =
+              candidates.find((entry) => entry.id === item.id) ??
+              {
+                format: item.sourceFormat,
+                id: item.id,
+                text: item.text,
+              };
 
             return scoredCandidate(candidate, body.presentation.postCoachMode, index + 1);
           }),
@@ -621,16 +584,11 @@ test("writer keeps candidates visible when deterministic analysis route fails", 
   });
   await page.goto("/writer");
 
-  await page.getByRole("textbox", { name: "Idea" }).fill(idea);
-  await page.getByRole("button", { name: "Generate" }).click();
+  await draftInput().fill(draft);
 
-  await expect.poll(() => captured.generate.length).toBe(1);
   await expect.poll(() => captured.analyze.length).toBe(1);
-
-  const results = page.getByRole("region", { name: "Generated candidates" });
-  for (const candidate of candidates) {
-    await expect(results.getByText(candidate.text)).toBeVisible();
-  }
+  expect(captured.generate).toHaveLength(0);
+  await expect(draftInput()).toHaveValue(draft);
 
   const recovery = page.getByRole("alert");
   await expect(recovery.getByText("Route unavailable")).toBeVisible();
@@ -639,66 +597,25 @@ test("writer keeps candidates visible when deterministic analysis route fails", 
   ).toBeVisible();
   await recovery.getByRole("button", { name: "Retry" }).click();
 
-  await expect.poll(() => captured.generate.length).toBe(1);
   await expect.poll(() => captured.analyze.length).toBe(2);
+  expect(captured.generate).toHaveLength(0);
   expect(captured.analyze[1]).toEqual({
-    items: candidates.map((candidate) => ({
-      id: candidate.id,
-      sourceFormat: candidate.format,
-      text: candidate.text,
-    })),
+    items: [
+      {
+        id: "draft-post",
+        text: draft,
+      },
+    ],
     presentation: {
       postCoachMode: "preview",
     },
     scoringContext: {},
   });
+  const results = page.getByRole("region", { name: "Studio evaluation" });
   await expect(
-    results.getByRole("progressbar", { name: "Deterministic score" }).first(),
-  ).toHaveAttribute("aria-valuenow", "77");
-});
-
-test("writer generation retry still calls the generation route again", async ({
-  page,
-}) => {
-  const captured: CapturedRequests = {
-    analyze: [],
-    generate: [],
-  };
-  const idea = "Retry generation after an engine route outage.";
-
-  await stubEngine(page, captured, {
-    generate: async (route, _body, requestCount) => {
-      if (requestCount === 1) {
-        await fulfillJson(
-          route,
-          503,
-          routeError("Generation is temporarily unavailable.", "generation_failed"),
-        );
-        return;
-      }
-
-      await fulfillJson(route, 200, { candidates });
-    },
-  });
-  await page.goto("/writer");
-
-  await page.getByRole("textbox", { name: "Idea" }).fill(idea);
-  await page.getByRole("button", { name: "Generate" }).click();
-
-  await expect.poll(() => captured.generate.length).toBe(1);
-  const recovery = page.getByRole("alert");
-  await expect(recovery.getByText("Route unavailable")).toBeVisible();
-  await expect(recovery.getByText("Generation is temporarily unavailable.")).toBeVisible();
-
-  await recovery.getByRole("button", { name: "Retry" }).click();
-
-  await expect.poll(() => captured.generate.length).toBe(2);
-  await expect.poll(() => captured.analyze.length).toBe(1);
-  expect(captured.generate).toEqual([{ idea }, { idea }]);
-
-  const results = page.getByRole("region", { name: "Generated candidates" });
-  await expect(results.getByText(candidates[0].text)).toBeVisible();
+    results.getByRole("heading", { name: "Draft Review" }),
+  ).toBeVisible();
   await expect(
-    results.getByRole("progressbar", { name: "Deterministic score" }).first(),
+    results.getByRole("progressbar", { name: "Draft Review" }).first(),
   ).toHaveAttribute("aria-valuenow", "77");
 });

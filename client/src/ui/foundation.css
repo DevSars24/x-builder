@@ -106,7 +106,7 @@ select {
   display: grid;
   min-width: 0;
   min-height: var(--density-nav-item-height);
-  grid-template-columns: var(--space-1) minmax(0, 1fr);
+  grid-template-columns: var(--space-1) var(--icon-size-md) minmax(0, 1fr);
   align-items: center;
   gap: var(--space-2);
   padding-inline: var(--space-2);
@@ -143,6 +143,16 @@ select {
   background: var(--sidebar-active-indicator);
 }
 
+.xb-shell-sidebar__route-icon {
+  width: var(--icon-size-md);
+  height: var(--icon-size-md);
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
 .xb-shell-sidebar__route-label {
   min-width: 0;
   overflow: hidden;
@@ -169,9 +179,9 @@ select {
 }
 
 .xb-shell[data-sidebar-collapsed="true"] .xb-shell-sidebar__route {
-  grid-template-columns: var(--space-1);
+  grid-template-columns: var(--space-1) var(--icon-size-md);
   justify-content: center;
-  padding-inline: 0;
+  padding-inline: var(--space-1);
 }
 
 .xb-shell__main {
@@ -253,14 +263,22 @@ select {
 
 .xb-writer-page {
   display: grid;
-  max-width: var(--overlay-width-lg);
   gap: var(--space-4);
+  width: 100%;
+  max-width: min(100%, 1200px);
 }
 
 .xb-writer-form {
   display: grid;
   justify-items: start;
   gap: var(--space-2);
+}
+
+.xb-writer-workspace {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.9fr) minmax(360px, 1.1fr);
+  align-items: start;
+  gap: var(--space-4);
 }
 
 .xb-writer-form__label {
@@ -297,7 +315,13 @@ select {
 }
 
 .xb-writer-results {
-  min-height: var(--overlay-height-sm);
+  min-height: 0;
+}
+
+.xb-writer-results-stack {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-3);
 }
 
 .xb-writer-results__skeletons,
@@ -315,11 +339,25 @@ select {
   background: var(--surface-panel);
 }
 
+.xb-writer-candidate__header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
 .xb-writer-candidate p {
   margin: 0;
   color: var(--text-primary);
   font: var(--type-body);
   overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  .xb-writer-workspace {
+    grid-template-columns: 1fr;
+  }
 }
 
 .xb-page-header {

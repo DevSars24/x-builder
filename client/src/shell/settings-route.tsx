@@ -438,7 +438,7 @@ function SettingsRouteView({
           onClick={onBackToWriter}
           type="button"
         >
-          Back to Writer
+          Back to Studio
         </button>
       </div>
 

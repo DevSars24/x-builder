@@ -460,7 +460,7 @@ describe("deterministic post analyzer", () => {
       signals: [
         {
           signal_key: "quality_voice",
-          label: "Voice score 66 (-30%)",
+          label: "Static score 66 (-30%)",
           multiplier: 0.7,
         },
         {
@@ -669,8 +669,7 @@ describe("deterministic post analyzer", () => {
     expect(derivePostCoachCard({ hasText: false, score: null })).toEqual({
       state: "empty",
       title: "Post Coach",
-      message:
-        "Start typing to see how the draft scores against your voice rules plus learnings from your last 30 days.",
+      message: "Start typing to see static Post Coach checks for the draft.",
     });
   });
 
@@ -753,7 +752,7 @@ describe("deterministic post analyzer", () => {
     );
     expect(card.learnings).toEqual([
       {
-        text: "Posts with 3+ lines get 3.2x more impressions in your data.",
+        text: "Three or more non-empty lines can make the structure easier to scan.",
         relevance: "matched",
       },
     ]);

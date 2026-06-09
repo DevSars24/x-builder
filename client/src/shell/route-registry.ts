@@ -10,12 +10,12 @@ export const appRoutes = validateRouteConfigs([
   {
     enabled: true,
     id: "writer",
-    label: "Writer",
+    label: "Studio",
     navOrder: 0,
     path: "/writer",
     placeholder: false,
     requiresBackend: true,
-    title: "Writer",
+    title: "Studio",
   },
   {
     enabled: true,

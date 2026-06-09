@@ -60,6 +60,7 @@ type WriterPagePublicDriver = {
   retry: () => Promise<string>;
   retryDetails: () => Promise<string>;
   retryScore: (itemId: string) => Promise<string>;
+  scoreDraft: () => Promise<string>;
   updateFollowers: (followers: string) => string;
   updateIdea: (idea: string) => string;
 };
@@ -215,7 +216,7 @@ function availablePrediction(
     signals: [
       {
         signal_key: "voice_score",
-        label: "Voice score 74",
+        label: "Static score 74",
         multiplier: 0.9,
       },
       {
@@ -414,7 +415,7 @@ function createDriver(
 }
 
 describe("WriterPage manual follower prediction context", () => {
-  it("renders manual follower context while empty followers keep prediction missing and Post Coach visible", async () => {
+  it("renders manual follower context while empty followers keep prediction missing and score visible", async () => {
     const { WriterPage, createWriterPagePublicDriver } = await loadWriterPage();
     const response = createValidIdeaResponse();
     const analyzePosts = vi.fn<WriterApiClient["analyzePosts"]>(async () =>
@@ -427,7 +428,7 @@ describe("WriterPage manual follower prediction context", () => {
       renderPage: WriterPage,
     });
 
-    driver.updateIdea("Manual followers should not be required for Post Coach.");
+    driver.updateIdea("Manual followers should not be required for Draft Review.");
     const html = await driver.generate();
     const text = textContent(html);
 
@@ -437,9 +438,8 @@ describe("WriterPage manual follower prediction context", () => {
     );
     expect(text).toContain("Manual account context");
     expect(text).toContain("Followers");
-    expect(text).toContain("Post Coach");
+    expect(text).toContain("Static score");
     expect(text).toContain("Prediction needs follower count.");
-    expect(text).toContain("missing_followers");
   });
 
   it("submits valid manual followers with analysis and renders available prediction results", async () => {
@@ -469,9 +469,7 @@ describe("WriterPage manual follower prediction context", () => {
       expectedAnalyzePostsRequest(response.candidates, { followers: 2400 }),
     );
     expect(text).toContain("120 - 280");
-    expect(text).toContain("200");
     expect(text).toContain("medium");
-    expect(text).toContain("Manual follower context");
     expect(text).not.toContain("missing_followers");
   });
 
@@ -529,8 +527,8 @@ describe("WriterPage manual follower prediction context", () => {
       expectedAnalyzePostsRequest(response.candidates),
     );
     expect(text).toContain("Enter your current follower count to estimate impressions.");
-    expect(text).toContain("Post Coach");
-    expect(text).toContain("missing_followers");
+    expect(text).toContain("Static score");
+    expect(text).toContain("Prediction needs follower count.");
   });
 
   it("recomputes prediction analysis with updated followers without regenerating candidates", async () => {
@@ -576,7 +574,6 @@ describe("WriterPage manual follower prediction context", () => {
       expectedAnalyzePostsRequest(response.candidates, { followers: 4800 }),
     );
     expect(recomputedText).toContain("320 - 640");
-    expect(recomputedText).toContain("480");
     expect(recomputedText).toContain(response.candidates[0]?.text);
   });
 
@@ -611,6 +608,95 @@ describe("WriterPage manual follower prediction context", () => {
 });
 
 describe("WriterPage generation behavior", () => {
+  it("keeps follower context inside the score-card column", async () => {
+    const { WriterPage, createWriterPagePublicDriver } = await loadWriterPage();
+    const driver = createDriver(createWriterPagePublicDriver, {
+      apiClient: createApiClient(),
+      onOpenSettings: vi.fn(),
+      renderPage: WriterPage,
+    });
+
+    const html = driver.render();
+
+    expect(html.indexOf('id="deterministic-followers"')).toBeGreaterThanOrEqual(0);
+    expect(html.indexOf('id="writer-idea"')).toBeGreaterThanOrEqual(0);
+    expect(html.indexOf('id="deterministic-followers"')).toBeGreaterThan(
+      html.indexOf('class="xb-writer-results-stack"'),
+    );
+    expect(html).toContain('class="xb-writer-workspace"');
+    expect(html).toContain('class="xb-writer-results"');
+  });
+
+  it("renders empty evaluation cards before a draft is typed", async () => {
+    const { WriterPage, createWriterPagePublicDriver } = await loadWriterPage();
+    const driver = createDriver(createWriterPagePublicDriver, {
+      apiClient: createApiClient(),
+      onOpenSettings: vi.fn(),
+      renderPage: WriterPage,
+    });
+
+    const text = textContent(driver.render());
+
+    expect(text).toContain("Engagement Prediction");
+    expect(text).toContain("Prediction unavailable");
+    expect(text).toContain("Paste a draft and add followers to estimate impressions.");
+    expect(text).toContain("Draft Review");
+    expect(text).toContain("Paste a draft to see static review checks.");
+  });
+
+  it("scores a typed draft without generating variants", async () => {
+    const { WriterPage, createWriterPagePublicDriver } = await loadWriterPage();
+    const draftText =
+      "Stripe checkout taught me to remove one field before adding another.";
+    const generateIdea = vi.fn<WriterApiClient["generateIdea"]>();
+    const analyzePosts = vi.fn<WriterApiClient["analyzePosts"]>(async (request) => ({
+      items: request.items.map((item) =>
+        scoredAnalysisItem(
+          {
+            format: "one-liner",
+            id: item.id,
+            text: item.text,
+          },
+          {
+            sourceFormat: item.sourceFormat,
+          },
+        ),
+      ),
+    }));
+    const driver = createDriver(createWriterPagePublicDriver, {
+      apiClient: createApiClient(generateIdea, analyzePosts),
+      onOpenSettings: vi.fn(),
+      renderPage: WriterPage,
+    });
+
+    driver.updateIdea(draftText);
+    const html = await driver.scoreDraft();
+    const text = textContent(html);
+
+    expect(generateIdea).not.toHaveBeenCalled();
+    expect(analyzePosts).toHaveBeenCalledOnce();
+    expect(analyzePosts).toHaveBeenCalledWith({
+      items: [
+        {
+          id: "draft-post",
+          sourceFormat: undefined,
+          text: draftText,
+        },
+      ],
+      presentation: {
+        postCoachMode: "preview",
+      },
+      scoringContext: {},
+    });
+    expect(text).toContain("Engagement Prediction");
+    expect(text).toContain("Draft Review");
+    expect(text.indexOf("Engagement Prediction")).toBeLessThan(
+      text.indexOf("Draft Review"),
+    );
+    expect(text).toContain("74");
+    expect(text).toContain(draftText);
+  });
+
   it("keeps empty submissions local and shows a field error", async () => {
     const { WriterPage, createWriterPagePublicDriver } = await loadWriterPage();
     const apiClient = createApiClient();
@@ -653,9 +739,35 @@ describe("WriterPage generation behavior", () => {
     expect(text).toContain(
       "What local-first compromise would make builders trust the tool more?",
     );
-    expect(text).toContain("one-liner");
-    expect(text).toContain("mini-framework");
-    expect(text).toContain("debate-question");
+    expect(text).toContain("One-liner");
+    expect(text).toContain("Mini framework");
+    expect(text).toContain("Debate question");
+  });
+
+  it("keeps generated variants visible when draft auto scoring checks again", async () => {
+    const { WriterPage, createWriterPagePublicDriver } = await loadWriterPage();
+    const response = createValidIdeaResponse();
+    const generateIdea = vi.fn<WriterApiClient["generateIdea"]>(async () => response);
+    const analyzePosts = vi.fn<WriterApiClient["analyzePosts"]>(
+      async () => createAnalyzePostsResponse(response),
+    );
+    const driver = createDriver(createWriterPagePublicDriver, {
+      apiClient: createApiClient(generateIdea, analyzePosts),
+      onOpenSettings: vi.fn(),
+      renderPage: WriterPage,
+    });
+
+    driver.updateIdea("Generate variants, then do not replace them with draft scoring.");
+    await driver.generate();
+    const html = await driver.scoreDraft();
+    const text = textContent(html);
+
+    expect(generateIdea).toHaveBeenCalledOnce();
+    expect(analyzePosts).toHaveBeenCalledOnce();
+    expect(text).toContain("One-liner");
+    expect(text).toContain("Mini framework");
+    expect(text).toContain("Debate question");
+    expect(text).not.toContain("Current draft");
   });
 
   it("renders generated candidate text while scoring is still loading", async () => {
@@ -983,9 +1095,8 @@ describe("WriterPage generation behavior", () => {
       candidateTextSegment(text, miniFramework.text, debateQuestion.text),
     ).toContain("Rework");
     expect(candidateTextSegment(text, debateQuestion.text)).toContain("61");
-    expect(candidateTextSegment(text, debateQuestion.text)).toContain("Post Coach");
+    expect(candidateTextSegment(text, debateQuestion.text)).toContain("Static score");
     expect(text).toContain("Prediction needs follower count.");
-    expect(text).toContain("missing_followers");
   });
 
   it("keeps generated source slot in candidate metadata when analysis reports a different format", async () => {
@@ -1026,15 +1137,15 @@ describe("WriterPage generation behavior", () => {
       debateQuestion.text,
     );
 
-    expect(miniFrameworkHtml).toContain(
-      '<dt class="xb-key-value-list__label">Source format</dt><dd class="xb-key-value-list__value">mini-framework</dd>',
-    );
-    expect(miniFrameworkHtml).toContain(
-      '<dt class="xb-key-value-list__label">Detected format</dt><dd class="xb-key-value-list__value">insight_share</dd>',
-    );
-    expect(miniFrameworkHtml).not.toContain(
-      '<dt class="xb-key-value-list__label">Source format</dt><dd class="xb-key-value-list__value">one-liner</dd>',
-    );
+    expect(html.indexOf("Mini framework")).toBeLessThan(html.indexOf(miniFramework.text));
+    expect(miniFrameworkHtml).not.toContain("One-liner");
+
+    const detailText = dialogTextSegment(await driver.openDetails(miniFramework.id));
+
+    expect(detailText).toContain("Source format");
+    expect(detailText).toContain("mini-framework");
+    expect(detailText).toContain("Detected format");
+    expect(detailText).toContain("insight_share");
   });
 
   it("keeps failed scored candidate text visible with a score retry action", async () => {
@@ -1179,7 +1290,7 @@ describe("WriterPage generation behavior", () => {
       expectedAnalyzePostsRequest(response.candidates),
     );
     expect(retryText).not.toContain("Route unavailable");
-    expect(retryText).toContain("Deterministic score");
+    expect(retryText).toContain("Static score");
     for (const candidate of response.candidates) {
       expect(retryText).toContain(candidate.text);
     }
@@ -1218,7 +1329,7 @@ describe("WriterPage generation behavior", () => {
       2,
       expectedAnalyzePostsRequest(response.candidates),
     );
-    expect(retryText).toContain("Deterministic score");
+    expect(retryText).toContain("Static score");
     expect(retryText).not.toContain("Could not reach the engine while scoring.");
   });
 
@@ -1439,7 +1550,6 @@ describe("WriterPage generation behavior", () => {
     expect(analyzePosts).toHaveBeenCalledTimes(3);
     expect(textContent(newerHtml)).toContain("500 - 900");
     expect(finalText).toContain("500 - 900");
-    expect(finalText).toContain("700");
     expect(finalText).not.toContain("Older scoring failure should not replace newer success.");
     expect(finalText).not.toContain("Route unavailable");
   });
@@ -1475,7 +1585,7 @@ describe("WriterPage generation behavior", () => {
     analysis.resolve(createAnalyzePostsResponse(response));
     const html = await generate;
 
-    expect(textContent(html)).toContain("Deterministic score");
+    expect(textContent(html)).toContain("Static score");
   });
 
   it("keeps newer edits when follower recompute resolves from an older draft", async () => {
@@ -1971,7 +2081,7 @@ describe("WriterPage generation behavior", () => {
     const failedDialogText = dialogTextSegment(failedHtml);
 
     expect(failedDialogText).toContain("Expanded deterministic details are temporarily unavailable.");
-    expect(failedDialogText).toContain("Retry expanded Post Coach");
+    expect(failedDialogText).toContain("Retry expanded review");
 
     const retryHtml = await driver.retryDetails();
     const retryDialogText = dialogTextSegment(retryHtml);
@@ -2086,6 +2196,13 @@ describe("WriterPage generation behavior", () => {
           scoredAnalysisItem(oneLiner),
           scoredAnalysisItem(miniFramework, {
             postCoach: readyPostCoach({
+              warned: [
+                {
+                  id: "preview-only-check",
+                  label: previewOnlyCheck,
+                  status: "warn",
+                },
+              ],
               sections: [
                 {
                   title: "Worth a look",
@@ -2114,6 +2231,13 @@ describe("WriterPage generation behavior", () => {
           scoredAnalysisItem(miniFramework, {
             postCoach: readyPostCoach({
               expanded: true,
+              passed: [
+                {
+                  id: "expanded-only-check",
+                  label: expandedOnlyCheck,
+                  status: "pass",
+                },
+              ],
               previewMode: false,
               sections: [
                 {
@@ -2158,7 +2282,7 @@ describe("WriterPage generation behavior", () => {
     );
 
     expect(miniFrameworkSegment).toContain(previewOnlyCheck);
-    expect(miniFrameworkSegment).toContain(previewOnlyLearning);
+    expect(miniFrameworkSegment).not.toContain(previewOnlyLearning);
     expect(miniFrameworkSegment).not.toContain(expandedOnlyCheck);
     expect(miniFrameworkSegment).not.toContain(expandedOnlyLearning);
   });

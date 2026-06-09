@@ -757,49 +757,49 @@ function getLearnings(input: {
 
   if (wordCount > 0 && wordCount <= 12 && lines === 1) {
     learnings.push({
-      text: "Your one-liners under 12 words get 40% more replies than longer posts.",
+      text: "One-liners under 12 words are easier to scan in a fast feed.",
       relevance: "matched",
     });
   }
 
   if (/^hot take:/i.test(trimmed)) {
     learnings.push({
-      text: '"hot take:" openers drove your highest like-to-reply ratio in the last 30 days.',
+      text: '"hot take:" openers create a clear argument to react to.',
       relevance: "matched",
     });
   }
 
   if (/^genuine question:/i.test(trimmed)) {
     learnings.push({
-      text: 'Your last 3 "genuine question:" posts averaged 92 replies - your top format.',
+      text: '"genuine question:" openers give readers an easy reply path.',
       relevance: "matched",
     });
   }
 
   if (/^(founders|builders|solo founders|creators|indie hackers|makers),/i.test(trimmed)) {
     learnings.push({
-      text: "Audience-name openers drive 2x replies for you vs unaddressed posts.",
+      text: "Audience-name openers make the reader group explicit.",
       relevance: "matched",
     });
   }
 
   if (lines >= 3) {
     learnings.push({
-      text: "Posts with 3+ lines get 3.2x more impressions in your data.",
+      text: "Three or more non-empty lines can make the structure easier to scan.",
       relevance: "matched",
     });
   }
 
   if (wordCount > 30) {
     learnings.push({
-      text: "Your posts under 30 words outperform longer ones by 1.8x on engagement rate.",
+      text: "Shorter posts often reduce friction before the hook lands.",
       relevance: "matched",
     });
   }
 
   if (learnings.length === 0) {
     learnings.push({
-      text: 'Your top 3 posts all opened with "genuine question:" - worth trying that here.',
+      text: '"genuine question:" is worth trying when the post needs a clearer reply path.',
       relevance: "general",
     });
   }
@@ -1031,7 +1031,7 @@ function getQualityMultiplier(score: number, aiRating?: number): {
 
   return {
     signalKey: "quality_voice",
-    label: `Voice score ${score}`,
+    label: `Static score ${score}`,
     multiplier,
   };
 }
@@ -1092,7 +1092,7 @@ export function predictEngagement(input: {
 
     signals.push({
       signal_key: "zeitgeist",
-      label: `Timely keyword +${Math.round((trendMultiplier - 1) * 100)}%`,
+      label: "Timely wording",
       multiplier: trendMultiplier,
     });
   }
@@ -1172,8 +1172,7 @@ export function derivePostCoachCard({
     return {
       state: "empty",
       title: "Post Coach",
-      message:
-        "Start typing to see how the draft scores against your voice rules plus learnings from your last 30 days.",
+      message: "Start typing to see static Post Coach checks for the draft.",
     };
   }
 
@@ -1184,7 +1183,7 @@ export function derivePostCoachCard({
   const helperText =
     "Signals, not verdicts. These checks flag patterns worth weighing - none of them are rules you have to follow. 60+ usually reads ship-ready; the goal is the post, not the score.";
   const footerText =
-    "These are static rule checks - good for spotting obvious misses and reminding you of the principles. For whether the post actually delivers insight, humor, or real value, use the AI Rate post action above the composer - the LLM is much better at that judgment.";
+    "These are static rule checks only. Use them to spot obvious writing issues; they are not a prediction of real audience performance.";
 
   if (previewMode) {
     const sampleItems = [...failed, ...warned, ...passed].slice(0, 2);

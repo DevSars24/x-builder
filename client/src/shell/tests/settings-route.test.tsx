@@ -491,7 +491,7 @@ describe("SettingsRoute public behavior", () => {
     expect(apiClient.getStatus).not.toHaveBeenCalled();
   });
 
-  it("refreshes status after a successful save without auto-returning to Writer", async () => {
+  it("refreshes status after a successful save without auto-returning to Studio", async () => {
     const { SettingsRoute, createSettingsRoutePublicDriver } =
       await loadSettingsRoute();
     const readyStatus = createReadyStatus();
@@ -514,7 +514,7 @@ describe("SettingsRoute public behavior", () => {
 
     expect(apiClient.getStatus).toHaveBeenCalledOnce();
     expect(onStatusRefresh).toHaveBeenCalledWith(readyStatus);
-    expect(textContent(savedHtml)).toContain("Back to Writer");
+    expect(textContent(savedHtml)).toContain("Back to Studio");
     expect(onNavigateToWriter).not.toHaveBeenCalled();
 
     driver.backToWriter();
@@ -558,7 +558,7 @@ describe("SettingsRoute public behavior", () => {
     expect(onNavigateToWriter).toHaveBeenCalledOnce();
   });
 
-  it("warns before Back to Writer discards dirty settings", async () => {
+  it("warns before Back to Studio discards dirty settings", async () => {
     const { SettingsRoute, createSettingsRoutePublicDriver } =
       await loadSettingsRoute();
     const onNavigateToWriter = vi.fn();
@@ -610,7 +610,7 @@ describe("SettingsRoute public behavior", () => {
 });
 
 describe("SettingsRoute rendering", () => {
-  it("renders the shell-owned Settings fields and explicit Back to Writer action", async () => {
+  it("renders the shell-owned Settings fields and explicit Back to Studio action", async () => {
     const { SettingsRoute } = await loadSettingsRoute();
     const html = renderToStaticMarkup(
       <SettingsRoute
@@ -621,7 +621,7 @@ describe("SettingsRoute rendering", () => {
     );
     const text = textContent(html);
 
-    expect(text).toContain("Back to Writer");
+    expect(text).toContain("Back to Studio");
     expect(text).toContain("Engine URL");
     expect(text).toContain("Storage path");
     expect(text).toContain("Codex command label");

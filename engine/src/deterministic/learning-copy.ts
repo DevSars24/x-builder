@@ -11,7 +11,7 @@ const postCoachCopyFallback =
   "Static rule check. Imported performance data is not connected yet.";
 
 const importedPerformanceClaimPattern =
-  /\b(your data|last 30 days|averaged|replies for you|imported metrics|personal performance data|outperform(?:s|ed)?|highest like-to-reply ratio)\b/i;
+  /\b(your data|last 30 days|averaged|replies for you|imported metrics|personal performance data|outperform(?:s|ed)?|highest like-to-reply ratio|AI Rate post|above the composer)\b/i;
 
 const staticLearningText = (text: string): string => {
   if (/one-liners under 12 words/i.test(text)) {
@@ -30,11 +30,11 @@ const staticLearningText = (text: string): string => {
     return "Audience-name openers make the reader group explicit.";
   }
 
-  if (/3\+ lines/i.test(text)) {
+  if (/3\+ lines|Three or more non-empty lines/i.test(text)) {
     return "Three or more non-empty lines can make the structure easier to scan.";
   }
 
-  if (/under 30 words/i.test(text)) {
+  if (/under 30 words|Shorter posts/i.test(text)) {
     return "Short posts usually reduce friction before the hook lands.";
   }
 

@@ -211,7 +211,7 @@ describe("RouteErrorBanner", () => {
 });
 
 describe("AppShell route recovery integration", () => {
-  it("keeps the status bar and sidebar mounted when a route throws", async () => {
+  it("keeps route recovery and sidebar mounted without global status telemetry", async () => {
     const { AppShell, createMemoryShellHistory } = await loadAppShell();
     const history = createMemoryShellHistory({ initialPath: "/writer" });
     const preferencesStore = createPreferencesStore();
@@ -234,9 +234,9 @@ describe("AppShell route recovery integration", () => {
     );
     const text = textContent(html);
 
-    expect(text).toContain("Writer");
+    expect(text).toContain("Studio");
     expect(text).toContain("Settings");
-    expect(text).toContain("Codex judge");
+    expect(text).not.toContain("Codex judge");
     expect(text).toContain("This route could not render.");
     expect(text).toContain("Retry");
     expect(text).toContain("Open Settings");

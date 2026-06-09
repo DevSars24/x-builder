@@ -254,7 +254,7 @@ function createShellApiClient(
 }
 
 describe("AppShell route frame", () => {
-  it("renders Writer inside the shell and canonicalizes the root URL", async () => {
+  it("renders Studio inside the shell and canonicalizes the root URL", async () => {
     const { AppShell, createMemoryShellHistory } = await loadAppShell();
     const history = createMemoryShellHistory({ initialPath: "/" });
     const preferencesStore = createPreferencesStore();
@@ -266,7 +266,7 @@ describe("AppShell route frame", () => {
     expect(countOpeningTags(html, "main")).toBe(1);
     expect(html).toContain('href="#main-content"');
     expect(html).toContain('id="main-content"');
-    expect(html).toContain(">Writer</h1>");
+    expect(html).toContain(">Studio</h1>");
     expect(html).toMatch(/<a\b[^>]*href="\/writer"[^>]*aria-current="page"/);
   });
 
@@ -288,7 +288,7 @@ describe("AppShell route frame", () => {
     expect(preferencesStore.get().lastRoutePath).toBe("/settings");
     expect(html).toContain(">Settings</h1>");
     expect(html).toMatch(/<a\b[^>]*href="\/settings"[^>]*aria-current="page"/);
-    expect(textContent(html)).toContain("Writer");
+    expect(textContent(html)).toContain("Studio");
     expect(textContent(html)).toContain("Voice");
     expect(textContent(html)).toContain("Post Library");
     expect(textContent(html)).toContain("Settings");
@@ -305,12 +305,13 @@ describe("AppShell route frame", () => {
 
     const html = renderShell(AppShell, { history, preferencesStore });
 
-    expect(html).toMatch(/<a\b[^>]*href="\/writer"[^>]*aria-label="Writer"/);
+    expect(html).toMatch(/<a\b[^>]*href="\/writer"[^>]*aria-label="Studio"/);
     expect(html).toMatch(/<a\b[^>]*href="\/voice"[^>]*aria-label="Voice"/);
     expect(html).toMatch(
       /<a\b[^>]*href="\/library"[^>]*aria-label="Post Library"/,
     );
     expect(html).toMatch(/<a\b[^>]*href="\/settings"[^>]*aria-label="Settings"/);
+    expect(html.match(/class="xb-shell-sidebar__route-icon"/g)).toHaveLength(4);
     expect(html).toContain('aria-label="Expand sidebar"');
     expect(html).not.toContain('aria-label="Collapse sidebar"');
   });
@@ -331,7 +332,7 @@ describe("AppShell route frame", () => {
       },
     });
 
-    expect(textContent(html)).toContain("Writer");
+    expect(textContent(html)).toContain("Studio");
     expect(textContent(html)).toContain("Settings");
     expect(textContent(html)).toContain("This route could not render.");
     expect(textContent(html)).toContain("Retry");
@@ -393,7 +394,7 @@ describe("AppShell route frame", () => {
     expect(onNavigate).toHaveBeenCalledWith("/writer");
   });
 
-  it("wires the default Writer route to shell API generation and Settings recovery", async () => {
+  it("wires the default Studio route to shell API generation and Settings recovery", async () => {
     const {
       AppShell,
       createAppShellPublicDriver,
@@ -406,7 +407,7 @@ describe("AppShell route frame", () => {
     const apiClient = createShellApiClient({
       generateIdea,
     });
-    const idea = "The Writer route should use the shell-provided API client.";
+    const idea = "The Studio route should use the shell-provided API client.";
     const driver = createAppShellPublicDriver({
       apiClient,
       history,
@@ -451,7 +452,7 @@ describe("AppShell route frame", () => {
     expect(html).toContain(">Voice</h1>");
     expect(html).toMatch(/<a\b[^>]*href="\/voice"[^>]*aria-current="page"/);
     expect(text).toContain("Voice profile setup is not part of this shell pass.");
-    expect(text).toContain("Back to Writer");
+    expect(text).toContain("Back to Studio");
     expect(html).not.toContain('role="alert"');
     expect(text).not.toContain("Route unavailable");
     expect(text).not.toContain("This route could not render.");
@@ -477,7 +478,7 @@ describe("AppShell route frame", () => {
     expect(html).toContain(">Post Library</h1>");
     expect(html).toMatch(/<a\b[^>]*href="\/library"[^>]*aria-current="page"/);
     expect(text).toContain("Post memory is reserved for the library feature pass.");
-    expect(text).toContain("Back to Writer");
+    expect(text).toContain("Back to Studio");
     expect(html).not.toContain('role="alert"');
     expect(text).not.toContain("Route unavailable");
     expect(text).not.toContain("This route could not render.");
@@ -486,7 +487,7 @@ describe("AppShell route frame", () => {
     expect(apiClient.saveSettings).not.toHaveBeenCalled();
   });
 
-  it("navigates from the Voice placeholder primary action back to Writer", async () => {
+  it("navigates from the Voice placeholder primary action back to Studio", async () => {
     const {
       AppShell,
       createAppShellPublicDriver,
@@ -505,11 +506,11 @@ describe("AppShell route frame", () => {
 
     expect(history.location.pathname).toBe("/writer");
     expect(preferencesStore.get().lastRoutePath).toBe("/writer");
-    expect(html).toContain(">Writer</h1>");
+    expect(html).toContain(">Studio</h1>");
     expect(html).toMatch(/<a\b[^>]*href="\/writer"[^>]*aria-current="page"/);
   });
 
-  it("navigates from the Post Library placeholder primary action back to Writer", async () => {
+  it("navigates from the Post Library placeholder primary action back to Studio", async () => {
     const {
       AppShell,
       createAppShellPublicDriver,
@@ -528,7 +529,7 @@ describe("AppShell route frame", () => {
 
     expect(history.location.pathname).toBe("/writer");
     expect(preferencesStore.get().lastRoutePath).toBe("/writer");
-    expect(html).toContain(">Writer</h1>");
+    expect(html).toContain(">Studio</h1>");
     expect(html).toMatch(/<a\b[^>]*href="\/writer"[^>]*aria-current="page"/);
   });
 });

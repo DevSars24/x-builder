@@ -6,13 +6,14 @@ import {
   type ReactElement,
 } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { GeneratedIdeaCandidate } from "@x-builder/shared";
 
 import { RouteErrorBanner } from "../../shell/route-error-banner";
 import { Alert, Badge, Button, Drawer, Skeleton } from "../../ui/foundation";
 import {
   CandidateDeterministicSummary,
   DeterministicDetailInspector,
+  DraftEvaluationEmptyState,
+  DraftDeterministicEvaluation,
   ManualScoringContextPanel,
 } from "./deterministic/components";
 import {
@@ -29,9 +30,11 @@ import {
   runRetryAnalysis,
   runRetryDetails,
   runRetryScore,
+  runScoreDraft,
   shouldRetryAnalysis,
   type CandidateAnalysisState,
   type WriterApiClient,
+  type WriterCandidate,
   type WriterPageModel,
 } from "./writer-workflow";
 
@@ -66,12 +69,29 @@ export type WriterPagePublicDriver = {
   retry: () => Promise<string>;
   retryDetails: () => Promise<string>;
   retryScore: (itemId: string) => Promise<string>;
+  scoreDraft: () => Promise<string>;
   updateFollowers: (followers: string) => string;
   updateIdea: (idea: string) => string;
 };
 
-function candidateLabel(format: GeneratedIdeaCandidate["format"]): string {
-  return format;
+function candidateLabel(candidate: WriterCandidate): string {
+  if (candidate.source === "draft") {
+    return "Current draft";
+  }
+
+  if (candidate.format === "one-liner") {
+    return "One-liner";
+  }
+
+  if (candidate.format === "mini-framework") {
+    return "Mini framework";
+  }
+
+  if (candidate.format === "debate-question") {
+    return "Debate question";
+  }
+
+  return "Generated variant";
 }
 
 type WriterPageViewProps = WriterPageModel & {
@@ -90,13 +110,11 @@ type WriterPageViewProps = WriterPageModel & {
 
 function CandidateAnalysis({
   candidate,
-  onApplyFollowers,
   onFocusFollowers,
   onRetryScore,
   state,
 }: {
-  candidate: GeneratedIdeaCandidate;
-  onApplyFollowers: () => void;
+  candidate: WriterCandidate;
   onFocusFollowers: () => void;
   onRetryScore: (itemId: string) => void;
   state: CandidateAnalysisState;
@@ -138,16 +156,11 @@ function CandidateAnalysis({
   if (state.status === "stale") {
     return (
       <div className="xb-writer-candidate__analysis">
-        <p>{candidate.text}</p>
         <CandidateDeterministicSummary
           item={state.item}
           onAddFollowers={onFocusFollowers}
           onRetryScore={onRetryScore}
         />
-        <p>Prediction needs refresh.</p>
-        <Button onClick={onApplyFollowers} type="button" variant="secondary">
-          Recompute prediction
-        </Button>
       </div>
     );
   }
@@ -167,6 +180,65 @@ function CandidateAnalysis({
   }
 
   return <p>{candidate.text}</p>;
+}
+
+function DraftAnalysis({
+  candidate,
+  onFocusFollowers,
+  onRetryScore,
+  state,
+}: {
+  candidate: WriterCandidate;
+  onFocusFollowers: () => void;
+  onRetryScore: (itemId: string) => void;
+  state: CandidateAnalysisState;
+}): ReactElement | null {
+  if (state.status === "ready" || state.status === "failed" || state.status === "stale") {
+    return (
+      <DraftDeterministicEvaluation
+        item={state.item}
+        onAddFollowers={onFocusFollowers}
+        onRetryScore={onRetryScore}
+      />
+    );
+  }
+
+  if (state.status === "unavailable") {
+    return (
+      <Alert
+        variant="danger"
+        title="Could not score draft"
+        recovery={
+          <Button
+            disabled={!state.error.retryable}
+            onClick={() => onRetryScore(state.candidate.id)}
+            type="button"
+            variant="secondary"
+          >
+            Retry score
+          </Button>
+        }
+      >
+        {state.error.message}
+      </Alert>
+    );
+  }
+
+  if (state.status === "loading") {
+    return (
+      <div aria-busy="true" className="xb-draft-evaluation" role="status">
+        <p>Scoring draft</p>
+        <Skeleton height={92} label="Scoring draft prediction" width={480} />
+        <Skeleton height={160} label="Scoring draft coach" width={480} />
+      </div>
+    );
+  }
+
+  if (candidate.text.trim().length === 0) {
+    return null;
+  }
+
+  return null;
 }
 
 function WriterPageView({
@@ -201,98 +273,121 @@ function WriterPageView({
     onGenerate();
   };
 
+  const hasStaleAnalysis = Object.values(analysisByCandidateId).some(
+    (state) => state.status === "stale",
+  );
+  const hasDraftText = idea.trim().length > 0;
+  const visibleCandidates = hasDraftText ? candidates : [];
+
   return (
-    <section className="xb-writer-page" aria-label="Writer workspace">
+    <section className="xb-writer-page" aria-label="Studio workspace">
       <RouteErrorBanner
         error={routeError}
         isRetrying={isGenerating}
         onOpenSettings={onOpenSettings}
         onRetry={onRetry}
       />
-      <form
-        aria-label="Idea input"
-        aria-busy={isGenerating}
-        className="xb-writer-form"
-        onSubmit={handleSubmit}
-      >
-        <label className="xb-writer-form__label" htmlFor="writer-idea">
-          Idea
-        </label>
-        <textarea
-          aria-describedby={fieldError === null ? helperId : `${helperId} ${ideaErrorId}`}
-          aria-invalid={fieldError === null ? undefined : true}
-          id="writer-idea"
-          onChange={(event) => onIdeaChange(event.target.value)}
-          placeholder="Paste a raw idea or rough angle..."
-          value={idea}
-        />
-        <p className="xb-writer-form__helper" id={helperId}>
-          Start with the messy version. The engine will shape three first-pass directions.
-        </p>
-        {fieldError === null ? null : (
-          <p className="xb-writer-form__error" id={ideaErrorId}>
-            {fieldError}
+      <div className="xb-writer-workspace">
+        <form
+          aria-label="Idea input"
+          aria-busy={isGenerating}
+          className="xb-writer-form"
+          onSubmit={handleSubmit}
+        >
+          <label className="xb-writer-form__label" htmlFor="writer-idea">
+            Draft
+          </label>
+          <textarea
+            aria-describedby={fieldError === null ? helperId : `${helperId} ${ideaErrorId}`}
+            aria-invalid={fieldError === null ? undefined : true}
+            id="writer-idea"
+            onChange={(event) => onIdeaChange(event.target.value)}
+            placeholder="Paste a draft post to evaluate..."
+            value={idea}
+          />
+          <p className="xb-writer-form__helper" id={helperId}>
+            Paste or edit a post. Studio scores it automatically.
           </p>
-        )}
-        <Button loading={isGenerating} type="submit" variant="primary">
-          Generate
-        </Button>
-      </form>
-      <ManualScoringContextPanel
-        applyLabel="Recompute prediction"
-        context={{
-          followers: appliedFollowers,
-          source: appliedFollowers === undefined ? "missing" : "manual",
-          skipped: appliedFollowers === undefined,
-        }}
-        disabled={isGenerating || isScoring}
-        error={followerError}
-        isStale={Object.values(analysisByCandidateId).some(
-          (state) => state.status === "stale",
-        )}
-        focusTarget="manual-followers"
-        onApplyFollowers={onApplyFollowers}
-        onFollowersDraftChange={onFollowersChange}
-        value={followerDraft}
-      />
-      <section
-        aria-label="Generated candidates"
-        aria-live="polite"
-        className="xb-writer-results"
-      >
-        {isGenerating ? (
-          <div className="xb-writer-results__skeletons">
-            <Skeleton height={92} label="Generating candidate one" width={540} />
-            <Skeleton height={92} label="Generating candidate two" width={540} />
-            <Skeleton height={92} label="Generating candidate three" width={540} />
-          </div>
-        ) : null}
-        {!isGenerating && candidates.length > 0 ? (
-          <div className="xb-writer-candidates">
-            {candidates.map((candidate) => (
-              <article className="xb-writer-candidate" key={candidate.id}>
-                <Badge variant="info">{candidateLabel(candidate.format)}</Badge>
-                <Button
-                  data-focus-target={`candidate-details:${candidate.id}`}
-                  disabled={isGenerating || isScoring}
-                  onClick={() => onOpenDetails(candidate.id)}
-                  type="button"
-                  variant="secondary"
-                >
-                  Details
-                </Button>
-                <CandidateAnalysis
-                  candidate={candidate}
-                  onApplyFollowers={onApplyFollowers}
-                  onFocusFollowers={onFocusFollowers}
-                  onRetryScore={onRetryScore}
-                  state={analysisByCandidateId[candidate.id] ?? { status: "idle" }}
-                />
-              </article>
-            ))}
-          </div>
-        ) : null}
-      </section>
+          {fieldError === null ? null : (
+            <p className="xb-writer-form__error" id={ideaErrorId}>
+              {fieldError}
+            </p>
+          )}
+        </form>
+        <div className="xb-writer-results-stack">
+          <ManualScoringContextPanel
+            applyLabel="Recompute prediction"
+            context={{
+              followers: appliedFollowers,
+              source: appliedFollowers === undefined ? "missing" : "manual",
+              skipped: appliedFollowers === undefined,
+            }}
+            disabled={isGenerating || isScoring}
+            error={followerError}
+            isStale={hasDraftText && hasStaleAnalysis}
+            focusTarget="manual-followers"
+            onApplyFollowers={onApplyFollowers}
+            onFollowersDraftChange={onFollowersChange}
+            value={followerDraft}
+          />
+          <section
+            aria-label="Studio evaluation"
+            aria-live="polite"
+            className="xb-writer-results"
+          >
+            {isGenerating ? (
+              <div className="xb-writer-results__skeletons">
+                <Skeleton height={92} label="Generating candidate one" width={540} />
+                <Skeleton height={92} label="Generating candidate two" width={540} />
+                <Skeleton height={92} label="Generating candidate three" width={540} />
+              </div>
+            ) : null}
+            {!isGenerating && visibleCandidates.length > 0 ? (
+              <div className="xb-writer-candidates">
+                {visibleCandidates.map((candidate) =>
+                  candidate.source === "draft" ? (
+                    <DraftAnalysis
+                      candidate={candidate}
+                      key={candidate.id}
+                      onFocusFollowers={onFocusFollowers}
+                      onRetryScore={onRetryScore}
+                      state={analysisByCandidateId[candidate.id] ?? { status: "idle" }}
+                    />
+                  ) : (
+                    <article className="xb-writer-candidate" key={candidate.id}>
+                      <div className="xb-writer-candidate__header">
+                        <Badge variant="info">{candidateLabel(candidate)}</Badge>
+                        <Button
+                          data-focus-target={`candidate-details:${candidate.id}`}
+                          disabled={isGenerating || isScoring}
+                          onClick={() => onOpenDetails(candidate.id)}
+                          type="button"
+                          variant="secondary"
+                        >
+                          Details
+                        </Button>
+                      </div>
+                      <CandidateAnalysis
+                        candidate={candidate}
+                        onFocusFollowers={onFocusFollowers}
+                        onRetryScore={onRetryScore}
+                        state={analysisByCandidateId[candidate.id] ?? { status: "idle" }}
+                      />
+                    </article>
+                  ),
+                )}
+              </div>
+            ) : null}
+            {!isGenerating && visibleCandidates.length === 0 ? (
+              <DraftEvaluationEmptyState
+                hasDraft={hasDraftText}
+                hasFollowers={appliedFollowers !== undefined}
+                onAddFollowers={onFocusFollowers}
+              />
+            ) : null}
+          </section>
+        </div>
+      </div>
       <Drawer
         closeLabel="Close deterministic details"
         onClose={onCloseDetails}
@@ -394,6 +489,55 @@ export function WriterPage({
   const retryScore = async (itemId: string) => {
     await runRetryScore(apiClient, modelRef.current, itemId, publishModel);
   };
+
+  const scoreDraft = async () => {
+    await runScoreDraft(apiClient, modelRef.current, publishModel);
+  };
+
+  useEffect(() => {
+    const trimmedIdea = model.idea.trim();
+    const hasStaleCandidateAnalysis = Object.values(model.analysisByCandidateId).some(
+      (state) => state.status === "stale",
+    );
+    const showingGeneratedCandidates = model.candidates.some(
+      (candidate) => candidate.source === "generated",
+    );
+
+    if (
+      trimmedIdea.length === 0 ||
+      model.isGenerating ||
+      model.activeGenerationRequestId !== null ||
+      showingGeneratedCandidates
+    ) {
+      return undefined;
+    }
+
+    const currentDraft = model.candidates[0];
+
+    if (
+      model.candidates.length === 1 &&
+      currentDraft?.source === "draft" &&
+      currentDraft.text === trimmedIdea &&
+      model.analysisByCandidateId[currentDraft.id]?.status !== "stale"
+    ) {
+      return undefined;
+    }
+
+    const timeout = window.setTimeout(() => {
+      void runScoreDraft(apiClient, modelRef.current, publishModel);
+    }, 500);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [
+    apiClient,
+    model.activeGenerationRequestId,
+    model.candidates,
+    model.idea,
+    model.isGenerating,
+    model.analysisByCandidateId,
+  ]);
 
   useEffect(() => {
     if (model.detail.status === "closed") {
@@ -529,6 +673,10 @@ export function createWriterPagePublicDriver(
     },
     retryScore: async (itemId: string) => {
       await runRetryScore(options.apiClient, model, itemId, publishModel);
+      return render();
+    },
+    scoreDraft: async () => {
+      await runScoreDraft(options.apiClient, model, publishModel);
       return render();
     },
     updateFollowers: (followers: string) => {

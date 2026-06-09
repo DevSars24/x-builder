@@ -65,6 +65,11 @@ type DeterministicComponentsModule = {
   CandidateDeterministicSummary: (
     props: CandidateDeterministicSummaryProps,
   ) => ReactElement;
+  DraftEvaluationEmptyState: (props: {
+    hasDraft: boolean;
+    hasFollowers: boolean;
+    onAddFollowers?: () => void;
+  }) => ReactElement;
   DeterministicDetailInspector: (
     props: DeterministicDetailInspectorProps,
   ) => ReactElement;
@@ -75,7 +80,10 @@ type DeterministicComponentsModule = {
   ManualScoringContextPanel: (
     props: ManualScoringContextPanelProps,
   ) => ReactElement;
-  PostCoachCard: (props: { postCoach: PostCoachViewModel }) => ReactElement;
+  PostCoachCard: (props: {
+    density?: "compact" | "full";
+    postCoach: PostCoachViewModel;
+  }) => ReactElement;
 };
 
 async function loadDeterministicComponents() {
@@ -175,7 +183,7 @@ function availablePrediction(
     signals: [
       {
         signal_key: "voice_score",
-        label: "Voice score 73",
+        label: "Static score 73",
         multiplier: 0.85,
       },
       {
@@ -253,7 +261,7 @@ function scoreFailedItem(
 }
 
 describe("CandidateDeterministicSummary", () => {
-  it("renders scored API items with separate formats, score, Post Coach, and available prediction state", async () => {
+  it("renders scored API items with compact score, checks, and available prediction state", async () => {
     const { CandidateDeterministicSummary } = await loadDeterministicComponents();
 
     const html = render(
@@ -262,22 +270,20 @@ describe("CandidateDeterministicSummary", () => {
     const text = textContent(html);
 
     expect(text).toContain("genuine question: what made your onboarding finally click?");
-    expect(text).toContain("Source format");
-    expect(text).toContain("debate-question");
-    expect(text).toContain("Detected format");
-    expect(text).toContain("genuine_question");
+    expect(text).not.toContain("Source format");
+    expect(text).not.toContain("Detected format");
     expect(text).toContain("73");
     expect(text).toContain("Heuristic rank, not prediction.");
     expect(text).toContain("Ship it");
-    expect(text).toContain("9");
-    expect(text).toContain("7");
-    expect(text).toContain("5");
-    expect(text).toContain("120");
-    expect(text).toContain("280");
-    expect(text).toContain("Voice score 73");
+    expect(text).toContain("9 flagged");
+    expect(text).toContain("7 nudges");
+    expect(text).toContain("5 on point");
+    expect(text).toContain("Needs a concrete detail");
+    expect(text).toContain("Question could be sharper");
+    expect(text).toContain("120 - 280 impressions, medium");
   });
 
-  it("renders missing source format gracefully while preserving detected format", async () => {
+  it("renders missing source format gracefully in the compact summary", async () => {
     const { CandidateDeterministicSummary } = await loadDeterministicComponents();
 
     const item = scoredItem({
@@ -293,10 +299,9 @@ describe("CandidateDeterministicSummary", () => {
     expect(text).toContain(
       "manual draft: what changed after you stopped optimizing for demos?",
     );
-    expect(text).toContain("Source format");
-    expect(text).toContain("Unknown");
-    expect(text).toContain("Detected format");
-    expect(text).toContain("genuine_question");
+    expect(text).not.toContain("Source format");
+    expect(text).not.toContain("Detected format");
+    expect(text).toContain("Static score");
   });
 
   it("renders disabled prediction state from the item without inventing a range", async () => {
@@ -311,7 +316,6 @@ describe("CandidateDeterministicSummary", () => {
     const text = textContent(html);
 
     expect(text).toContain("Prediction needs follower count.");
-    expect(text).toContain("missing_followers");
     expect(text).not.toContain("120");
     expect(text).not.toContain("280");
   });
@@ -408,7 +412,7 @@ describe("PostCoachCard", () => {
     const html = render(<PostCoachCard postCoach={postCoach} />);
     const text = textContent(html);
 
-    expect(text).toContain("Post Coach");
+    expect(text).toContain("Draft Review");
     expect(text).toContain("Top tier");
     expect(text).toContain("Server-selected badge copy that does not match the raw score.");
     expect(text).not.toContain("Rework");
@@ -428,6 +432,57 @@ describe("PostCoachCard", () => {
     expect(text).toContain(learningCaveat);
     expect(text).not.toContain("real user performance");
   });
+
+  it("renders compact check groups so On point counts can be inspected", async () => {
+    const { PostCoachCard } = await loadDeterministicComponents();
+    const postCoach = readyPostCoach({
+      failed: [
+        {
+          id: "fail-one",
+          label: "Opening needs a concrete hook",
+          status: "fail",
+        },
+      ],
+      warned: [
+        {
+          id: "warn-one",
+          label: "Ending question can be sharper",
+          status: "warn",
+        },
+      ],
+      passed: [
+        {
+          id: "pass-one",
+          label: "Specific reader payoff is clear",
+          status: "pass",
+        },
+        {
+          id: "pass-two",
+          label: "Plain language keeps the post scannable",
+          status: "pass",
+        },
+      ],
+      counts: {
+        flagged: 1,
+        nudges: 1,
+        onPoint: 2,
+      },
+    });
+
+    const html = render(<PostCoachCard density="compact" postCoach={postCoach} />);
+    const text = textContent(html);
+
+    expect(text).toContain("Flagged 1");
+    expect(text).toContain("Nudges 1");
+    expect(text).toContain("On point 2");
+    expect(text).toContain("Specific reader payoff is clear");
+    expect(text).toContain("Plain language keeps the post scannable");
+    expect(text).not.toContain(postCoach.footerText);
+    expect(html).toMatch(/<details\b[^>]*open=""/);
+    expect(html).toMatch(/<summary><span>Flagged<\/span><span>1<\/span><\/summary>/);
+    expect(html).toMatch(/<summary><span>Nudges<\/span><span>1<\/span><\/summary>/);
+    expect(html).toMatch(/<details\b(?![^>]*open)[^>]*><summary><span>On point<\/span><span>2<\/span><\/summary>/);
+  });
 });
 
 describe("EngagementPredictionCard", () => {
@@ -443,7 +498,7 @@ describe("EngagementPredictionCard", () => {
     expect(text).toContain("280");
     expect(text).toContain("200");
     expect(text).toContain("medium");
-    expect(text).toContain("Voice score 73");
+    expect(text).toContain("Static score 73");
     expect(text).toContain("0.85");
     expect(text).toContain("Question ending");
     expect(text).toContain("1.15");
@@ -458,7 +513,7 @@ describe("EngagementPredictionCard", () => {
     const text = textContent(html);
 
     expect(text).toContain("Prediction needs follower count.");
-    expect(text).toContain("missing_followers");
+    expect(text).not.toContain("missing_followers");
     expect(text).not.toContain("120");
     expect(text).not.toContain("280");
   });
@@ -476,6 +531,47 @@ describe("EngagementPredictionCard", () => {
 
     expect(text).toContain("Prediction needs follower count.");
     expect(text).toContain("Add followers");
+  });
+});
+
+describe("DraftEvaluationEmptyState", () => {
+  it("shows both empty result cards and asks for missing draft plus followers", async () => {
+    const { DraftEvaluationEmptyState } = await loadDeterministicComponents();
+
+    const html = render(
+      <DraftEvaluationEmptyState
+        hasDraft={false}
+        hasFollowers={false}
+        onAddFollowers={vi.fn()}
+      />,
+    );
+    const text = textContent(html);
+
+    expect(text).toContain("Engagement Prediction");
+    expect(text).toContain("Prediction unavailable");
+    expect(text).toContain("Paste a draft and add followers to estimate impressions.");
+    expect(text).toContain("Missing");
+    expect(text).toContain("Draft text, Followers");
+    expect(text).toContain("Add followers");
+    expect(text).toContain("Draft Review");
+    expect(text).toContain("Paste a draft to see static review checks.");
+  });
+
+  it("keeps the prediction empty state focused on followers when draft text exists", async () => {
+    const { DraftEvaluationEmptyState } = await loadDeterministicComponents();
+
+    const html = render(
+      <DraftEvaluationEmptyState
+        hasDraft
+        hasFollowers={false}
+        onAddFollowers={vi.fn()}
+      />,
+    );
+    const text = textContent(html);
+
+    expect(text).toContain("Add followers to estimate impressions.");
+    expect(text).toContain("Missing Followers");
+    expect(text).not.toContain("Draft text, Followers");
   });
 });
 
@@ -533,7 +629,7 @@ describe("DeterministicDetailInspector", () => {
     expect(textContent(emptyHtml)).toContain(
       "Select a candidate to inspect deterministic scoring.",
     );
-    expect(textContent(emptyHtml)).not.toContain("Post Coach");
+    expect(textContent(emptyHtml)).not.toContain("Draft Review");
     expect(textContent(emptyHtml)).not.toContain("Heuristic rank");
     expect(textContent(emptyHtml)).not.toContain("Sample");
     expect(loadingHtml).toContain('role="status"');
@@ -552,11 +648,11 @@ describe("DeterministicDetailInspector", () => {
     const text = textContent(html);
 
     expect(text).toContain("genuine question: what made your onboarding finally click?");
-    expect(text).toContain("Post Coach");
+    expect(text).toContain("Draft Review");
     expect(text).toContain("Ship it");
     expect(text).toContain("120");
     expect(text).toContain("280");
-    expect(text).toContain("Voice score 73");
+    expect(text).toContain("Static score 73");
   });
 
   it("renders detail metadata, API Post Coach data, and recovery actions", async () => {
@@ -634,7 +730,7 @@ describe("DeterministicDetailInspector", () => {
     expect(text).toContain("deterministic-v1");
     expect(text).toContain("Analyzed at");
     expect(text).toContain("2026-06-07T12:00:00.000Z");
-    expect(text).toContain("Post Coach");
+    expect(text).toContain("Draft Review");
     expect(text).toContain("18");
     expect(text).toContain("Rework");
     expect(text).toContain("Expanded API copy should be rendered directly.");
@@ -650,6 +746,6 @@ describe("DeterministicDetailInspector", () => {
     expect(text).toContain("Prediction needs follower count.");
     expect(text).toContain("missing_followers");
     expect(text).toContain("Add followers");
-    expect(text).toContain("Retry expanded Post Coach");
+    expect(text).toContain("Retry expanded review");
   });
 });

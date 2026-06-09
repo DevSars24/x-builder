@@ -28,11 +28,7 @@ import {
   createShellPreferencesStore,
   type ShellPreferencesStore,
 } from "./shell-preferences";
-import {
-  TopStatusBar,
-  useAppStatus,
-  type EngineStatusClient,
-} from "./status-bar";
+import type { EngineStatusClient } from "./status-bar";
 
 export type ShellHistory = {
   location: {
@@ -331,6 +327,60 @@ function SidebarNav({
       onNavigatePath(path);
     };
 
+  const routeIcon = (routeId: RouteConfig["id"]): ReactElement => {
+    const commonProps = {
+      "aria-hidden": true,
+      className: "xb-shell-sidebar__route-icon",
+      focusable: "false",
+      viewBox: "0 0 24 24",
+    } as const;
+
+    if (routeId === "writer") {
+      return (
+        <svg {...commonProps}>
+          <path d="M5 5.5h14v13H5z" />
+          <path d="M8 9h8" />
+          <path d="M8 12h6" />
+          <path d="M8 15h4" />
+        </svg>
+      );
+    }
+
+    if (routeId === "voice") {
+      return (
+        <svg {...commonProps}>
+          <path d="M12 4v10" />
+          <path d="M8 9v2a4 4 0 0 0 8 0V9" />
+          <path d="M9 19h6" />
+          <path d="M12 15v4" />
+        </svg>
+      );
+    }
+
+    if (routeId === "library") {
+      return (
+        <svg {...commonProps}>
+          <path d="M6 5h11a2 2 0 0 1 2 2v12H8a2 2 0 0 1-2-2z" />
+          <path d="M6 5v12a2 2 0 0 0 2 2" />
+          <path d="M9 9h6" />
+          <path d="M9 12h5" />
+        </svg>
+      );
+    }
+
+    return (
+      <svg {...commonProps}>
+        <path d="M12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7z" />
+        <path d="M12 3.5v2" />
+        <path d="M12 18.5v2" />
+        <path d="M4.6 7.8l1.7 1" />
+        <path d="M17.7 15.2l1.7 1" />
+        <path d="M19.4 7.8l-1.7 1" />
+        <path d="M6.3 15.2l-1.7 1" />
+      </svg>
+    );
+  };
+
   return (
     <nav aria-label="Primary" className="xb-shell-sidebar">
       <div className="xb-shell-sidebar__header">
@@ -361,6 +411,7 @@ function SidebarNav({
             onClick={handleNavigate(route.path)}
           >
             <span className="xb-shell-sidebar__route-marker" aria-hidden="true" />
+            {routeIcon(route.id)}
             <span className="xb-shell-sidebar__route-label">{route.label}</span>
           </a>
         ))}
@@ -457,7 +508,7 @@ function PlaceholderRoute({
     <EmptyState
       action={
         <Button onClick={onNavigateToWriter} variant="primary">
-          Back to Writer
+          Back to Studio
         </Button>
       }
       title={`${route.title} workspace`}
@@ -697,9 +748,6 @@ export function AppShell({
   const writerApiClient = hasWriterApiClient(shellApiClient)
     ? shellApiClient
     : defaultApiClient;
-  const status = useAppStatus({
-    apiClient: shellApiClient,
-  });
   const pathname = useShellPath(history);
   const preferences = useShellPreferences(preferencesStore);
   const resolution = resolveRoutePath(pathname);
@@ -824,7 +872,6 @@ export function AppShell({
         preferencesStore={preferencesStore}
       />
       <main className="xb-shell__main" id="main-content">
-        <TopStatusBar onOpenSettings={handleOpenSettings} status={status} />
         <header className="xb-page-header xb-shell__route-header">
           <div className="xb-page-header__main">
             <RouteHeading target={headingTarget} />
@@ -840,7 +887,7 @@ export function AppShell({
             onNavigateToWriter={handleNavigateToWriter}
             onRequestShellNavigation={requestShellNavigation}
             onStayOnSettings={handleStayOnSettings}
-            onStatusRefresh={status.publish}
+            onStatusRefresh={() => undefined}
             pendingSettingsNavigationPath={pendingSettingsNavigationPath}
             route={route}
             routeComponents={routeComponents}

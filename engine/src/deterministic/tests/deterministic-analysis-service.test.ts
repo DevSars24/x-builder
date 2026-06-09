@@ -230,6 +230,7 @@ describe("deterministic analysis service", () => {
     expect(postCoach.learnings.every((learning) => learning.text.includes("Static rule"))).toBe(true);
     expect(postCoachText).not.toMatch(/your data|last 30 days|averaged|replies for you|outperform/);
     expect(postCoachText).not.toMatch(/imported metrics|personal performance data exists/);
+    expect(postCoachText).not.toMatch(/ai rate post|above the composer/);
   });
 
   it("sets preview and expanded Post Coach view-model flags for the requested presentation mode", async () => {

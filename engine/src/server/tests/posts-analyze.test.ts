@@ -146,7 +146,7 @@ const scoredResponse = (request: AnalyzePostsRequest): AnalyzePostsResponse => (
           signals: [
             {
               signal_key: "quality_voice",
-              label: "Voice score 74",
+              label: "Static score 74",
               multiplier: 0.8,
             },
           ],

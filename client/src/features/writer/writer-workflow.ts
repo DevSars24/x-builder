@@ -15,6 +15,13 @@ export type WriterApiClient = {
   generateIdea: (input: GenerateIdeaRequest) => Promise<GenerateIdeaResponse>;
 };
 
+export type WriterCandidate = {
+  format?: GeneratedIdeaCandidate["format"];
+  id: string;
+  source: "draft" | "generated";
+  text: string;
+};
+
 type CandidateReadyAnalysisState = {
   item: AnalyzedPostItem;
   status: "ready";
@@ -31,7 +38,7 @@ type CandidateStaleAnalysisState = {
 };
 
 type CandidateUnavailableAnalysisState = {
-  candidate: GeneratedIdeaCandidate;
+  candidate: WriterCandidate;
   error: ApiError;
   status: "unavailable";
 };
@@ -64,24 +71,24 @@ export type CandidateDetailState =
       status: "closed";
     }
   | {
-      candidate: GeneratedIdeaCandidate;
+      candidate: WriterCandidate;
       requestId: number;
       status: "loading";
     }
   | {
-      candidate: GeneratedIdeaCandidate;
+      candidate: WriterCandidate;
       item: ScoredAnalyzedPostItem;
       requestId: number;
       status: "ready";
     }
   | {
-      candidate: GeneratedIdeaCandidate;
+      candidate: WriterCandidate;
       item: ScoreFailedAnalyzedPostItem;
       requestId: number;
       status: "failed";
     }
   | {
-      candidate: GeneratedIdeaCandidate;
+      candidate: WriterCandidate;
       error: ApiError;
       requestId: number;
       status: "error";
@@ -93,7 +100,7 @@ export type WriterPageModel = {
   activeGenerationRequestId: number | null;
   analysisByCandidateId: Record<string, CandidateAnalysisState>;
   appliedFollowers: number | undefined;
-  candidates: GeneratedIdeaCandidate[];
+  candidates: WriterCandidate[];
   detail: CandidateDetailState;
   fieldError: string | null;
   followerDraft: string;
@@ -205,7 +212,7 @@ function payloadFromIdea(idea: string): PayloadResult {
 }
 
 function candidateAnalysisRequest(
-  candidates: GeneratedIdeaCandidate[],
+  candidates: WriterCandidate[],
   followers: number | undefined,
   postCoachMode: AnalyzePostsRequest["presentation"]["postCoachMode"] = "preview",
 ): AnalyzePostsRequest {
@@ -213,7 +220,7 @@ function candidateAnalysisRequest(
     items: candidates.map((candidate) => ({
       id: candidate.id,
       text: candidate.text,
-      sourceFormat: candidate.format,
+      sourceFormat: candidate.source === "generated" ? candidate.format : undefined,
     })),
     presentation: {
       postCoachMode,
@@ -277,7 +284,7 @@ function applyParsedFollowers(
 }
 
 function createLoadingAnalysis(
-  candidates: GeneratedIdeaCandidate[],
+  candidates: WriterCandidate[],
   requestId: number,
   analysisByCandidateId: Record<string, CandidateAnalysisState> = {},
 ): Record<string, CandidateAnalysisState> {
@@ -311,12 +318,12 @@ function createLoadingAnalysis(
 }
 
 function analysisStateFromItem(
-  candidate: GeneratedIdeaCandidate,
+  candidate: WriterCandidate,
   item: AnalyzedPostItem,
 ): CandidateAnalysisState {
   const candidateItem = {
     ...item,
-    sourceFormat: candidate.format,
+    sourceFormat: candidate.source === "generated" ? candidate.format : undefined,
   };
 
   if (item.status === "score_failed") {
@@ -333,8 +340,8 @@ function analysisStateFromItem(
 }
 
 function candidatesStillPresent(
-  currentCandidates: GeneratedIdeaCandidate[],
-  requestedCandidates: GeneratedIdeaCandidate[],
+  currentCandidates: WriterCandidate[],
+  requestedCandidates: WriterCandidate[],
 ): boolean {
   return requestedCandidates.every((candidate) =>
     currentCandidates.some(
@@ -372,9 +379,30 @@ async function requestGeneration(
   }
 }
 
+function generatedCandidateFromApi(candidate: GeneratedIdeaCandidate): WriterCandidate {
+  return {
+    ...candidate,
+    source: "generated",
+  };
+}
+
+function draftCandidateFromIdea(idea: string): WriterCandidate | null {
+  const trimmedIdea = idea.trim();
+
+  if (trimmedIdea.length === 0) {
+    return null;
+  }
+
+  return {
+    id: "draft-post",
+    source: "draft",
+    text: trimmedIdea,
+  };
+}
+
 async function requestAnalysis(
   apiClient: WriterApiClient,
-  candidates: GeneratedIdeaCandidate[],
+  candidates: WriterCandidate[],
   followers: number | undefined,
   postCoachMode: AnalyzePostsRequest["presentation"]["postCoachMode"] = "preview",
 ): Promise<
@@ -418,14 +446,16 @@ function applyGenerationResult(
   }
 
   if (result.type === "success") {
+    const candidates = result.candidates.map(generatedCandidateFromApi);
+
     return {
       ...model,
       analysisByCandidateId:
         options.analysisRequestId === null
           ? {}
-          : createLoadingAnalysis(result.candidates, options.analysisRequestId),
+          : createLoadingAnalysis(candidates, options.analysisRequestId),
       activeGenerationRequestId: null,
-      candidates: result.candidates,
+      candidates,
       detail: {
         status: "closed",
       },
@@ -467,7 +497,7 @@ function applyGenerationResult(
 
 function applyAnalysisResult(
   model: WriterPageModel,
-  requestedCandidates: GeneratedIdeaCandidate[],
+  requestedCandidates: WriterCandidate[],
   requestedFollowers: number | undefined,
   requestId: number,
   result: Awaited<ReturnType<typeof requestAnalysis>>,
@@ -563,7 +593,7 @@ function applyAnalysisResult(
 
 function applyDetailAnalysisResult(
   model: WriterPageModel,
-  candidate: GeneratedIdeaCandidate,
+  candidate: WriterCandidate,
   requestId: number,
   result: Awaited<ReturnType<typeof requestAnalysis>>,
 ): WriterPageModel {
@@ -607,7 +637,7 @@ function applyDetailAnalysisResult(
 
   const candidateItem = {
     ...item,
-    sourceFormat: candidate.format,
+    sourceFormat: candidate.source === "generated" ? candidate.format : undefined,
   };
 
   if (candidateItem.status === "score_failed") {
@@ -635,7 +665,7 @@ function applyDetailAnalysisResult(
 
 function applyAnalysisLoading(
   model: WriterPageModel,
-  candidates: GeneratedIdeaCandidate[],
+  candidates: WriterCandidate[],
   requestId: number,
 ): WriterPageModel {
   return {
@@ -858,6 +888,7 @@ async function runGenerationFromStart(
     analysisRequestId !== null &&
     generationApplied
   ) {
+    const requestedCandidates = generationResult.candidates.map(generatedCandidateFromApi);
     const latestFollowerContext = parseFollowerDraft(currentModel.followerDraft);
     const requestedFollowers =
       latestFollowerContext.type === "valid" ? latestFollowerContext.followers : undefined;
@@ -866,7 +897,7 @@ async function runGenerationFromStart(
     );
     const analysisResult = await requestAnalysis(
       apiClient,
-      generationResult.candidates,
+      requestedCandidates,
       requestedFollowers,
     );
     currentModel = publishLatest(
@@ -875,7 +906,7 @@ async function runGenerationFromStart(
       (latestModel) =>
         applyAnalysisResult(
           latestModel,
-          generationResult.candidates,
+          requestedCandidates,
           requestedFollowers,
           analysisRequestId,
           analysisResult,
@@ -905,7 +936,7 @@ export async function runRetry(
 async function runAnalysisForCandidates(
   apiClient: WriterApiClient,
   model: WriterPageModel,
-  candidates: GeneratedIdeaCandidate[],
+  candidates: WriterCandidate[],
   publish: PublishModel,
 ): Promise<WriterPageModel> {
   if (model.isScoring) {
@@ -958,6 +989,40 @@ export async function runApplyFollowers(
   publish: PublishModel,
 ): Promise<WriterPageModel> {
   return runAnalysisForCandidates(apiClient, model, model.candidates, publish);
+}
+
+export async function runScoreDraft(
+  apiClient: WriterApiClient,
+  model: WriterPageModel,
+  publish: PublishModel,
+): Promise<WriterPageModel> {
+  if (model.isGenerating || model.isScoring) {
+    return model;
+  }
+
+  if (model.candidates.some((candidate) => candidate.source === "generated")) {
+    return model;
+  }
+
+  const candidate = draftCandidateFromIdea(model.idea);
+
+  if (candidate === null) {
+    return model;
+  }
+
+  const nextModel: WriterPageModel = {
+    ...model,
+    analysisByCandidateId: {},
+    candidates: [candidate],
+    detail: {
+      status: "closed",
+    },
+    fieldError: null,
+    routeError: null,
+    routeErrorOrigin: null,
+  };
+
+  return runAnalysisForCandidates(apiClient, nextModel, [candidate], publish);
 }
 
 export async function runRetryScore(

@@ -88,7 +88,7 @@ const availablePrediction = {
   signals: [
     {
       signal_key: "quality_voice",
-      label: "Voice score 72",
+      label: "Static score 72",
       multiplier: 0.8,
     },
   ],
