@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   apiErrorSchema,
+  appSettingsResponseSchema,
   appSettingsSchema,
   appStatusSchema,
   type AppSettings,
@@ -392,7 +393,7 @@ describe("engine status readiness", () => {
       expect(status.overall).toBe("ready");
       expect(status.codex.state).toBe("ready");
       expect(status.codex.retryable).toBe(false);
-      expect(status.codex.details).toMatchObject({
+      expect(status.codex.details).toEqual({
         adapter: "codex-cli",
         command: "codex",
         commandAvailable: true,
@@ -434,7 +435,7 @@ describe("engine status readiness", () => {
       expect(status.overall).toBe("partial");
       expect(status.deterministic.state).toBe("ready");
       expect(status.codex.state).toBe("unavailable");
-      expect(status.codex.details).toMatchObject({
+      expect(status.codex.details).toEqual({
         adapter: "codex-cli",
         command: "codex",
         commandAvailable: false,
@@ -444,6 +445,67 @@ describe("engine status readiness", () => {
       expect(status.storage.state).toBe("ready");
       expect(response.body).not.toContain("/Users/nataly");
       expect(response.body).not.toContain("ENOENT");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("does not leak sensitive Codex failure output through status readiness", async () => {
+    const stderrSentinel = "STDERR_SENTINEL_DO_NOT_LEAK";
+    const promptSentinel = "PROMPT_SENTINEL_DO_NOT_LEAK";
+    const rawModelOutputSentinel = "RAW_MODEL_OUTPUT_SENTINEL_DO_NOT_LEAK";
+    const authPath = "/Users/nataly/.codex/auth.json";
+    const stackTrace = "Error: sensitive stack\n    at runCodex";
+    const runner = fakeProcessRunner(() =>
+      failedProcessResult("nonzero_exit", {
+        stdout: rawModelOutputSentinel,
+        stderr: `${stderrSentinel}\n${promptSentinel}\nauth file: ${authPath}\n${stackTrace}`,
+        exitCode: 1,
+        details: {
+          authPath,
+          stack: stackTrace,
+        },
+      }),
+    );
+    const dependencies = readinessDependencies({
+      codex: await createCodexReadinessProbe(runner),
+    });
+    const app = await buildServerWithReadinessDependencies(dependencies);
+
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/status",
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(runner.run).toHaveBeenCalledOnce();
+      const status = appStatusSchema.parse(parseJsonPayload(response.body));
+
+      expect(status.overall).toBe("partial");
+      expect(status.deterministic.state).toBe("ready");
+      expect(status.codex.state).toBe("unavailable");
+      expect(status.codex.retryable).toBe(true);
+      expect(status.codex.details).toEqual({
+        adapter: "codex-cli",
+        command: "codex",
+        commandAvailable: true,
+        sandbox: "read-only",
+        executionTimeoutMs: codexReadinessExecutionTimeoutMs,
+      });
+      expect(status.storage.state).toBe("ready");
+      expect(response.body).not.toContain(stderrSentinel);
+      expect(response.body).not.toContain(promptSentinel);
+      expect(response.body).not.toContain(rawModelOutputSentinel);
+      expect(response.body).not.toContain(authPath);
+      expect(response.body).not.toContain("/Users/nataly");
+      expect(response.body).not.toContain("auth.json");
+      expect(response.body).not.toContain("sensitive stack");
+      expect(response.body).not.toContain("runCodex");
+      expect(status.codex.details).not.toHaveProperty("stderr");
+      expect(status.codex.details).not.toHaveProperty("stdout");
+      expect(status.codex.details).not.toHaveProperty("rawOutput");
+      expect(status.codex.details).not.toHaveProperty("stack");
     } finally {
       await app.close();
     }
@@ -511,15 +573,54 @@ describe("engine status readiness", () => {
       const status = appStatusSchema.parse(parseJsonPayload(response.body));
 
       expect(status.codex.state).toBe("ready");
-      expect(status.codex.details).toMatchObject({
+      expect(status.codex.details).toEqual({
         adapter: "codex-cli",
         command: "codex",
         commandAvailable: true,
         version: "codex-cli 0.42.0",
+        sandbox: "read-only",
+        executionTimeoutMs: codexReadinessExecutionTimeoutMs,
       });
       expect(status.codex.details).not.toHaveProperty("autoJudgeEnabled");
       expect(status.codex.details).not.toHaveProperty("runCodexJudgeAfterGeneration");
       expect(response.body).not.toContain("Local Codex judge");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("keeps settings responses separate from Codex readiness details", async () => {
+    const runner = fakeProcessRunner(() => successfulProcessResult("codex-cli 0.42.0\n"));
+    const repository = settingsRepository(settingsWithCodexJudgeEnabled);
+    const dependencies = readinessDependencies({
+      codex: await createCodexReadinessProbe(runner),
+    });
+    const app = buildServer({
+      readinessDependencies: dependencies,
+      settingsRepository: repository,
+    } as BuildServerReadinessOptions);
+
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/settings",
+      });
+
+      expect(response.statusCode).toBe(200);
+      const settingsResponse = appSettingsResponseSchema.parse(parseJsonPayload(response.body));
+
+      expect(settingsResponse).toEqual({
+        settings: settingsWithCodexJudgeEnabled,
+        source: "persisted",
+        updatedAt: now,
+      });
+      expect(Object.keys(settingsResponse).sort()).toEqual(["settings", "source", "updatedAt"]);
+      expect(repository.load).toHaveBeenCalledOnce();
+      expect(repository.save).not.toHaveBeenCalled();
+      expect(runner.run).not.toHaveBeenCalled();
+      expect(response.body).not.toContain("overall");
+      expect(response.body).not.toContain("commandAvailable");
+      expect(response.body).not.toContain("autoJudgeEnabled");
     } finally {
       await app.close();
     }
