@@ -28,7 +28,11 @@ import {
   createShellPreferencesStore,
   type ShellPreferencesStore,
 } from "./shell-preferences";
-import type { EngineStatusClient } from "./status-bar";
+import {
+  TopStatusBar,
+  useAppStatus,
+  type EngineStatusClient,
+} from "./status-bar";
 
 export type ShellHistory = {
   location: {
@@ -748,6 +752,7 @@ export function AppShell({
   const writerApiClient = hasWriterApiClient(shellApiClient)
     ? shellApiClient
     : defaultApiClient;
+  const appStatus = useAppStatus({ apiClient: shellApiClient });
   const pathname = useShellPath(history);
   const preferences = useShellPreferences(preferencesStore);
   const resolution = resolveRoutePath(pathname);
@@ -872,6 +877,7 @@ export function AppShell({
         preferencesStore={preferencesStore}
       />
       <main className="xb-shell__main" id="main-content">
+        <TopStatusBar status={appStatus} onOpenSettings={handleOpenSettings} />
         <header className="xb-page-header xb-shell__route-header">
           <div className="xb-page-header__main">
             <RouteHeading target={headingTarget} />
@@ -887,7 +893,7 @@ export function AppShell({
             onNavigateToWriter={handleNavigateToWriter}
             onRequestShellNavigation={requestShellNavigation}
             onStayOnSettings={handleStayOnSettings}
-            onStatusRefresh={() => undefined}
+            onStatusRefresh={appStatus.publish}
             pendingSettingsNavigationPath={pendingSettingsNavigationPath}
             route={route}
             routeComponents={routeComponents}

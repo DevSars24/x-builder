@@ -9,6 +9,10 @@ Verify that Codex readiness appears in the shell without blocking the Writer rou
 - The user needs to know whether Codex is ready while deterministic work remains usable.
 - This smoke test should cover shell behavior only.
 - LLM judge UI belongs to the later `llm-judge` feature.
+- Pipeline finding: the existing status system lives in `client/src/shell/status-bar.tsx`,
+  but `client/src/shell/app-shell.tsx` currently does not render `TopStatusBar`
+  or connect Settings readiness refresh back into shell status state. Green must
+  wire that existing shell surface before the E2E smoke can pass.
 
 ## In Scope
 
@@ -28,6 +32,12 @@ Verify that Codex readiness appears in the shell without blocking the Writer rou
 ## Requirements
 
 - E2E test uses controlled backend status or the repo-approved fake backend setup.
+- `AppShell` renders the existing `TopStatusBar` using the existing
+  `useAppStatus` hook and shell API client.
+- The Top Status Bar `Open Settings` action navigates to Settings without
+  introducing any LLM judge execution controls.
+- Settings `Test readiness` publishes refreshed status back into the shell status
+  bar through the existing `onStatusRefresh` callback.
 - The shell must show Codex ready or unavailable with visible text.
 - Writer route must remain reachable when Codex is unavailable.
 - The app must not show a global blocking failure when only Codex is unavailable.
