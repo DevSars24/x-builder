@@ -314,7 +314,8 @@ describe("codex cli provider", () => {
 
   it.each([
     ["invalid JSON", "invalid-json.txt"],
-    ["prose mixed with JSON", "mixed-prose-json.txt"],
+    ["leading prose before JSON", "mixed-prose-json.txt"],
+    ["trailing prose after JSON", "trailing-prose-json.txt"],
     ["JSONL event stream", "jsonl-events.txt"],
   ])("returns invalid_provider_response for %s stdout", async (_caseName, fixtureName) => {
     const stdout = await readFixture(fixtureName);

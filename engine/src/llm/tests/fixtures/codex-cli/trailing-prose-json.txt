@@ -1,0 +1,5 @@
+{
+  "draft": "This object has prose after it.",
+  "confidence": 0.64
+}
+That is the structured answer.
