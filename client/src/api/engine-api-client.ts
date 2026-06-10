@@ -4,6 +4,7 @@ import {
   appSettingsResponseSchema,
   appStatusSchema,
   generateIdeaResponseSchema,
+  judgeDraftResponseSchema,
   type AnalyzePostsRequest,
   type AnalyzePostsResponse,
   type ApiError,
@@ -12,6 +13,8 @@ import {
   type AppStatus,
   type GenerateIdeaRequest,
   type GenerateIdeaResponse,
+  type JudgeDraftRequest,
+  type JudgeDraftResponse,
 } from "@x-builder/shared";
 import type { output, ZodTypeAny } from "zod";
 
@@ -24,7 +27,12 @@ export interface EngineApiClientOptions {
 type RequestOptions = {
   body?: unknown;
   method: "GET" | "PATCH" | "POST";
+  timeoutMs?: number;
 };
+
+// The Codex judge runs a slow CLI; it must not be cut off by the short default
+// request timeout used for the rest of the (local, fast) engine API.
+const judgeTimeoutMs = 65_000;
 
 export class ApiClientError extends Error {
   public readonly apiError: ApiError;
@@ -118,6 +126,20 @@ export class EngineApiClient {
     );
   }
 
+  judgeDraft(input: JudgeDraftRequest): Promise<JudgeDraftResponse> {
+    return this.observe(
+      this.request(
+        "/drafts/judge",
+        {
+          body: input,
+          method: "POST",
+          timeoutMs: judgeTimeoutMs,
+        },
+        judgeDraftResponseSchema,
+      ),
+    );
+  }
+
   private observe<T>(promise: Promise<T>): Promise<T> {
     promise.catch(() => undefined);
 
@@ -160,7 +182,7 @@ export class EngineApiClient {
       timeoutId = setTimeout(() => {
         reject(timeoutError);
         controller.abort();
-      }, this.timeoutMs);
+      }, options.timeoutMs ?? this.timeoutMs);
     });
 
     const fetchPromise = Promise.resolve().then(() =>

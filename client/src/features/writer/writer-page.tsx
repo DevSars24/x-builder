@@ -29,10 +29,12 @@ import {
   runRetry,
   runRetryAnalysis,
   runRetryDetails,
+  runJudgeDraft,
   runRetryScore,
   runScoreDraft,
   shouldRetryAnalysis,
   type CandidateAnalysisState,
+  type JudgeState,
   type WriterApiClient,
   type WriterCandidate,
   type WriterPageModel,
@@ -42,6 +44,7 @@ export type { WriterApiClient } from "./writer-workflow";
 
 export type WriterPageProps = {
   apiClient: WriterApiClient;
+  codexReady?: boolean;
   onOpenSettings: () => void;
 };
 
@@ -95,12 +98,14 @@ function candidateLabel(candidate: WriterCandidate): string {
 }
 
 type WriterPageViewProps = WriterPageModel & {
+  codexReady: boolean;
   onApplyFollowers: () => void;
   onCloseDetails: () => void;
   onFocusFollowers: () => void;
   onFollowersChange: (followers: string) => void;
   onGenerate: () => void;
   onIdeaChange: (idea: string) => void;
+  onJudge: () => void;
   onOpenDetails: (itemId: string) => void;
   onOpenSettings: () => void;
   onRetry: () => Promise<void>;
@@ -241,10 +246,76 @@ function DraftAnalysis({
   return null;
 }
 
+export function JudgePanel({
+  codexReady,
+  draftReady,
+  judge,
+  onJudge,
+}: {
+  codexReady: boolean;
+  draftReady: boolean;
+  judge: JudgeState;
+  onJudge: () => void;
+}): ReactElement {
+  const isLoading = judge.status === "loading";
+  const disabled = !codexReady || !draftReady || isLoading;
+
+  return (
+    <section aria-label="Codex judge" className="xb-judge-panel">
+      <div className="xb-judge-panel__header">
+        <h2>Codex Judge</h2>
+        <Button disabled={disabled} onClick={onJudge} type="button" variant="secondary">
+          {isLoading ? "Judging…" : judge.status === "failed" ? "Retry judge" : "Judge draft"}
+        </Button>
+      </div>
+      {codexReady ? null : (
+        <p className="xb-judge-panel__hint">Codex judge is unavailable right now.</p>
+      )}
+      {judge.status === "loading" ? (
+        <div aria-busy="true" role="status">
+          <Skeleton height={96} label="Judging draft" width={480} />
+        </div>
+      ) : null}
+      {judge.status === "failed" ? (
+        <Alert title="Judge unavailable" variant="danger">
+          {judge.error.message}
+        </Alert>
+      ) : null}
+      {judge.status === "ready" ? (
+        <div className="xb-judge-verdict">
+          <p className="xb-judge-verdict__rating">{judge.verdict.rating}/10</p>
+          <p className="xb-judge-verdict__headline">{judge.verdict.headline}</p>
+          {judge.verdict.strengths.length > 0 ? (
+            <div className="xb-judge-verdict__section">
+              <h3>Strengths</h3>
+              <ul>
+                {judge.verdict.strengths.map((item, index) => (
+                  <li key={`${index}-${item}`}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {judge.verdict.improvements.length > 0 ? (
+            <div className="xb-judge-verdict__section">
+              <h3>Improvements</h3>
+              <ul>
+                {judge.verdict.improvements.map((item, index) => (
+                  <li key={`${index}-${item}`}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function WriterPageView({
   analysisByCandidateId,
   appliedFollowers,
   candidates,
+  codexReady,
   detail,
   fieldError,
   followerDraft,
@@ -252,12 +323,14 @@ function WriterPageView({
   idea,
   isGenerating,
   isScoring,
+  judge,
   onApplyFollowers,
   onCloseDetails,
   onFocusFollowers,
   onFollowersChange,
   onGenerate,
   onIdeaChange,
+  onJudge,
   onOpenDetails,
   onOpenSettings,
   onRetry,
@@ -314,6 +387,12 @@ function WriterPageView({
             </p>
           )}
         </form>
+        <JudgePanel
+          codexReady={codexReady}
+          draftReady={idea.trim().length > 0}
+          judge={judge}
+          onJudge={onJudge}
+        />
         <div className="xb-writer-results-stack">
           <ManualScoringContextPanel
             applyLabel="Recompute prediction"
@@ -431,10 +510,18 @@ function WriterPageView({
 
 export function WriterPage({
   apiClient,
+  codexReady = true,
   onOpenSettings,
 }: WriterPageProps): ReactElement {
   const [model, setModel] = useState(createInitialModel);
   const modelRef = useRef(model);
+  const mountedRef = useRef(true);
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
   const publishModel = (
     update: WriterPageModel | ((current: WriterPageModel) => WriterPageModel),
   ) => {
@@ -492,6 +579,16 @@ export function WriterPage({
 
   const scoreDraft = async () => {
     await runScoreDraft(apiClient, modelRef.current, publishModel);
+  };
+
+  const judgeDraft = () => {
+    // The judge call can run up to ~65s; drop any state updates that resolve
+    // after the page unmounts (same discipline as the status/settings effects).
+    void runJudgeDraft(apiClient, modelRef.current, (update) => {
+      if (mountedRef.current) {
+        publishModel(update);
+      }
+    });
   };
 
   useEffect(() => {
@@ -571,12 +668,14 @@ export function WriterPage({
   return (
     <WriterPageView
       {...model}
+      codexReady={codexReady}
       onApplyFollowers={applyFollowers}
       onCloseDetails={closeDetailInspector}
       onFocusFollowers={focusFollowers}
       onFollowersChange={updateFollowers}
       onGenerate={generate}
       onIdeaChange={updateIdea}
+      onJudge={judgeDraft}
       onOpenDetails={openDetails}
       onOpenSettings={onOpenSettings}
       onRetry={retry}
@@ -593,12 +692,14 @@ function renderDriverPage(
   return renderToStaticMarkup(
     <WriterPageView
       {...model}
+      codexReady
       onApplyFollowers={() => undefined}
       onCloseDetails={() => undefined}
       onFocusFollowers={() => undefined}
       onFollowersChange={() => undefined}
       onGenerate={() => undefined}
       onIdeaChange={() => undefined}
+      onJudge={() => undefined}
       onOpenDetails={() => undefined}
       onOpenSettings={onOpenSettings}
       onRetry={async () => undefined}

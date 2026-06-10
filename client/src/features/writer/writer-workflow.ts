@@ -8,12 +8,22 @@ import {
   type GenerateIdeaRequest,
   type GenerateIdeaResponse,
   type GeneratedIdeaCandidate,
+  type JudgeDraftRequest,
+  type JudgeDraftResponse,
+  type JudgeVerdict,
 } from "@x-builder/shared";
 
 export type WriterApiClient = {
   analyzePosts: (input: AnalyzePostsRequest) => Promise<AnalyzePostsResponse>;
   generateIdea: (input: GenerateIdeaRequest) => Promise<GenerateIdeaResponse>;
+  judgeDraft: (input: JudgeDraftRequest) => Promise<JudgeDraftResponse>;
 };
+
+export type JudgeState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "ready"; verdict: JudgeVerdict }
+  | { status: "failed"; error: ApiError };
 
 export type WriterCandidate = {
   format?: GeneratedIdeaCandidate["format"];
@@ -108,6 +118,7 @@ export type WriterPageModel = {
   idea: string;
   isGenerating: boolean;
   isScoring: boolean;
+  judge: JudgeState;
   lastPayload: GenerateIdeaRequest | null;
   routeError: ApiError | null;
   routeErrorOrigin: "analysis" | "generation" | null;
@@ -136,6 +147,7 @@ export function createInitialModel(): WriterPageModel {
     idea: "",
     isGenerating: false,
     isScoring: false,
+    judge: { status: "idle" },
     lastPayload: null,
     routeError: null,
     routeErrorOrigin: null,
@@ -157,6 +169,24 @@ function normalizeWriterError(error: unknown): ApiError {
     retryable: true,
     scope: "writer",
     status: 500,
+  };
+}
+
+function normalizeJudgeError(error: unknown): ApiError {
+  if (typeof error === "object" && error !== null && "apiError" in error) {
+    const parsed = apiErrorSchema.safeParse((error as { apiError: unknown }).apiError);
+
+    if (parsed.success) {
+      return parsed.data;
+    }
+  }
+
+  return {
+    code: "judge_failed",
+    message: "The Codex judge could not score this draft. Try again.",
+    retryable: true,
+    scope: "judge",
+    status: 503,
   };
 }
 
@@ -1023,6 +1053,43 @@ export async function runScoreDraft(
   };
 
   return runAnalysisForCandidates(apiClient, nextModel, [candidate], publish);
+}
+
+export async function runJudgeDraft(
+  apiClient: WriterApiClient,
+  model: WriterPageModel,
+  publish: PublishModel,
+): Promise<WriterPageModel> {
+  if (model.judge.status === "loading") {
+    return model;
+  }
+
+  const text = model.idea.trim();
+
+  if (text.length === 0) {
+    return model;
+  }
+
+  let nextModel = publishLatest(publish, model, (current) => ({
+    ...current,
+    judge: { status: "loading" },
+  }));
+
+  try {
+    const response = await apiClient.judgeDraft({ text });
+
+    nextModel = publishLatest(publish, nextModel, (current) => ({
+      ...current,
+      judge: { status: "ready", verdict: response.verdict },
+    }));
+  } catch (error) {
+    nextModel = publishLatest(publish, nextModel, (current) => ({
+      ...current,
+      judge: { status: "failed", error: normalizeJudgeError(error) },
+    }));
+  }
+
+  return nextModel;
 }
 
 export async function runRetryScore(

@@ -8,6 +8,8 @@ import type {
   AppStatus,
   GenerateIdeaRequest,
   GenerateIdeaResponse,
+  JudgeDraftRequest,
+  JudgeDraftResponse,
   RouteConfig,
 } from "@x-builder/shared";
 
@@ -41,6 +43,7 @@ type ShellRouteComponents = Partial<
 type ShellApiClient = {
   analyzePosts: (input: AnalyzePostsRequest) => Promise<AnalyzePostsResponse>;
   generateIdea: (input: GenerateIdeaRequest) => Promise<GenerateIdeaResponse>;
+  judgeDraft: (input: JudgeDraftRequest) => Promise<JudgeDraftResponse>;
   getSettings?: () => Promise<unknown>;
   getStatus: () => Promise<AppStatus>;
   saveSettings?: (input: unknown) => Promise<unknown>;
@@ -242,6 +245,12 @@ function createShellApiClient(
   return {
     analyzePosts: vi.fn(async (input) => createAnalyzePostsResponse(input)),
     generateIdea: vi.fn(async () => createValidIdeaResponse()),
+    judgeDraft: vi.fn(async (): Promise<JudgeDraftResponse> => ({
+      status: "judged",
+      verdict: { rating: 7, headline: "Fixture verdict.", strengths: [], improvements: [] },
+      model: "codex-cli",
+      judgedAt: "2026-06-06T12:10:00.000Z",
+    })),
     getSettings: vi.fn(async () => {
       throw new Error("Placeholders must not load settings.");
     }),

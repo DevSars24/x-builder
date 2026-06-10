@@ -60,3 +60,17 @@ the verdict in a standalone panel, with graceful handling when Codex is unavaila
 ## Dependencies
 
 - LJ-001 (shared types), LJ-002 (route).
+
+## Status
+
+DONE via the full dem-pipeline: tests-first (confirmed RED) -> implement -> quality
+-> independent review gates (test/code/security/intent) -> final validator. Codex
+readiness is live-wired end to end (appStatus.status?.codex.state -> RouteBody ->
+WriterPage -> JudgePanel; intent gate traced it STRONG). Security PASS (LLM verdict
+text auto-escaped, only {text} sent, errors normalized). Applied review fixes:
+added an unmount/cancellation guard on the in-flight judge (the missing Requirement
+the intent gate flagged), replaced a flaky real-timer test with deterministic fake
+timers, fixed duplicate React keys, and added loading-state / retry-label /
+empty-arrays render tests. Also added a judge-specific 65s client timeout (the
+default 5s would abort codex). 13 LJ-003 tests; full suite 382 green; typecheck
+clean; no regressions.
