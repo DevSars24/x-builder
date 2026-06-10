@@ -11,7 +11,18 @@ const corsHeaders = {
 };
 
 const verdict = {
-  rating: 8,
+  verdict: "slight_rework",
+  confidence: "medium",
+  scores: {
+    overall: 78,
+    replies: 80,
+    profileClicks: 72,
+    impressions: 65,
+    bookmarkValue: 60,
+    dwellProxy: 70,
+    voiceMatch: 85,
+    negativeRisk: 10,
+  },
   headline: "Strong hook, weak closer.",
   strengths: ["Opens with a concrete claim", "Ends on a reply-friendly question"],
   improvements: ["Trim the middle paragraph", "Cut one hedge word"],
@@ -117,7 +128,9 @@ test("judges a pasted draft and renders the Codex verdict panel", async ({ page 
   await judgeButton.click();
 
   const judgePanel = page.getByRole("region", { name: "Codex judge" });
-  await expect(judgePanel.getByText("8/10")).toBeVisible();
+  await expect(judgePanel.getByText("Slight rework")).toBeVisible();
+  await expect(judgePanel.getByText("Confidence: medium")).toBeVisible();
+  await expect(judgePanel.getByText("Overall")).toBeVisible();
   await expect(judgePanel.getByText("Strong hook, weak closer.")).toBeVisible();
   await expect(judgePanel.getByText("Opens with a concrete claim")).toBeVisible();
   await expect(judgePanel.getByText("Trim the middle paragraph")).toBeVisible();

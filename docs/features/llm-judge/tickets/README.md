@@ -10,6 +10,7 @@ single pasted draft · standalone verdict panel · on-demand button.
 2. [LJ-002 - Engine Judge Service And Route](./LJ-002-engine-judge-service-and-route.md)
 3. [LJ-003 - Client Judge Panel](./LJ-003-client-judge-panel.md)
 4. [LJ-004 - Judge Validation And E2E](./LJ-004-judge-validation-and-e2e.md)
+5. [LJ-005 - Multi-Dimensional Judge Scoring](./LJ-005-multi-dimensional-scoring.md)
 
 ## Notes
 

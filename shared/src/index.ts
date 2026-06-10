@@ -8,8 +8,12 @@ export {
   postCoachViewModelSchema,
 } from "./schemas/deterministic-analysis.js";
 export {
+  deriveJudgeVerdict,
+  judgeConfidenceSchema,
   judgeDraftRequestSchema,
   judgeDraftResponseSchema,
+  judgeScoresSchema,
+  judgeVerdictLabelSchema,
   judgeVerdictSchema,
 } from "./schemas/judge.js";
 export {
@@ -34,9 +38,12 @@ export type {
   PostCoachViewModel,
 } from "./schemas/deterministic-analysis.js";
 export type {
+  JudgeConfidence,
   JudgeDraftRequest,
   JudgeDraftResponse,
+  JudgeScores,
   JudgeVerdict,
+  JudgeVerdictLabel,
 } from "./schemas/judge.js";
 export type {
   ApiError,

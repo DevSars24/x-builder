@@ -11,7 +11,18 @@ import {
 import { JudgePanel } from "../writer-page";
 
 const verdict: JudgeVerdict = {
-  rating: 8,
+  verdict: "slight_rework",
+  confidence: "medium",
+  scores: {
+    overall: 78,
+    replies: 80,
+    profileClicks: 72,
+    impressions: 65,
+    bookmarkValue: 60,
+    dwellProxy: 70,
+    voiceMatch: 85,
+    negativeRisk: 10,
+  },
   headline: "Strong hook, weak closer.",
   strengths: ["Concrete claim up front"],
   improvements: ["Trim the middle paragraph"],
@@ -85,15 +96,30 @@ describe("runJudgeDraft", () => {
 });
 
 describe("JudgePanel", () => {
-  it("renders the verdict rating, headline, strengths, and improvements", () => {
+  it("renders the verdict band, confidence, dimension scores, and critique", () => {
     const html = renderToStaticMarkup(
       <JudgePanel judge={{ status: "ready", verdict }} onJudge={() => {}} codexReady draftReady />,
     );
 
+    expect(html).toContain("Slight rework");
+    expect(html).toContain("Confidence: medium");
+    // All eight scoring dimensions must render.
+    for (const label of [
+      "Overall",
+      "Replies",
+      "Profile clicks",
+      "Impressions",
+      "Bookmark value",
+      "Dwell",
+      "Voice match",
+      "Negative risk",
+    ]) {
+      expect(html).toContain(label);
+    }
+    expect(html).toContain("78");
     expect(html).toContain("Strong hook, weak closer.");
     expect(html).toContain("Concrete claim up front");
     expect(html).toContain("Trim the middle paragraph");
-    expect(html).toContain("8");
   });
 
   it("disables the judge button with a hint when codex is not ready", () => {

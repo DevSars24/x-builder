@@ -8,8 +8,21 @@ import {
   type StructuredLlmRequest,
 } from "../structured-llm-service";
 
+const scores = {
+  overall: 78,
+  replies: 80,
+  profileClicks: 72,
+  impressions: 65,
+  bookmarkValue: 60,
+  dwellProxy: 70,
+  voiceMatch: 85,
+  negativeRisk: 10,
+};
+
 const verdict: JudgeVerdict = {
-  rating: 8,
+  verdict: "slight_rework",
+  confidence: "medium",
+  scores,
   headline: "Strong, specific, reply-friendly.",
   strengths: ["Concrete claim up front"],
   improvements: ["Trim the middle paragraph"],
@@ -63,9 +76,39 @@ describe("JudgeDraftService", () => {
     expect(request.turns.find((turn) => turn.role === "user")?.content).toContain(
       "My draft worth judging.",
     );
-    // The structured-output contract must actually validate the verdict shape.
-    expect(request.structuredOutput.parser(verdict)).toEqual(verdict);
-    expect(() => request.structuredOutput.parser({ rating: 99 })).toThrow();
+  });
+
+  it("derives the verdict band from overall in the structured-output parser", async () => {
+    // The parser receives the model output (no verdict field) and derives the
+    // verdict from scores.overall, so the verdict can never disagree with the score.
+    const captured: StructuredLlmRequest<JudgeVerdict>[] = [];
+    const service = new JudgeDraftService({
+      generateStructured: async (request) => {
+        captured.push(request);
+        return successResult;
+      },
+    });
+
+    await service.judge("draft");
+
+    const parse = captured[0]!.structuredOutput.parser;
+    const modelOutput = {
+      confidence: "medium",
+      scores: { ...scores, overall: 90 },
+      headline: "Strong.",
+      strengths: ["clear"],
+      improvements: ["trim"],
+    };
+
+    expect(parse(modelOutput).verdict).toBe("post_now");
+    expect(parse({ ...modelOutput, scores: { ...scores, overall: 78 } }).verdict).toBe("slight_rework");
+    expect(parse({ ...modelOutput, scores: { ...scores, overall: 55 } }).verdict).toBe("major_rework");
+    expect(parse({ ...modelOutput, scores: { ...scores, overall: 30 } }).verdict).toBe("do_not_post");
+    // A model-supplied verdict must be ignored; the derived band wins.
+    expect(
+      parse({ ...modelOutput, verdict: "post_now", scores: { ...scores, overall: 30 } }).verdict,
+    ).toBe("do_not_post");
+    expect(() => parse({ ...modelOutput, scores: { ...scores, replies: 999 } })).toThrow();
   });
 
   it("maps a retryable provider failure to a failed outcome", async () => {
@@ -101,9 +144,6 @@ describe("JudgeDraftService", () => {
   });
 
   it("returns a non-retryable provider_unconfigured failure when no provider is registered", async () => {
-    // Mirrors the no-workspace-root path: createDefaultJudgeDraftService builds an
-    // empty provider list, so the real StructuredLlmService resolves to
-    // provider_unconfigured rather than throwing.
     const service = new JudgeDraftService(new StructuredLlmService({ providers: [] }));
 
     const outcome = await service.judge("draft");
@@ -115,4 +155,3 @@ describe("JudgeDraftService", () => {
     }
   });
 });
-

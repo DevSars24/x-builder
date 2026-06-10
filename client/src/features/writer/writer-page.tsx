@@ -6,6 +6,7 @@ import {
   type ReactElement,
 } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import type { JudgeScores, JudgeVerdictLabel } from "@x-builder/shared";
 
 import { RouteErrorBanner } from "../../shell/route-error-banner";
 import { Alert, Badge, Button, Drawer, Skeleton } from "../../ui/foundation";
@@ -246,6 +247,24 @@ function DraftAnalysis({
   return null;
 }
 
+const judgeVerdictLabels: Record<JudgeVerdictLabel, string> = {
+  post_now: "Post now",
+  slight_rework: "Slight rework",
+  major_rework: "Major rework",
+  do_not_post: "Do not post",
+};
+
+const judgeScoreRows: Array<{ key: keyof JudgeScores; label: string }> = [
+  { key: "overall", label: "Overall" },
+  { key: "replies", label: "Replies" },
+  { key: "profileClicks", label: "Profile clicks" },
+  { key: "impressions", label: "Impressions" },
+  { key: "bookmarkValue", label: "Bookmark value" },
+  { key: "dwellProxy", label: "Dwell" },
+  { key: "voiceMatch", label: "Voice match" },
+  { key: "negativeRisk", label: "Negative risk" },
+];
+
 export function JudgePanel({
   codexReady,
   draftReady,
@@ -283,8 +302,21 @@ export function JudgePanel({
       ) : null}
       {judge.status === "ready" ? (
         <div className="xb-judge-verdict">
-          <p className="xb-judge-verdict__rating">{judge.verdict.rating}/10</p>
+          <div className="xb-judge-verdict__summary">
+            <Badge>{judgeVerdictLabels[judge.verdict.verdict]}</Badge>
+            <span className="xb-judge-verdict__confidence">
+              Confidence: {judge.verdict.confidence}
+            </span>
+          </div>
           <p className="xb-judge-verdict__headline">{judge.verdict.headline}</p>
+          <dl className="xb-judge-scores">
+            {judgeScoreRows.map((row) => (
+              <div className="xb-judge-scores__row" key={row.key}>
+                <dt>{row.label}</dt>
+                <dd>{judge.verdict.scores[row.key]}</dd>
+              </div>
+            ))}
+          </dl>
           {judge.verdict.strengths.length > 0 ? (
             <div className="xb-judge-verdict__section">
               <h3>Strengths</h3>

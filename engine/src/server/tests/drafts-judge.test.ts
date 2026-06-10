@@ -6,7 +6,18 @@ import { buildServer } from "../server";
 const parseJson = (payload: string): unknown => JSON.parse(payload);
 
 const verdict: JudgeVerdict = {
-  rating: 7,
+  verdict: "slight_rework",
+  confidence: "medium",
+  scores: {
+    overall: 78,
+    replies: 80,
+    profileClicks: 72,
+    impressions: 65,
+    bookmarkValue: 60,
+    dwellProxy: 70,
+    voiceMatch: 85,
+    negativeRisk: 10,
+  },
   headline: "Solid hook, weak closer.",
   strengths: ["Clear, concrete claim"],
   improvements: ["Cut the last sentence"],
@@ -105,7 +116,7 @@ describe("POST /drafts/judge", () => {
       status: "judged" as const,
       response: {
         status: "judged" as const,
-        verdict: { ...verdict, rating: 99 },
+        verdict: { ...verdict, scores: { ...verdict.scores, replies: 999 } },
         model: "codex-cli",
         judgedAt: "2026-06-10T12:00:00.000Z",
       },

@@ -8,7 +8,18 @@ const baseUrl = "http://127.0.0.1:4173";
 const verdictResponse: JudgeDraftResponse = {
   status: "judged",
   verdict: {
-    rating: 8,
+    verdict: "slight_rework",
+    confidence: "medium",
+    scores: {
+      overall: 78,
+      replies: 80,
+      profileClicks: 72,
+      impressions: 65,
+      bookmarkValue: 60,
+      dwellProxy: 70,
+      voiceMatch: 85,
+      negativeRisk: 10,
+    },
     headline: "Strong, specific, reply-friendly.",
     strengths: ["Concrete claim up front"],
     improvements: ["Trim the middle paragraph"],

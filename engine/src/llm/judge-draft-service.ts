@@ -1,4 +1,9 @@
-import { judgeVerdictSchema, type JudgeDraftResponse, type JudgeVerdict } from "@x-builder/shared";
+import {
+  deriveJudgeVerdict,
+  judgeVerdictSchema,
+  type JudgeDraftResponse,
+  type JudgeVerdict,
+} from "@x-builder/shared";
 
 import type {
   StructuredLlmProviderResult,
@@ -7,23 +12,62 @@ import type {
 
 const judgeProviderId = "codex-cli";
 
+// The verdict label is derived from scores.overall, so the model produces every
+// field except the verdict.
+const judgeModelOutputSchema = judgeVerdictSchema.omit({ verdict: true });
+
 const judgeInstructions = [
-  "You are a demanding editor judging a single draft post for X (Twitter).",
-  "Rate the draft from 0 to 10 on how likely it is to earn genuine engagement,",
-  "then justify the verdict.",
-  "Return only a JSON object matching the provided output schema: an integer",
-  "rating (0-10), a one-line headline verdict, up to five concrete strengths, and",
-  "up to five concrete improvements. Be specific and concise; omit empty filler.",
+  "You are a demanding editor judging a single draft post for X (Twitter),",
+  "optimizing for replies and profile clicks while preserving an authentic human voice.",
+  "Score each dimension from 0 to 100:",
+  "- replies: how likely the right people are to reply (clear, answerable reply path).",
+  "- profileClicks: how much it makes a reader want to check the author, without pitching.",
+  "- impressions: broad-enough hook, timely and clear, low friction.",
+  "- bookmarkValue: reusable insight, framework, or test worth saving.",
+  "- dwellProxy: read-through quality (strong first line, scannable, one idea).",
+  "- voiceMatch: reads as an authentic human voice, NOT generic AI-slop or corporate",
+  "  polish. Do not assume any specific person's style.",
+  "- negativeRisk: risk of negative signals (ragebait, misleading or overclaimed,",
+  "  spammy engagement bait, generic AI hype). Higher means more risk.",
+  "- overall: your holistic 0-100 judgment, accounting for the dimensions and the",
+  "  negative risk.",
+  "Penalize hashtag/emoji spam, em dashes, engagement bait, vague 'thoughts?' endings,",
+  "unsupported absolutes, and no clear audience.",
+  "Also set confidence (low, medium, or high), a one-line headline verdict, up to five",
+  "concrete strengths, and up to five concrete improvements. Return only JSON matching",
+  "the output schema.",
 ].join(" ");
 
-// Mirror judgeVerdictSchema, which strips unknown keys rather than rejecting
-// them; keep this JSON Schema lenient on extra properties to tell the same story
-// (and avoid false rejections from a verbose model).
+const scoreProperty = { type: "integer", minimum: 0, maximum: 100 };
+
 const verdictOutputSchema: Record<string, unknown> = {
   type: "object",
-  required: ["rating", "headline", "strengths", "improvements"],
+  required: ["scores", "confidence", "headline", "strengths", "improvements"],
   properties: {
-    rating: { type: "integer", minimum: 0, maximum: 10 },
+    scores: {
+      type: "object",
+      required: [
+        "overall",
+        "replies",
+        "profileClicks",
+        "impressions",
+        "bookmarkValue",
+        "dwellProxy",
+        "voiceMatch",
+        "negativeRisk",
+      ],
+      properties: {
+        overall: scoreProperty,
+        replies: scoreProperty,
+        profileClicks: scoreProperty,
+        impressions: scoreProperty,
+        bookmarkValue: scoreProperty,
+        dwellProxy: scoreProperty,
+        voiceMatch: scoreProperty,
+        negativeRisk: scoreProperty,
+      },
+    },
+    confidence: { type: "string", enum: ["low", "medium", "high"] },
     headline: { type: "string", minLength: 1, maxLength: 160 },
     strengths: {
       type: "array",
@@ -36,6 +80,17 @@ const verdictOutputSchema: Record<string, unknown> = {
       items: { type: "string", minLength: 1, maxLength: 240 },
     },
   },
+};
+
+const toVerdict = (value: unknown): JudgeVerdict => {
+  const output = judgeModelOutputSchema.parse(value);
+
+  // Explicit verdict key LAST so the derived band always wins, regardless of what
+  // the model returned (the omit() already strips any model-supplied verdict).
+  return {
+    ...output,
+    verdict: deriveJudgeVerdict(output.scores.overall),
+  };
 };
 
 /**
@@ -71,7 +126,7 @@ export class JudgeDraftService implements JudgeDraft {
       structuredOutput: {
         name: "draft_judge_verdict",
         schema: verdictOutputSchema,
-        parser: (value: unknown): JudgeVerdict => judgeVerdictSchema.parse(value),
+        parser: toVerdict,
       },
     });
 
