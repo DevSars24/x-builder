@@ -419,12 +419,6 @@ function WriterPageView({
             </p>
           )}
         </form>
-        <JudgePanel
-          codexReady={codexReady}
-          draftReady={idea.trim().length > 0}
-          judge={judge}
-          onJudge={onJudge}
-        />
         <div className="xb-writer-results-stack">
           <ManualScoringContextPanel
             applyLabel="Recompute prediction"
@@ -499,6 +493,12 @@ function WriterPageView({
           </section>
         </div>
       </div>
+      <JudgePanel
+        codexReady={codexReady}
+        draftReady={idea.trim().length > 0}
+        judge={judge}
+        onJudge={onJudge}
+      />
       <Drawer
         closeLabel="Close deterministic details"
         onClose={onCloseDetails}
