@@ -20,6 +20,7 @@ const maxSchemaFileNameLength = 80;
 export type CodexCommandBuilderOptions = {
   workspaceRoot: string;
   schemaFile: string;
+  model?: string;
 };
 
 export type CodexCliProviderOptions = {
@@ -47,7 +48,7 @@ export type CodexCliParseResult =
 
 export class CodexCommandBuilder {
   build(options: CodexCommandBuilderOptions): readonly string[] {
-    return [
+    const args = [
       "exec",
       "--ephemeral",
       "--sandbox",
@@ -60,6 +61,14 @@ export class CodexCommandBuilder {
       "never",
       "-",
     ];
+
+    // Only the active provider's configured model is appended; an empty or absent
+    // model leaves the argv byte-identical to the base command.
+    if (options.model !== undefined && options.model.length > 0) {
+      args.push("-m", options.model);
+    }
+
+    return args;
   }
 }
 
@@ -140,6 +149,7 @@ export class CodexCliProvider<TProviderOutput = unknown> implements LlmProvider<
         const args = this.commandBuilder.build({
           workspaceRoot: this.workspaceRoot,
           schemaFile,
+          model: request.options.model,
         });
         const result = await this.runner.run("codex", args, {
           cwd: this.workspaceRoot,

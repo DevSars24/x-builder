@@ -19,12 +19,12 @@ import { Alert, Badge } from "../ui/foundation";
 
 type TextSettingsFieldName = Extract<
   keyof AppSettings,
-  "codexCommandLabel" | "engineBaseUrl" | "storagePath"
+  "engineBaseUrl" | "storagePath"
 >;
 
 type SwitchSettingsFieldName = Extract<
   keyof AppSettings,
-  "runCodexJudgeAfterGeneration" | "showDeterministicDetails"
+  "showDeterministicDetails"
 >;
 
 export type SettingsRouteApiClient = {
@@ -86,9 +86,8 @@ type SettingsRouteModel = {
 };
 
 const defaultSettings: AppSettings = {
-  codexCommandLabel: "Codex judge",
   engineBaseUrl: "http://127.0.0.1:4173",
-  runCodexJudgeAfterGeneration: false,
+  judgeProvider: "codex-cli",
   showDeterministicDetails: true,
   storagePath: "~/.x-builder",
 };
@@ -132,9 +131,8 @@ function modelFromDefaults(): SettingsRouteModel {
 
 function settingsEqual(left: AppSettings, right: AppSettings): boolean {
   return (
-    left.codexCommandLabel === right.codexCommandLabel &&
     left.engineBaseUrl === right.engineBaseUrl &&
-    left.runCodexJudgeAfterGeneration === right.runCodexJudgeAfterGeneration &&
+    left.judgeProvider === right.judgeProvider &&
     left.showDeterministicDetails === right.showDeterministicDetails &&
     left.storagePath === right.storagePath
   );
@@ -339,16 +337,11 @@ function renderSwitch({
 function orderedSwitches(settings: AppSettings) {
   return [
     {
-      checked: settings.runCodexJudgeAfterGeneration,
-      label: "Run Codex judge after generation",
-      name: "runCodexJudgeAfterGeneration" as const,
-    },
-    {
       checked: settings.showDeterministicDetails,
       label: "Show deterministic details",
       name: "showDeterministicDetails" as const,
     },
-  ].sort((left, right) => Number(right.checked) - Number(left.checked));
+  ];
 }
 
 function readinessItems(status: AppStatus): SubsystemStatus[] {
@@ -492,12 +485,6 @@ function SettingsRouteView({
           name: "storagePath",
           onChange: onUpdateField,
           value: model.draft.storagePath,
-        })}
-        {renderTextField({
-          label: "Codex command label",
-          name: "codexCommandLabel",
-          onChange: onUpdateField,
-          value: model.draft.codexCommandLabel,
         })}
 
         <div className="xb-settings-route__switches">

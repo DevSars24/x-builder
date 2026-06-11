@@ -50,9 +50,13 @@ export type StructuredLlmExecutionOptions = {
   timeoutMs?: number;
   outputByteLimit?: number;
   attempts?: number;
+  model?: string;
 };
 
-export type NormalizedStructuredLlmExecutionOptions = Required<StructuredLlmExecutionOptions>;
+// model is optional with no default: an absent model must normalize to undefined,
+// never a default value, so it is excluded from the Required<> that fills the bounds.
+export type NormalizedStructuredLlmExecutionOptions =
+  Required<Omit<StructuredLlmExecutionOptions, "model">> & { model?: string };
 
 export type StructuredLlmRequest<TOutput> = {
   provider: LlmProviderId;
@@ -156,6 +160,7 @@ const structuredLlmExecutionOptionsSchema = z
       .positive()
       .max(structuredLlmOptionLimits.attempts)
       .default(defaultStructuredLlmOptions.attempts),
+    model: z.string().min(1).optional(),
   })
   .default(defaultStructuredLlmOptions);
 

@@ -28,9 +28,10 @@ import {
 import { z } from "zod";
 
 import { DeterministicAnalysisService } from "../deterministic/deterministic-analysis-service.js";
-import { CodexCliProvider } from "../llm/codex-cli-provider.js";
 import { CodexReadinessProbe } from "../llm/codex-readiness-probe.js";
 import { JudgeDraftService, type JudgeDraft } from "../llm/judge-draft-service.js";
+import { judgeProviderRegistry } from "../llm/judge-provider-registry.js";
+import { createSettingsJudgeProviderResolver } from "../llm/judge-provider-resolver.js";
 import { NodeProcessRunner, type ProcessRunner } from "../llm/process-runner.js";
 import { StructuredLlmService } from "../llm/structured-llm-service.js";
 import {
@@ -139,7 +140,7 @@ const deterministicAnalysisError = (): ApiError =>
 const judgeFailedError = (retryable: boolean): ApiError =>
   normalize({
     code: "judge_failed",
-    message: "The Codex judge could not score this draft. Try again.",
+    message: "The judge could not score this draft. Try again.",
     scope: "judge",
     retryable,
     status: retryable ? 503 : 500,
@@ -456,19 +457,49 @@ const configureCors = (
 export type CreateDefaultJudgeDraftServiceOptions = {
   startupCwd?: string;
   runner?: ProcessRunner;
+  settingsRepository?: AppSettingsRepository;
 };
+
+// Per-provider mapping from a resolved provider id to the settings model field
+// that configures it. Codex is the only registered provider in this ticket.
+const judgeProviderModelKeys = {
+  "codex-cli": "codexModel",
+  "claude-cli": "claudeModel",
+  "cursor-cli": "cursorModel",
+} as const;
 
 export const createDefaultJudgeDraftService = (
   options: CreateDefaultJudgeDraftServiceOptions = {},
 ): JudgeDraft => {
   const workspaceRoot = resolveWorkspaceRoot(options.startupCwd ?? process.cwd());
+  const runner = options.runner ?? new NodeProcessRunner();
+  const settingsRepository =
+    options.settingsRepository ?? new JsonFileAppSettingsRepository({ root: defaultSettingsRoot });
   // With no resolvable workspace root the provider list is empty, so the judge
   // request resolves to a provider_unconfigured failure rather than throwing.
   const providers = workspaceRoot
-    ? [new CodexCliProvider({ runner: options.runner ?? new NodeProcessRunner(), workspaceRoot })]
+    ? judgeProviderRegistry.map((entry) => entry.createProvider({ runner, workspaceRoot }))
     : [];
 
-  return new JudgeDraftService(new StructuredLlmService({ providers }));
+  const resolveProvider = createSettingsJudgeProviderResolver(settingsRepository);
+  // Read the active provider's configured model from the same per-call settings
+  // load; an empty or absent value leaves the provider on its own default.
+  const resolveModel = async (): Promise<string | undefined> => {
+    try {
+      const { settings } = await settingsRepository.load();
+      const provider = await resolveProvider();
+
+      return settings[judgeProviderModelKeys[provider]];
+    } catch {
+      return undefined;
+    }
+  };
+
+  return new JudgeDraftService(
+    new StructuredLlmService({ providers }),
+    resolveProvider,
+    resolveModel,
+  );
 };
 
 export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
@@ -487,7 +518,10 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
       options.readinessDependencies ?? createDefaultReadinessDependencies(),
       options.readinessTimeoutMs ?? readinessTimeoutMsDefault,
     );
-  const judgeDraftService = options.judgeDraftService ?? createDefaultJudgeDraftService();
+  // One repository backs both the settings routes and the judge resolver/model
+  // path, so a settings PATCH takes effect on the very next judge call.
+  const judgeDraftService =
+    options.judgeDraftService ?? createDefaultJudgeDraftService({ settingsRepository });
 
   app.setNotFoundHandler((_request, reply) => {
     const apiError = notFoundError();

@@ -111,15 +111,27 @@ export interface JudgeDraft {
   judge(text: string): Promise<JudgeDraftOutcome>;
 }
 
+export type JudgeProviderResolver = string | (() => string | Promise<string>);
+
+// Resolves the active provider's configured model per call; an empty or absent
+// model means the provider keeps its own default (no -m flag).
+export type JudgeModelResolver = () => string | undefined | Promise<string | undefined>;
+
+const resolveValue = async <T>(source: T | (() => T | Promise<T>)): Promise<T> =>
+  typeof source === "function" ? (source as () => T | Promise<T>)() : source;
+
 export class JudgeDraftService implements JudgeDraft {
   constructor(
     private readonly llm: JudgeLlmGateway,
-    private readonly providerId: string = judgeProviderId,
+    private readonly resolveProvider: JudgeProviderResolver = judgeProviderId,
+    private readonly resolveModel?: JudgeModelResolver,
   ) {}
 
   async judge(text: string): Promise<JudgeDraftOutcome> {
+    const provider = await resolveValue(this.resolveProvider);
+    const model = await this.resolveModel?.();
     const result = await this.llm.generateStructured({
-      provider: this.providerId,
+      provider,
       purpose: "candidate_judge",
       instructions: judgeInstructions,
       turns: [{ role: "user", content: text }],
@@ -128,6 +140,7 @@ export class JudgeDraftService implements JudgeDraft {
         schema: verdictOutputSchema,
         parser: toVerdict,
       },
+      ...(model !== undefined && model.length > 0 ? { options: { model } } : {}),
     });
 
     if (result.status === "success") {

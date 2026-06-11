@@ -83,11 +83,25 @@ const storagePathSchema = z
     "Storage path must not contain parent-directory (..) segments.",
   );
 
+export const judgeProviderIdSchema = z.enum(["codex-cli", "claude-cli", "cursor-cli"]);
+
+export type JudgeProviderId = z.infer<typeof judgeProviderIdSchema>;
+
+// Record over the closed enum so a future provider id omission is a compile error.
+// Single source of truth for provider labels — the engine declares no label strings.
+export const judgeProviderLabels: Record<JudgeProviderId, string> = {
+  "codex-cli": "Codex judge",
+  "claude-cli": "Claude judge",
+  "cursor-cli": "Cursor judge",
+};
+
 export const appSettingsSchema = z.object({
   engineBaseUrl: localEngineUrlSchema,
   storagePath: storagePathSchema,
-  codexCommandLabel: z.string().min(1).max(80).default("Codex judge"),
-  runCodexJudgeAfterGeneration: z.boolean().default(false),
+  judgeProvider: judgeProviderIdSchema.default("codex-cli"),
+  codexModel: z.string().optional(),
+  claudeModel: z.string().optional(),
+  cursorModel: z.string().optional(),
   showDeterministicDetails: z.boolean().default(true),
 });
 
