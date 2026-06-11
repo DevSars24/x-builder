@@ -36,7 +36,7 @@ const statusResponse: AppStatus = {
       mode: "in-process",
     },
   },
-  codex: {
+  llm: {
     state: "unconfigured",
     label: "Codex judge",
     message: "Codex judge is not configured for automatic readiness checks.",

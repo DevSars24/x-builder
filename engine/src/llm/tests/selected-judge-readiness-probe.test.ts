@@ -109,7 +109,7 @@ describe("SelectedJudgeReadinessProbe", () => {
     const runner = fakeProcessRunner(() => successfulProcessResult("codex-cli 0.42.0\n"));
     const SelectedJudgeReadinessProbe = await loadSelectedJudgeReadinessProbe();
     const probe = new SelectedJudgeReadinessProbe({
-      resolveProvider: vi.fn(async () => "codex-cli"),
+      resolveProvider: vi.fn(async () => "codex-cli" as const),
       registry: [codexEntry, claudeEntry],
       resolveWorkspaceRoot: () => workspaceRoot,
       runner,
@@ -129,7 +129,7 @@ describe("SelectedJudgeReadinessProbe", () => {
     const runner = fakeProcessRunner(() => successfulProcessResult("claude-cli 1.2.3\n"));
     const SelectedJudgeReadinessProbe = await loadSelectedJudgeReadinessProbe();
     const probe = new SelectedJudgeReadinessProbe({
-      resolveProvider: vi.fn(async () => "claude-cli"),
+      resolveProvider: vi.fn(async () => "claude-cli" as const),
       registry: [codexEntry, claudeEntry],
       resolveWorkspaceRoot: () => workspaceRoot,
       runner,
@@ -147,7 +147,7 @@ describe("SelectedJudgeReadinessProbe", () => {
     const runner = fakeProcessRunner(() => successfulProcessResult("codex-cli 0.42.0\n"));
     const SelectedJudgeReadinessProbe = await loadSelectedJudgeReadinessProbe();
     const probe = new SelectedJudgeReadinessProbe({
-      resolveProvider: vi.fn(async () => "cursor-cli"),
+      resolveProvider: vi.fn(async () => "cursor-cli" as const),
       // Injected registry deliberately lacks the resolved provider id.
       registry: [codexEntry, claudeEntry],
       resolveWorkspaceRoot: () => workspaceRoot,
@@ -166,7 +166,7 @@ describe("SelectedJudgeReadinessProbe", () => {
     const runner = fakeProcessRunner(() => successfulProcessResult("claude-cli 1.2.3\n"));
     const SelectedJudgeReadinessProbe = await loadSelectedJudgeReadinessProbe();
     const probe = new SelectedJudgeReadinessProbe({
-      resolveProvider: vi.fn(async () => "claude-cli"),
+      resolveProvider: vi.fn(async () => "claude-cli" as const),
       registry: [codexEntry, claudeEntry],
       resolveWorkspaceRoot: () => null,
       runner,
@@ -186,7 +186,7 @@ describe("SelectedJudgeReadinessProbe", () => {
     // A resolver failure falls back to codex-cli (the resolver itself never
     // throws), so the probe runs the codex spec against the registry entry.
     const probe = new SelectedJudgeReadinessProbe({
-      resolveProvider: vi.fn(async () => "codex-cli"),
+      resolveProvider: vi.fn(async () => "codex-cli" as const),
       registry: [codexEntry, claudeEntry],
       resolveWorkspaceRoot: () => workspaceRoot,
       runner,
