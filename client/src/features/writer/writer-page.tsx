@@ -492,13 +492,13 @@ function WriterPageView({
             ) : null}
           </section>
         </div>
+        <JudgePanel
+          codexReady={codexReady}
+          draftReady={idea.trim().length > 0}
+          judge={judge}
+          onJudge={onJudge}
+        />
       </div>
-      <JudgePanel
-        codexReady={codexReady}
-        draftReady={idea.trim().length > 0}
-        judge={judge}
-        onJudge={onJudge}
-      />
       <Drawer
         closeLabel="Close deterministic details"
         onClose={onCloseDetails}

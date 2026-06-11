@@ -276,7 +276,10 @@ select {
 
 .xb-writer-workspace {
   display: grid;
-  grid-template-columns: minmax(320px, 0.9fr) minmax(360px, 1.1fr);
+  grid-template-columns:
+    minmax(280px, 0.9fr)
+    minmax(300px, 1fr)
+    minmax(280px, 1fr);
   align-items: start;
   gap: var(--space-4);
 }
@@ -354,14 +357,12 @@ select {
   overflow-wrap: anywhere;
 }
 
-/* Codex Judge: a full-width LLM band below the deterministic workspace, kept in
-   its own region so it never visually mixes with the rule-based right column. */
+/* Codex Judge: its own LLM column, kept separate from the deterministic column so
+   the subjective AI signal never visually mixes with the rule-based cards. */
 .xb-judge-panel {
   display: grid;
+  min-width: 0;
   gap: var(--space-3);
-  margin-top: var(--space-5);
-  padding-top: var(--space-4);
-  border-top: var(--border-width-thin) solid var(--border-default);
 }
 
 .xb-judge-panel__header {
@@ -401,7 +402,7 @@ select {
 
 .xb-judge-scores {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: var(--space-2);
   margin: 0;
 }
@@ -439,13 +440,9 @@ select {
   font: var(--type-body-small);
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
   .xb-writer-workspace {
     grid-template-columns: 1fr;
-  }
-
-  .xb-judge-scores {
-    grid-template-columns: repeat(2, 1fr);
   }
 }
 
