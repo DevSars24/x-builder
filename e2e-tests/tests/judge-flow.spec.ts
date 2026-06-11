@@ -34,7 +34,7 @@ function subsystem(label: string, state: "ready" | "unavailable") {
 
 function statusBody(codexState: "ready" | "unavailable") {
   return {
-    codex: subsystem("Codex judge", codexState),
+    llm: subsystem("Codex judge", codexState),
     deterministic: subsystem("Deterministic scorer", "ready"),
     engine: subsystem("Engine", "ready"),
     generatedAt: checkedAt,

@@ -139,15 +139,6 @@ function fakeProvider(
 ): FakeProvider {
   return {
     id: "codex-cli",
-    checkReadiness: vi.fn(async () => ({
-      state: "ready",
-      label: "Codex CLI",
-      retryable: false,
-      details: {
-        adapter: "codex-cli",
-      },
-      checkedAt: "2026-06-09T10:00:00.000Z",
-    })),
     generateStructured,
   } as FakeProvider;
 }

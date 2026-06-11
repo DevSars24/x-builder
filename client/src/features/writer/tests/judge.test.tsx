@@ -98,7 +98,7 @@ describe("runJudgeDraft", () => {
 describe("JudgePanel", () => {
   it("renders the verdict band, confidence, dimension scores, and critique", () => {
     const html = renderToStaticMarkup(
-      <JudgePanel judge={{ status: "ready", verdict }} onJudge={() => {}} codexReady draftReady />,
+      <JudgePanel judge={{ status: "ready", verdict }} onJudge={() => {}} judgeReady draftReady />,
     );
 
     expect(html).toContain("Slight rework");
@@ -122,18 +122,29 @@ describe("JudgePanel", () => {
     expect(html).toContain("Trim the middle paragraph");
   });
 
-  it("disables the judge button with a hint when codex is not ready", () => {
+  it("disables the judge button with a hint when the judge is not ready", () => {
     const html = renderToStaticMarkup(
-      <JudgePanel judge={{ status: "idle" }} onJudge={() => {}} codexReady={false} draftReady />,
+      <JudgePanel judge={{ status: "idle" }} onJudge={() => {}} judgeReady={false} draftReady />,
     );
 
     expect(html).toContain("disabled");
     expect(html.toLowerCase()).toContain("codex");
   });
 
+  it("enables the judge button when the judge is ready and a draft is present", () => {
+    const html = renderToStaticMarkup(
+      <JudgePanel judge={{ status: "idle" }} onJudge={() => {}} judgeReady draftReady />,
+    );
+
+    // The judge readiness gate reads the renamed judgeReady prop; with both gates
+    // satisfied the button must be interactive rather than disabled.
+    expect(html).toContain("Judge draft");
+    expect(html).not.toContain("disabled");
+  });
+
   it("disables the judge button for an empty draft", () => {
     const html = renderToStaticMarkup(
-      <JudgePanel judge={{ status: "idle" }} onJudge={() => {}} codexReady draftReady={false} />,
+      <JudgePanel judge={{ status: "idle" }} onJudge={() => {}} judgeReady draftReady={false} />,
     );
 
     expect(html).toContain("disabled");
@@ -141,7 +152,7 @@ describe("JudgePanel", () => {
 
   it("shows a loading affordance and disables the button while judging", () => {
     const html = renderToStaticMarkup(
-      <JudgePanel judge={{ status: "loading" }} onJudge={() => {}} codexReady draftReady />,
+      <JudgePanel judge={{ status: "loading" }} onJudge={() => {}} judgeReady draftReady />,
     );
 
     expect(html).toContain("Judging");
@@ -163,7 +174,7 @@ describe("JudgePanel", () => {
           },
         }}
         onJudge={() => {}}
-        codexReady
+        judgeReady
         draftReady
       />,
     );
@@ -176,7 +187,7 @@ describe("JudgePanel", () => {
       <JudgePanel
         judge={{ status: "ready", verdict: { ...verdict, strengths: [], improvements: [] } }}
         onJudge={() => {}}
-        codexReady
+        judgeReady
         draftReady
       />,
     );
@@ -200,7 +211,7 @@ describe("JudgePanel", () => {
           },
         }}
         onJudge={() => {}}
-        codexReady
+        judgeReady
         draftReady
       />,
     );

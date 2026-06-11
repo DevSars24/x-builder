@@ -14,12 +14,6 @@ const generalizedJudgeFailedMessage = "The judge could not score this draft. Try
 
 const codexVerdictProvider = (): LlmProvider<JudgeVerdict> => ({
   id: "codex-cli",
-  checkReadiness: () => ({
-    state: "ready",
-    label: "Codex CLI",
-    retryable: false,
-    checkedAt: "2026-06-10T12:00:00.000Z",
-  }),
   generateStructured: <TOutput,>(
     request: NormalizedStructuredLlmRequest<TOutput>,
   ): StructuredLlmProviderResult<JudgeVerdict> => ({

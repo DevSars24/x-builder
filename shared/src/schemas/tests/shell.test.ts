@@ -40,7 +40,7 @@ const validAppStatus = {
     ...readySubsystem,
     label: "Deterministic engine",
   },
-  codex: {
+  llm: {
     ...readySubsystem,
     state: "unconfigured",
     label: "Codex judge",
@@ -83,6 +83,30 @@ describe("shell schemas", () => {
 
   it("parses a valid app status payload", () => {
     expect(appStatusSchema.safeParse(validAppStatus).success).toBe(true);
+  });
+
+  it("exposes a provider-neutral llm subsystem slot on the parsed status", () => {
+    const status = appStatusSchema.parse(validAppStatus);
+
+    expect(status).toHaveProperty("llm");
+    expect(status.llm.label).toBe("Codex judge");
+    expect(status.llm.state).toBe("unconfigured");
+  });
+
+  it("drops the legacy codex subsystem slot key from the parsed status", () => {
+    const status = appStatusSchema.parse(validAppStatus);
+
+    expect(status).not.toHaveProperty("codex");
+  });
+
+  it("rejects a status payload that carries the legacy codex slot instead of llm", () => {
+    const { llm, ...withoutLlm } = validAppStatus;
+    const legacyStatus = {
+      ...withoutLlm,
+      codex: llm,
+    };
+
+    expect(appStatusSchema.safeParse(legacyStatus).success).toBe(false);
   });
 
   it("rejects a status subsystem with an unsupported state", () => {

@@ -73,7 +73,7 @@ function subsystem(label: string) {
 
 function readyStatus() {
   return {
-    codex: subsystem("Codex judge"),
+    llm: subsystem("Codex judge"),
     deterministic: subsystem("Deterministic scorer"),
     engine: subsystem("Engine"),
     generatedAt: checkedAt,

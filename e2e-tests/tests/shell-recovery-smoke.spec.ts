@@ -33,7 +33,7 @@ function subsystem(label: string) {
 
 function readyStatus() {
   return {
-    codex: subsystem("Codex judge"),
+    llm: subsystem("Codex judge"),
     deterministic: subsystem("Deterministic scorer"),
     engine: subsystem("Engine"),
     generatedAt: checkedAt,
@@ -49,7 +49,7 @@ function readyStatus() {
 function codexUnavailableStatus() {
   return {
     ...readyStatus(),
-    codex: {
+    llm: {
       ...subsystem("Codex judge"),
       message: "Codex is unavailable. Deterministic scoring still works.",
       state: "unavailable",

@@ -25,7 +25,7 @@ type ReadinessProbe = {
 
 type ReadinessDependencies = {
   deterministic: ReadinessProbe;
-  codex: ReadinessProbe;
+  llm: ReadinessProbe;
   storage: ReadinessProbe;
 };
 
@@ -46,11 +46,26 @@ type BuildServerReadinessOptions = Parameters<typeof buildServer>[0] & {
   settingsRepository?: AppSettingsRepositoryFake;
 };
 
-type CodexReadinessProbeConstructor = new (options: {
+type ProviderReadinessSpec = {
+  command: string;
+  adapter: "codex-cli" | "claude-cli" | "cursor-cli";
+  label: string;
+  sandbox: string;
+};
+
+type CliReadinessProbeConstructor = new (options: {
+  spec: ProviderReadinessSpec;
   runner: ProcessRunner;
   workspaceRoot: string;
   executionTimeoutMs?: number;
 }) => ReadinessProbe;
+
+const codexReadinessSpec: ProviderReadinessSpec = {
+  command: "codex",
+  adapter: "codex-cli",
+  label: "Codex judge",
+  sandbox: "read-only",
+};
 
 type CapturedProcessRun = {
   command: string;
@@ -107,14 +122,47 @@ const createCodexReadinessProbe = async (
   runner: ProcessRunner,
   options: { executionTimeoutMs?: number } = {},
 ): Promise<ReadinessProbe> => {
-  const module = (await import("../../llm/codex-readiness-probe.js")) as {
-    CodexReadinessProbe: CodexReadinessProbeConstructor;
+  const module = (await import("../../llm/cli-readiness-probe.js")) as {
+    CliReadinessProbe: CliReadinessProbeConstructor;
   };
 
-  return new module.CodexReadinessProbe({
+  return new module.CliReadinessProbe({
+    spec: codexReadinessSpec,
     runner,
     workspaceRoot: codexReadinessWorkspaceRoot,
     executionTimeoutMs: options.executionTimeoutMs ?? codexReadinessExecutionTimeoutMs,
+  });
+};
+
+type JudgeReadinessRegistryEntry = {
+  id: "codex-cli" | "claude-cli" | "cursor-cli";
+  judgeLabel: string;
+  readiness: ProviderReadinessSpec;
+};
+
+type SelectedJudgeReadinessProbeConstructor = new (options: {
+  resolveProvider: () => Promise<"codex-cli" | "claude-cli" | "cursor-cli">;
+  registry: readonly JudgeReadinessRegistryEntry[];
+  resolveWorkspaceRoot: () => string | null;
+  runner: ProcessRunner;
+  executionTimeoutMs?: number;
+}) => ReadinessProbe;
+
+const createSelectedJudgeReadinessProbe = async (options: {
+  resolveProvider: () => Promise<"codex-cli" | "claude-cli" | "cursor-cli">;
+  registry: readonly JudgeReadinessRegistryEntry[];
+  resolveWorkspaceRoot?: () => string | null;
+  runner: ProcessRunner;
+}): Promise<ReadinessProbe> => {
+  const module = (await import("../../llm/selected-judge-readiness-probe.js")) as {
+    SelectedJudgeReadinessProbe: SelectedJudgeReadinessProbeConstructor;
+  };
+
+  return new module.SelectedJudgeReadinessProbe({
+    resolveProvider: options.resolveProvider,
+    registry: options.registry,
+    resolveWorkspaceRoot: options.resolveWorkspaceRoot ?? (() => codexReadinessWorkspaceRoot),
+    runner: options.runner,
   });
 };
 
@@ -208,7 +256,7 @@ const readinessDependencies = (
   deterministic: {
     check: vi.fn(async () => subsystem("ready", "Deterministic scorer")),
   },
-  codex: {
+  llm: {
     check: vi.fn(async () => subsystem("ready", "Codex judge")),
   },
   storage: {
@@ -233,6 +281,7 @@ describe("engine status readiness", () => {
       expect(payload).toEqual({ ok: true });
       expect(payload).not.toHaveProperty("overall");
       expect(payload).not.toHaveProperty("engine");
+      expect(payload).not.toHaveProperty("llm");
       expect(payload).not.toHaveProperty("codex");
       expect(payload).not.toHaveProperty("storage");
     } finally {
@@ -254,14 +303,14 @@ describe("engine status readiness", () => {
 
       expect(response.statusCode).toBe(200);
       expect(dependencies.deterministic.check).toHaveBeenCalledOnce();
-      expect(dependencies.codex.check).toHaveBeenCalledOnce();
+      expect(dependencies.llm.check).toHaveBeenCalledOnce();
       expect(dependencies.storage.check).toHaveBeenCalledOnce();
       const status = appStatusSchema.parse(payload);
 
       expect(status.overall).toBe("ready");
       expect(status.engine.state).toBe("ready");
       expect(status.deterministic.state).toBe("ready");
-      expect(status.codex.state).toBe("ready");
+      expect(status.llm.state).toBe("ready");
       expect(status.storage.state).toBe("ready");
     } finally {
       await app.close();
@@ -270,7 +319,7 @@ describe("engine status readiness", () => {
 
   it("aggregates unavailable Codex and ready deterministic scoring into partial app status", async () => {
     const dependencies = readinessDependencies({
-      codex: {
+      llm: {
         check: vi.fn(async () =>
           subsystem("unavailable", "Codex judge", {
             message: "Codex command is not available.",
@@ -289,14 +338,14 @@ describe("engine status readiness", () => {
 
       expect(response.statusCode).toBe(200);
       expect(dependencies.deterministic.check).toHaveBeenCalledOnce();
-      expect(dependencies.codex.check).toHaveBeenCalledOnce();
+      expect(dependencies.llm.check).toHaveBeenCalledOnce();
       expect(dependencies.storage.check).toHaveBeenCalledOnce();
       const status = appStatusSchema.parse(parseJsonPayload(response.body));
 
       expect(status.overall).toBe("partial");
       expect(status.engine.state).toBe("ready");
       expect(status.deterministic.state).toBe("ready");
-      expect(status.codex.state).toBe("unavailable");
+      expect(status.llm.state).toBe("unavailable");
       expect(status.storage.state).toBe("ready");
     } finally {
       await app.close();
@@ -324,7 +373,7 @@ describe("engine status readiness", () => {
 
       expect(response.statusCode).toBe(200);
       expect(dependencies.deterministic.check).toHaveBeenCalledOnce();
-      expect(dependencies.codex.check).toHaveBeenCalledOnce();
+      expect(dependencies.llm.check).toHaveBeenCalledOnce();
       expect(dependencies.storage.check).toHaveBeenCalledOnce();
       const status = appStatusSchema.parse(parseJsonPayload(response.body));
 
@@ -340,7 +389,7 @@ describe("engine status readiness", () => {
     vi.useFakeTimers();
 
     const dependencies = readinessDependencies({
-      codex: {
+      llm: {
         check: vi.fn(() => new Promise<SubsystemStatus>(() => {})),
       },
     });
@@ -361,14 +410,14 @@ describe("engine status readiness", () => {
 
       expect(response.statusCode).toBe(200);
       expect(dependencies.deterministic.check).toHaveBeenCalledOnce();
-      expect(dependencies.codex.check).toHaveBeenCalledOnce();
+      expect(dependencies.llm.check).toHaveBeenCalledOnce();
       expect(dependencies.storage.check).toHaveBeenCalledOnce();
       const status = appStatusSchema.parse(parseJsonPayload(response.body));
 
       expect(status.overall).toBe("partial");
       expect(status.deterministic.state).toBe("ready");
-      expect(status.codex.state).toBe("unavailable");
-      expect(status.codex.retryable).toBe(true);
+      expect(status.llm.state).toBe("unavailable");
+      expect(status.llm.retryable).toBe(true);
       expect(status.storage.state).toBe("ready");
     } finally {
       vi.useRealTimers();
@@ -379,7 +428,7 @@ describe("engine status readiness", () => {
   it("reports Codex ready from a successful cheap version probe", async () => {
     const runner = fakeProcessRunner(() => successfulProcessResult("codex-cli 0.42.0\n"));
     const dependencies = readinessDependencies({
-      codex: await createCodexReadinessProbe(runner),
+      llm: await createCodexReadinessProbe(runner),
     });
     const app = await buildServerWithReadinessDependencies(dependencies);
 
@@ -407,9 +456,9 @@ describe("engine status readiness", () => {
       const status = appStatusSchema.parse(parseJsonPayload(response.body));
 
       expect(status.overall).toBe("ready");
-      expect(status.codex.state).toBe("ready");
-      expect(status.codex.retryable).toBe(false);
-      expect(status.codex.details).toEqual({
+      expect(status.llm.state).toBe("ready");
+      expect(status.llm.retryable).toBe(false);
+      expect(status.llm.details).toEqual({
         adapter: "codex-cli",
         command: "codex",
         commandAvailable: true,
@@ -417,8 +466,8 @@ describe("engine status readiness", () => {
         sandbox: "read-only",
         executionTimeoutMs: codexReadinessExecutionTimeoutMs,
       });
-      expect(status.codex.details).not.toHaveProperty("autoJudgeEnabled");
-      expect(status.codex.details).not.toHaveProperty("runCodexJudgeAfterGeneration");
+      expect(status.llm.details).not.toHaveProperty("autoJudgeEnabled");
+      expect(status.llm.details).not.toHaveProperty("runCodexJudgeAfterGeneration");
     } finally {
       await app.close();
     }
@@ -434,7 +483,7 @@ describe("engine status readiness", () => {
       }),
     );
     const dependencies = readinessDependencies({
-      codex: await createCodexReadinessProbe(runner),
+      llm: await createCodexReadinessProbe(runner),
     });
     const app = await buildServerWithReadinessDependencies(dependencies);
 
@@ -450,8 +499,8 @@ describe("engine status readiness", () => {
 
       expect(status.overall).toBe("partial");
       expect(status.deterministic.state).toBe("ready");
-      expect(status.codex.state).toBe("unavailable");
-      expect(status.codex.details).toEqual({
+      expect(status.llm.state).toBe("unavailable");
+      expect(status.llm.details).toEqual({
         adapter: "codex-cli",
         command: "codex",
         commandAvailable: false,
@@ -484,7 +533,7 @@ describe("engine status readiness", () => {
       }),
     );
     const dependencies = readinessDependencies({
-      codex: await createCodexReadinessProbe(runner),
+      llm: await createCodexReadinessProbe(runner),
     });
     const app = await buildServerWithReadinessDependencies(dependencies);
 
@@ -500,9 +549,9 @@ describe("engine status readiness", () => {
 
       expect(status.overall).toBe("partial");
       expect(status.deterministic.state).toBe("ready");
-      expect(status.codex.state).toBe("unavailable");
-      expect(status.codex.retryable).toBe(true);
-      expect(status.codex.details).toEqual({
+      expect(status.llm.state).toBe("unavailable");
+      expect(status.llm.retryable).toBe(true);
+      expect(status.llm.details).toEqual({
         adapter: "codex-cli",
         command: "codex",
         commandAvailable: true,
@@ -518,10 +567,10 @@ describe("engine status readiness", () => {
       expect(response.body).not.toContain("auth.json");
       expect(response.body).not.toContain("sensitive stack");
       expect(response.body).not.toContain("runCodex");
-      expect(status.codex.details).not.toHaveProperty("stderr");
-      expect(status.codex.details).not.toHaveProperty("stdout");
-      expect(status.codex.details).not.toHaveProperty("rawOutput");
-      expect(status.codex.details).not.toHaveProperty("stack");
+      expect(status.llm.details).not.toHaveProperty("stderr");
+      expect(status.llm.details).not.toHaveProperty("stdout");
+      expect(status.llm.details).not.toHaveProperty("rawOutput");
+      expect(status.llm.details).not.toHaveProperty("stack");
     } finally {
       await app.close();
     }
@@ -532,7 +581,7 @@ describe("engine status readiness", () => {
 
     const runner = fakeProcessRunner(() => new Promise<ProcessRunResult>(() => {}));
     const dependencies = readinessDependencies({
-      codex: await createCodexReadinessProbe(runner, {
+      llm: await createCodexReadinessProbe(runner, {
         executionTimeoutMs: 5_000,
       }),
     });
@@ -556,9 +605,9 @@ describe("engine status readiness", () => {
       const status = appStatusSchema.parse(parseJsonPayload(response.body));
 
       expect(status.overall).toBe("partial");
-      expect(status.codex.state).toBe("unavailable");
-      expect(status.codex.retryable).toBe(true);
-      expect(status.codex.message).toMatch(/timed out/i);
+      expect(status.llm.state).toBe("unavailable");
+      expect(status.llm.retryable).toBe(true);
+      expect(status.llm.message).toMatch(/timed out/i);
     } finally {
       vi.useRealTimers();
       await app.close();
@@ -599,7 +648,7 @@ describe("engine status readiness", () => {
         expect(call?.options.cwd).not.toBe(liveCwd);
         const status = appStatusSchema.parse(parseJsonPayload(response.body));
 
-        expect(status.codex.state).toBe("ready");
+        expect(status.llm.state).toBe("ready");
       } finally {
         process.chdir(originalCwd);
         await app.close();
@@ -631,9 +680,12 @@ describe("engine status readiness", () => {
         const status = appStatusSchema.parse(parseJsonPayload(response.body));
 
         expect(status.overall).toBe("partial");
-        expect(status.codex.state).toBe("unavailable");
-        expect(status.codex.message).toBe("Workspace root could not be resolved.");
-        expect(status.codex.details).toEqual({
+        expect(status.llm.state).toBe("unavailable");
+        // The slot still carries the selected (codex default) provider's catalog
+        // label even when no workspace root resolves.
+        expect(status.llm.label).toBe("Codex judge");
+        expect(status.llm.message).toBe("Workspace root could not be resolved.");
+        expect(status.llm.details).toEqual({
           reason: "workspace_root_unresolved",
         });
       } finally {
@@ -646,7 +698,7 @@ describe("engine status readiness", () => {
     const runner = fakeProcessRunner(() => successfulProcessResult("codex-cli 0.42.0\n"));
     const repository = settingsRepository(settingsWithCodexJudgeEnabled);
     const dependencies = readinessDependencies({
-      codex: await createCodexReadinessProbe(runner),
+      llm: await createCodexReadinessProbe(runner),
     });
     const app = buildServer({
       readinessDependencies: dependencies,
@@ -665,8 +717,8 @@ describe("engine status readiness", () => {
       expect(runner.run).toHaveBeenCalledOnce();
       const status = appStatusSchema.parse(parseJsonPayload(response.body));
 
-      expect(status.codex.state).toBe("ready");
-      expect(status.codex.details).toEqual({
+      expect(status.llm.state).toBe("ready");
+      expect(status.llm.details).toEqual({
         adapter: "codex-cli",
         command: "codex",
         commandAvailable: true,
@@ -674,8 +726,8 @@ describe("engine status readiness", () => {
         sandbox: "read-only",
         executionTimeoutMs: codexReadinessExecutionTimeoutMs,
       });
-      expect(status.codex.details).not.toHaveProperty("autoJudgeEnabled");
-      expect(status.codex.details).not.toHaveProperty("runCodexJudgeAfterGeneration");
+      expect(status.llm.details).not.toHaveProperty("autoJudgeEnabled");
+      expect(status.llm.details).not.toHaveProperty("runCodexJudgeAfterGeneration");
       expect(response.body).not.toContain("Local Codex judge");
     } finally {
       await app.close();
@@ -686,7 +738,7 @@ describe("engine status readiness", () => {
     const runner = fakeProcessRunner(() => successfulProcessResult("codex-cli 0.42.0\n"));
     const repository = settingsRepository(settingsWithCodexJudgeEnabled);
     const dependencies = readinessDependencies({
-      codex: await createCodexReadinessProbe(runner),
+      llm: await createCodexReadinessProbe(runner),
     });
     const app = buildServer({
       readinessDependencies: dependencies,
@@ -730,7 +782,7 @@ describe("engine status readiness", () => {
       }),
     );
     const dependencies = readinessDependencies({
-      codex: await createCodexReadinessProbe(runner),
+      llm: await createCodexReadinessProbe(runner),
     });
     const app = await buildServerWithReadinessDependencies(dependencies);
 
@@ -743,8 +795,8 @@ describe("engine status readiness", () => {
       expect(response.statusCode).toBe(200);
       const status = appStatusSchema.parse(parseJsonPayload(response.body));
 
-      expect(status.codex.state).toBe("ready");
-      expect(status.codex.details).toMatchObject({
+      expect(status.llm.state).toBe("ready");
+      expect(status.llm.details).toMatchObject({
         adapter: "codex-cli",
         command: "codex",
         commandAvailable: true,
@@ -755,9 +807,9 @@ describe("engine status readiness", () => {
       expect(response.body).not.toContain(promptSentinel);
       expect(response.body).not.toContain(authPath);
       expect(response.body).not.toContain("/Users/nataly");
-      expect(status.codex.details).not.toHaveProperty("stderr");
-      expect(status.codex.details).not.toHaveProperty("stdout");
-      expect(status.codex.details).not.toHaveProperty("rawOutput");
+      expect(status.llm.details).not.toHaveProperty("stderr");
+      expect(status.llm.details).not.toHaveProperty("stdout");
+      expect(status.llm.details).not.toHaveProperty("rawOutput");
     } finally {
       await app.close();
     }
@@ -766,7 +818,7 @@ describe("engine status readiness", () => {
   it("does not run or expose Codex readiness from the liveness endpoint", async () => {
     const runner = fakeProcessRunner(() => successfulProcessResult("codex-cli 0.42.0\n"));
     const dependencies = readinessDependencies({
-      codex: await createCodexReadinessProbe(runner),
+      llm: await createCodexReadinessProbe(runner),
     });
     const app = await buildServerWithReadinessDependencies(dependencies);
 
@@ -818,6 +870,80 @@ describe("engine status readiness", () => {
       expect(response.body).not.toContain("readiness internals");
       expect(response.body).not.toContain("stack");
     } finally {
+      await app.close();
+    }
+  });
+
+  it("reports the llm slot unavailable and partial overall when the selected provider is absent from the registry", async () => {
+    const runner = fakeProcessRunner(() => successfulProcessResult("codex-cli 0.42.0\n"));
+    // The injected registry deliberately lacks the selected provider id, so the
+    // selected-judge probe cannot dispatch a readiness check for it.
+    const llmProbe = await createSelectedJudgeReadinessProbe({
+      resolveProvider: async () => "cursor-cli",
+      registry: [
+        {
+          id: "codex-cli",
+          judgeLabel: "Codex judge",
+          readiness: codexReadinessSpec,
+        },
+      ],
+      runner,
+    });
+    const dependencies = readinessDependencies({ llm: llmProbe });
+    const app = await buildServerWithReadinessDependencies(dependencies);
+
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/status",
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(runner.run).not.toHaveBeenCalled();
+      const status = appStatusSchema.parse(parseJsonPayload(response.body));
+
+      expect(status.overall).toBe("partial");
+      expect(status.llm.state).toBe("unavailable");
+      expect(status.llm.label).toBe("Judge");
+      expect(status.llm.message).toBe("Judge provider is not available in this build.");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("falls back the llm slot to the provider-agnostic Judge label and a timeout message when the probe hangs", async () => {
+    vi.useFakeTimers();
+
+    const dependencies = readinessDependencies({
+      llm: {
+        check: vi.fn(() => new Promise<SubsystemStatus>(() => {})),
+      },
+    });
+    const app = await buildServerWithReadinessDependencies(dependencies, {
+      readinessTimeoutMs: 750,
+    });
+
+    try {
+      const responsePromise = app.inject({
+        method: "GET",
+        url: "/status",
+      });
+
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(750);
+
+      const response = await responsePromise;
+
+      expect(response.statusCode).toBe(200);
+      const status = appStatusSchema.parse(parseJsonPayload(response.body));
+
+      expect(status.llm.state).toBe("unavailable");
+      expect(status.llm.label).toBe("Judge");
+      expect(status.llm.label).not.toBe("LLM judge");
+      expect(status.llm.message).toMatch(/timed out/i);
+      expect(response.body).not.toMatch(/llm judge/i);
+    } finally {
+      vi.useRealTimers();
       await app.close();
     }
   });

@@ -155,7 +155,7 @@ function subsystem(
 
 function createReadyStatus(): AppStatus {
   return {
-    codex: subsystem("Codex judge", "ready"),
+    llm: subsystem("Codex judge", "ready"),
     deterministic: subsystem("Deterministic scorer", "ready"),
     engine: subsystem("Engine", "ready"),
     generatedAt: "2026-06-06T12:10:00.000Z",
