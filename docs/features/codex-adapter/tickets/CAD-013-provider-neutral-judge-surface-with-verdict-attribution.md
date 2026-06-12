@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 ---
 
 # CAD-013: Provider-Neutral Judge Surface With Verdict Attribution
@@ -59,3 +59,4 @@ Stale verdict attribution (unit-level, per AC). Empty strengths/improvements wit
 ## Pipeline Log
 
 - 2026-06-11 — Created by arch-recon (multi-provider epic extension; validated APPROVE_WITH_CONCERNS, cycle 2).
+- 2026-06-12 — RGB pipeline DONE (rgb-tdd): Red tests `2302bf7` → Blue(Red) APPROVE (noted: client typecheck fails until Green adds `JudgeState.ready.model` — expected typed-TDD Red state; Vitest/esbuild strips types so runtime tests fail for behavioral reasons) → Green impl `f53ac71` → gates.py all clean → Blue(Green)+Yellow APPROVE. JudgePanel neutral naming (aria-label/h2 "Draft Judge", hint "The judge is unavailable right now. Check the provider in Settings.", failed button "Try judging again" — exits the banned `/retry judge/` family), ready-state attribution "Judged by {providerLabelFor(judge.model)}" (shared catalog + raw-id fallback, binds to the verdict PRODUCER not the live selection); `JudgeState.ready` += `model`; `runJudgeDraft` propagates `response.model`; `normalizeJudgeError` fallback now byte-identical to the server's "The judge could not score this draft. Try again." (closed the CAD-007 copy-lag — the stale client fallback had said "The Codex judge could not score this draft…"); new `.xb-judge-verdict__attribution` (existing tokens). Client suite 171/171, typecheck (7 prior errors cleared) + lint clean. 0 rejection cycles. Note (by design, non-blocking): the attribution renders the catalog label, so "Codex judge" can appear there on a ready codex verdict — AC3's no-"codex" constraint is about the neutral/unready surface, which is clean.
