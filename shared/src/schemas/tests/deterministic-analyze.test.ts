@@ -6,14 +6,22 @@ import {
   detectedPostFormatSchema,
   deterministicSourceFormatSchema,
   engagementPredictionSchema,
+  judgeSignalsSchema,
   postCoachViewModelSchema,
+  reachRangeSchema,
+  repeatHistoryEntrySchema,
+  scoringContextSchema,
   type AnalyzedPostItem,
   type AnalyzePostsRequest,
   type AnalyzePostsResponse,
   type DetectedPostFormat,
   type DeterministicSourceFormat,
   type EngagementPrediction,
+  type JudgeSignals,
   type PostCoachViewModel,
+  type ReachRange,
+  type RepeatHistoryEntry,
+  type ScoringContext,
 } from "../../index";
 
 const analyzedAt = "2026-06-07T12:00:00.000Z";
@@ -92,6 +100,15 @@ const availablePrediction = {
       multiplier: 0.8,
     },
   ],
+  predictedMidImpressions: 300,
+  stallRange: { low: 180, high: 260 },
+  escapeRange: { low: 320, high: 420 },
+  escapeProbability: 0.35,
+  expectedReplies: 4.2,
+  baseImpressions: 240,
+  baseSource: "trailing_median",
+  qualityBasis: "static",
+  reachModelVersion: "reach-v2",
 };
 
 const missingFollowersPrediction = {
@@ -358,5 +375,329 @@ describe("deterministic analyze schemas", () => {
     expect(detectedPostFormatSchema.safeParse("genuine_question").success).toBe(true);
     expect(detectedPostFormatSchema.safeParse("insight_share").success).toBe(true);
     expect(detectedPostFormatSchema.safeParse("one-liner").success).toBe(false);
+  });
+
+  it("accepts the eight new detected post formats", () => {
+    const newFormats = [
+      "fill_blank_tribal",
+      "cta_farm",
+      "fantasy_question",
+      "binary_choice",
+      "nuanced_question",
+      "recognition_roast",
+      "wisdom_one_liner",
+      "milestone",
+    ];
+
+    for (const format of newFormats) {
+      expect(detectedPostFormatSchema.safeParse(format).success).toBe(true);
+    }
+  });
+
+  it("keeps the deprecated one_liner and goal_share formats valid for one more release", () => {
+    expect(detectedPostFormatSchema.safeParse("one_liner").success).toBe(true);
+    expect(detectedPostFormatSchema.safeParse("goal_share").success).toBe(true);
+  });
+
+  it("rejects an unknown detected post format value", () => {
+    expect(detectedPostFormatSchema.safeParse("essay").success).toBe(false);
+  });
+});
+
+describe("scoring context schema", () => {
+  it("exports the scoring context schemas and inferred types from the shared entrypoint", () => {
+    expect(scoringContextSchema).toBeDefined();
+    expect(repeatHistoryEntrySchema).toBeDefined();
+    expect(judgeSignalsSchema).toBeDefined();
+
+    expectTypeOf<ScoringContext>().toMatchTypeOf<
+      ReturnType<typeof scoringContextSchema.parse>
+    >();
+    expectTypeOf<RepeatHistoryEntry>().toMatchTypeOf<
+      ReturnType<typeof repeatHistoryEntrySchema.parse>
+    >();
+    expectTypeOf<JudgeSignals>().toMatchTypeOf<
+      ReturnType<typeof judgeSignalsSchema.parse>
+    >();
+  });
+
+  it("applies repeatHistory and willAttachMedia defaults to a legacy followers-only context", () => {
+    const parsed = scoringContextSchema.parse({ followers: 2400 });
+
+    expect(parsed.followers).toBe(2400);
+    expect(parsed.repeatHistory).toEqual([]);
+    expect(parsed.willAttachMedia).toBe(false);
+    expect(parsed.trailingMedianImpressions).toBeUndefined();
+    expect(parsed.plannedHourUtc).toBeUndefined();
+    expect(parsed.accountAgeYears).toBeUndefined();
+    expect(parsed.judgeSignals).toBeUndefined();
+  });
+
+  it("parses a fully populated pass-2 scoring context with judge signals", () => {
+    const parsed = scoringContextSchema.parse({
+      followers: 5000,
+      trailingMedianImpressions: 0,
+      repeatHistory: [
+        {
+          format: "hot_take",
+          lastPostedAt: "2026-06-10T09:00:00.000Z",
+          countLast7d: 3,
+        },
+      ],
+      plannedHourUtc: 14,
+      willAttachMedia: true,
+      accountAgeYears: 4,
+      judgeSignals: { impressions: 60, replies: 40 },
+    });
+
+    expect(parsed.trailingMedianImpressions).toBe(0);
+    expect(parsed.willAttachMedia).toBe(true);
+    expect(parsed.judgeSignals).toEqual({ impressions: 60, replies: 40 });
+    expect(parsed.repeatHistory).toHaveLength(1);
+  });
+
+  it("treats trailingMedianImpressions of zero as a present value rather than absent", () => {
+    const parsed = scoringContextSchema.parse({ trailingMedianImpressions: 0 });
+
+    expect(parsed.trailingMedianImpressions).toBe(0);
+  });
+
+  it("accepts a scoring context without judge signals as a valid pass-1 context", () => {
+    const result = scoringContextSchema.safeParse({ followers: 1200 });
+
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      throw new Error("Expected pass-1 scoring context without judge signals to parse.");
+    }
+    expect(result.data.judgeSignals).toBeUndefined();
+  });
+
+  it("rejects judge signal scores above the 0..100 range", () => {
+    expect(
+      scoringContextSchema.safeParse({
+        judgeSignals: { impressions: 101, replies: 40 },
+      }).success,
+    ).toBe(false);
+    expect(
+      scoringContextSchema.safeParse({
+        judgeSignals: { impressions: 50, replies: -1 },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts judge signal scores at the 0 and 100 boundaries", () => {
+    expect(
+      judgeSignalsSchema.safeParse({ impressions: 0, replies: 100 }).success,
+    ).toBe(true);
+    expect(
+      judgeSignalsSchema.safeParse({ impressions: 100, replies: 0 }).success,
+    ).toBe(true);
+  });
+
+  it("accepts up to forty repeat-history entries and rejects forty-one", () => {
+    const entry = {
+      format: "ab_choice",
+      lastPostedAt: "2026-06-09T12:00:00.000Z",
+      countLast7d: 2,
+    };
+    const fortyEntries = Array.from({ length: 40 }, () => entry);
+    const fortyOneEntries = Array.from({ length: 41 }, () => entry);
+
+    expect(scoringContextSchema.safeParse({ repeatHistory: fortyEntries }).success).toBe(true);
+    expect(scoringContextSchema.safeParse({ repeatHistory: fortyOneEntries }).success).toBe(false);
+  });
+
+  it("parses a repeat-history entry keyed by a detected post format", () => {
+    const result = repeatHistoryEntrySchema.safeParse({
+      format: "nuanced_question",
+      lastPostedAt: "2026-06-11T08:30:00.000Z",
+      countLast7d: 5,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a repeat-history entry with a non-format string or non-ISO timestamp", () => {
+    expect(
+      repeatHistoryEntrySchema.safeParse({
+        format: "not_a_format",
+        lastPostedAt: "2026-06-11T08:30:00.000Z",
+        countLast7d: 5,
+      }).success,
+    ).toBe(false);
+    expect(
+      repeatHistoryEntrySchema.safeParse({
+        format: "hot_take",
+        lastPostedAt: "2026-06-11",
+        countLast7d: 5,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a repeat-history entry whose weekly count exceeds one hundred", () => {
+    expect(
+      repeatHistoryEntrySchema.safeParse({
+        format: "hot_take",
+        lastPostedAt: "2026-06-11T08:30:00.000Z",
+        countLast7d: 101,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a planned hour outside the 0..23 utc range", () => {
+    expect(scoringContextSchema.safeParse({ plannedHourUtc: 24 }).success).toBe(false);
+    expect(scoringContextSchema.safeParse({ plannedHourUtc: -1 }).success).toBe(false);
+    expect(scoringContextSchema.safeParse({ plannedHourUtc: 0 }).success).toBe(true);
+    expect(scoringContextSchema.safeParse({ plannedHourUtc: 23 }).success).toBe(true);
+  });
+
+  it("wires the scoring context schema into the analyze request with defaults applied", () => {
+    const parsed = analyzePostsRequestSchema.parse({
+      items: [
+        {
+          id: "candidate-1",
+          text: "Ship the smaller version that creates proof.",
+        },
+      ],
+      scoringContext: { followers: 2400 },
+      presentation: {},
+    });
+
+    expect(parsed.scoringContext).toMatchObject({
+      followers: 2400,
+      repeatHistory: [],
+      willAttachMedia: false,
+    });
+  });
+});
+
+describe("reach range schema", () => {
+  it("exports the reach range schema and inferred type from the shared entrypoint", () => {
+    expect(reachRangeSchema).toBeDefined();
+    expectTypeOf<ReachRange>().toMatchTypeOf<ReturnType<typeof reachRangeSchema.parse>>();
+  });
+
+  it("accepts a range where low is less than or equal to high", () => {
+    expect(reachRangeSchema.safeParse({ low: 10, high: 900 }).success).toBe(true);
+    expect(reachRangeSchema.safeParse({ low: 200, high: 200 }).success).toBe(true);
+  });
+
+  it("rejects a range where low is greater than high", () => {
+    expect(reachRangeSchema.safeParse({ low: 900, high: 10 }).success).toBe(false);
+  });
+
+  it("rejects a range with a negative bound", () => {
+    expect(reachRangeSchema.safeParse({ low: -1, high: 10 }).success).toBe(false);
+  });
+});
+
+describe("available engagement prediction four-regime fields", () => {
+  it("parses an available prediction carrying the new reach-model fields alongside legacy ranges", () => {
+    const result = engagementPredictionSchema.safeParse(availablePrediction);
+
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      throw new Error("Expected an available prediction with reach-model fields to parse.");
+    }
+    expect(result.data).toMatchObject({
+      status: "available",
+      predictedMidImpressions: 300,
+      stallRange: { low: 180, high: 260 },
+      escapeRange: { low: 320, high: 420 },
+      escapeProbability: 0.35,
+      expectedReplies: 4.2,
+      baseImpressions: 240,
+      baseSource: "trailing_median",
+      qualityBasis: "static",
+      reachModelVersion: "reach-v2",
+    });
+  });
+
+  it("passes the legacy ordering refine for an available prediction with ordered ranges and midpoint", () => {
+    const result = engagementPredictionSchema.safeParse({
+      ...availablePrediction,
+      rangeLow: 10,
+      rangeHigh: 900,
+      midpoint: 120,
+      stallRange: { low: 10, high: 110 },
+      escapeRange: { low: 130, high: 900 },
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      throw new Error("Expected an ordered available prediction with reach ranges to parse.");
+    }
+    expect(result.data).toMatchObject({
+      status: "available",
+      rangeLow: 10,
+      rangeHigh: 900,
+      midpoint: 120,
+      stallRange: { low: 10, high: 110 },
+      escapeRange: { low: 130, high: 900 },
+    });
+  });
+
+  it("rejects an available prediction missing a four-regime field", () => {
+    const { qualityBasis: _qualityBasis, ...withoutQualityBasis } = availablePrediction;
+
+    expect(engagementPredictionSchema.safeParse(withoutQualityBasis).success).toBe(false);
+  });
+
+  it("accepts both static and judge as the prediction quality basis", () => {
+    const staticBasis = engagementPredictionSchema.parse({
+      ...availablePrediction,
+      qualityBasis: "static",
+    });
+    const judgeBasis = engagementPredictionSchema.parse({
+      ...availablePrediction,
+      qualityBasis: "judge",
+    });
+
+    expect(staticBasis).toMatchObject({ qualityBasis: "static" });
+    expect(judgeBasis).toMatchObject({ qualityBasis: "judge" });
+  });
+
+  it("rejects an unknown quality basis or base source value", () => {
+    expect(
+      engagementPredictionSchema.safeParse({ ...availablePrediction, qualityBasis: "heuristic" }).success,
+    ).toBe(false);
+    expect(
+      engagementPredictionSchema.safeParse({ ...availablePrediction, baseSource: "guess" }).success,
+    ).toBe(false);
+  });
+
+  it("accepts both trailing_median and follower_estimate as the base source", () => {
+    const trailingMedian = engagementPredictionSchema.parse({
+      ...availablePrediction,
+      baseSource: "trailing_median",
+    });
+    const followerEstimate = engagementPredictionSchema.parse({
+      ...availablePrediction,
+      baseSource: "follower_estimate",
+    });
+
+    expect(trailingMedian).toMatchObject({ baseSource: "trailing_median" });
+    expect(followerEstimate).toMatchObject({ baseSource: "follower_estimate" });
+  });
+
+  it("rejects an escape probability outside the 0..1 range and a non-empty reach model version", () => {
+    expect(
+      engagementPredictionSchema.safeParse({ ...availablePrediction, escapeProbability: 1.5 }).success,
+    ).toBe(false);
+    expect(
+      engagementPredictionSchema.safeParse({ ...availablePrediction, escapeProbability: -0.1 }).success,
+    ).toBe(false);
+    expect(
+      engagementPredictionSchema.safeParse({ ...availablePrediction, reachModelVersion: "" }).success,
+    ).toBe(false);
+  });
+
+  it("rejects an available prediction whose stall range is internally unordered", () => {
+    expect(
+      engagementPredictionSchema.safeParse({
+        ...availablePrediction,
+        stallRange: { low: 260, high: 180 },
+      }).success,
+    ).toBe(false);
   });
 });
