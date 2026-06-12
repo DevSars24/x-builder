@@ -1,120 +1,9 @@
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
-const engineBaseUrl = "http://127.0.0.1:4173";
-const checkedAt = "2026-06-08T08:00:00.000Z";
-
-const corsHeaders = {
-  "access-control-allow-headers": "content-type",
-  "access-control-allow-methods": "GET, PATCH, POST, OPTIONS",
-  "access-control-allow-origin": "*",
-  "content-type": "application/json",
-};
-
-const verdict = {
-  verdict: "slight_rework",
-  confidence: "medium",
-  scores: {
-    overall: 78,
-    replies: 80,
-    profileClicks: 72,
-    impressions: 65,
-    bookmarkValue: 60,
-    dwellProxy: 70,
-    voiceMatch: 85,
-    negativeRisk: 10,
-  },
-  headline: "Strong hook, weak closer.",
-  strengths: ["Opens with a concrete claim", "Ends on a reply-friendly question"],
-  improvements: ["Trim the middle paragraph", "Cut one hedge word"],
-};
-
-function subsystem(label: string, state: "ready" | "unavailable") {
-  return { checkedAt, details: {}, label, retryable: state !== "ready", state };
-}
-
-function statusBody(codexState: "ready" | "unavailable") {
-  return {
-    llm: subsystem("Codex judge", codexState),
-    deterministic: subsystem("Deterministic scorer", "ready"),
-    engine: subsystem("Engine", "ready"),
-    generatedAt: checkedAt,
-    lastRun: { state: "none" },
-    overall: codexState === "ready" ? "ready" : "partial",
-    storage: subsystem("Storage", "ready"),
-    version: "e2e",
-  };
-}
-
-function scoredAnalyzeBody(body: { items: Array<{ id: string; text: string }> }) {
-  return {
-    items: body.items.map((item) => ({
-      status: "scored",
-      id: item.id,
-      text: item.text,
-      detectedFormat: "insight_share",
-      score: {
-        value: 80,
-        checks: [{ id: "api-check", kind: "quality", label: "API check", status: "pass" }],
-        learnings: [],
-        engageability: { engageable: true, reason: "Ready for a static pass." },
-      },
-      postCoach: { state: "empty", title: "Post Coach", message: "Preview." },
-      prediction: { status: "disabled", reason: "missing_followers", message: "Add followers." },
-      heuristicLabel: "Heuristic rank, not prediction.",
-      analyzedAt: checkedAt,
-      analyzerVersion: "deterministic-e2e",
-    })),
-  };
-}
-
-async function fulfillJson(route: Route, status: number, body: unknown) {
-  await route.fulfill({ body: JSON.stringify(body), headers: corsHeaders, status });
-}
-
-async function stubEngine(
-  page: Page,
-  options: { codexState: "ready" | "unavailable"; onJudge?: (route: Route) => Promise<void> },
-) {
-  await page.route(`${engineBaseUrl}/status`, async (route) => {
-    await fulfillJson(route, 200, statusBody(options.codexState));
-  });
-  await page.route(`${engineBaseUrl}/settings`, async (route) => {
-    if (route.request().method() === "OPTIONS") {
-      await route.fulfill({ headers: corsHeaders, status: 204 });
-      return;
-    }
-    await fulfillJson(route, 200, {
-      settings: {
-        engineBaseUrl,
-        judgeProvider: "codex-cli",
-        showDeterministicDetails: true,
-        storagePath: "~/.x-builder/e2e",
-      },
-      source: "defaults",
-    });
-  });
-  await page.route(`${engineBaseUrl}/posts/analyze`, async (route) => {
-    if (route.request().method() === "OPTIONS") {
-      await route.fulfill({ headers: corsHeaders, status: 204 });
-      return;
-    }
-    await fulfillJson(route, 200, scoredAnalyzeBody(JSON.parse(route.request().postData() ?? "{}")));
-  });
-  await page.route(`${engineBaseUrl}/drafts/judge`, async (route) => {
-    if (route.request().method() === "OPTIONS") {
-      await route.fulfill({ headers: corsHeaders, status: 204 });
-      return;
-    }
-    if (options.onJudge !== undefined) {
-      await options.onJudge(route);
-      return;
-    }
-    await fulfillJson(route, 200, { status: "judged", verdict, model: "codex-cli", judgedAt: checkedAt });
-  });
-}
+import { sampleVerdict, stubEngine } from "./support/engine-stub";
 
 test("judges a pasted draft and renders the verdict panel with provider attribution", async ({ page }) => {
-  await stubEngine(page, { codexState: "ready" });
+  await stubEngine(page, { slotState: "ready" });
   await page.goto("/writer");
   await expect(page.getByRole("heading", { level: 1, name: "Studio" })).toBeVisible();
 
@@ -130,9 +19,9 @@ test("judges a pasted draft and renders the verdict panel with provider attribut
   await expect(judgePanel.getByText("Slight rework")).toBeVisible();
   await expect(judgePanel.getByText("Confidence: medium")).toBeVisible();
   await expect(judgePanel.getByText("Overall")).toBeVisible();
-  await expect(judgePanel.getByText("Strong hook, weak closer.")).toBeVisible();
-  await expect(judgePanel.getByText("Opens with a concrete claim")).toBeVisible();
-  await expect(judgePanel.getByText("Trim the middle paragraph")).toBeVisible();
+  await expect(judgePanel.getByText(sampleVerdict.headline)).toBeVisible();
+  await expect(judgePanel.getByText(sampleVerdict.strengths[0]!)).toBeVisible();
+  await expect(judgePanel.getByText(sampleVerdict.improvements[0]!)).toBeVisible();
   // The stubbed response model "codex-cli" maps through the shared catalog to "Codex judge".
   await expect(judgePanel.getByText("Judged by Codex judge")).toBeVisible();
 
@@ -140,7 +29,7 @@ test("judges a pasted draft and renders the verdict panel with provider attribut
 });
 
 test("disables the judge button with a neutral hint when the provider is unavailable", async ({ page }) => {
-  await stubEngine(page, { codexState: "unavailable" });
+  await stubEngine(page, { slotState: "unavailable" });
   await page.goto("/writer");
   await expect(page.getByRole("heading", { level: 1, name: "Studio" })).toBeVisible();
 
