@@ -394,6 +394,11 @@ select {
   font: var(--type-body-small);
 }
 
+.xb-judge-verdict__attribution {
+  color: var(--text-muted);
+  font: var(--type-caption);
+}
+
 .xb-judge-verdict__headline {
   margin: 0;
   color: var(--text-primary);
@@ -1054,6 +1059,7 @@ select {
 }
 
 .xb-settings-route__field,
+.xb-settings-route__models,
 .xb-settings-route__switches {
   display: grid;
   gap: var(--space-2);
@@ -1065,7 +1071,8 @@ select {
   font: var(--type-label);
 }
 
-.xb-settings-route__field input[type="text"] {
+.xb-settings-route__field input[type="text"],
+.xb-settings-route__field select {
   width: 100%;
   min-height: var(--density-input-height);
   box-sizing: border-box;
@@ -1077,6 +1084,7 @@ select {
 }
 
 .xb-settings-route__field input[type="text"]:focus-visible,
+.xb-settings-route__field select:focus-visible,
 .xb-settings-route__switch input:focus-visible {
   outline: var(--focus-ring-width) solid var(--focus-ring-color);
   outline-offset: var(--focus-ring-offset);

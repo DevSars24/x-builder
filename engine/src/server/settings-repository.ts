@@ -51,8 +51,6 @@ export class JsonFileAppSettingsRepository implements AppSettingsRepository {
     return appSettingsSchema.parse({
       engineBaseUrl: "http://127.0.0.1:4173",
       storagePath: join(this.options.root, "storage"),
-      codexCommandLabel: "Codex judge",
-      runCodexJudgeAfterGeneration: false,
       showDeterministicDetails: true,
     });
   }

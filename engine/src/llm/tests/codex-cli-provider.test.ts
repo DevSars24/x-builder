@@ -5,12 +5,31 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { defaultProcessEnvAllowlist } from "../process-runner.js";
 import type {
   LlmProvider,
   NormalizedStructuredLlmRequest,
   StructuredLlmProviderResult,
 } from "../structured-llm-service.js";
+
+// The exact, concrete set of parent environment variable names the codex
+// generation run must pass through to the child process today. Pinned here as
+// literals (NOT imported from the source constant) so the assertion survives a
+// rename/relocation of the underlying allowlist while still failing if the
+// effective env set ever gains or loses a variable.
+const expectedCodexRunEnvAllowlist = [
+  "PATH",
+  "HOME",
+  "CODEX_HOME",
+  "CODEX_SQLITE_HOME",
+  "CODEX_API_KEY",
+  "CODEX_ACCESS_TOKEN",
+  "CODEX_CA_CERTIFICATE",
+  "SSL_CERT_FILE",
+  "RUST_LOG",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+] as const;
 
 type DraftOutput = {
   draft: string;
@@ -59,6 +78,20 @@ type CodexCliProviderConstructor = new (options: {
   runner: FakeProcessRunner;
   workspaceRoot: string;
 }) => LlmProvider<DraftOutput>;
+
+type CodexCommandBuilderInstance = {
+  build: (options: { workspaceRoot: string; schemaFile: string; model?: string }) => readonly string[];
+};
+
+type CodexCommandBuilderConstructor = new () => CodexCommandBuilderInstance;
+
+async function loadCodexCommandBuilder(): Promise<CodexCommandBuilderConstructor> {
+  const module = (await import("../codex-cli-provider.js")) as {
+    CodexCommandBuilder: CodexCommandBuilderConstructor;
+  };
+
+  return module.CodexCommandBuilder;
+}
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = join(testDir, "fixtures", "codex-cli");
@@ -262,8 +295,23 @@ describe("codex cli provider", () => {
       cwd: workspaceRoot,
       timeoutMs: 12_345,
       maxStdoutBytes: 98_765,
-      envAllowlist: [...defaultProcessEnvAllowlist],
     });
+    // Invariant 4: the codex run supplies an explicit, defined allowlist rather
+    // than relying on the runner's fallback.
+    expect(call.options.envAllowlist).toBeDefined();
+    expect(Array.isArray(call.options.envAllowlist)).toBe(true);
+    // Invariant 1: the effective child-env variable SET is exactly these 12
+    // concrete names. The runner copies the allowlisted names that exist in
+    // process.env into a name->value map, so membership — not iteration order —
+    // is the observed behavior; a correct reordering of the allowlist must stay
+    // green while dropping/adding any variable must turn red. Asserting the
+    // concrete literals (not the source constant) also keeps a rename/relocation
+    // of the underlying allowlist green.
+    expect(new Set(call.options.envAllowlist)).toEqual(new Set(expectedCodexRunEnvAllowlist));
+    // No duplicates: the allowlist carries each name once, so the set size equals
+    // the captured array length (a duplicate would inflate the array without
+    // changing the set).
+    expect((call.options.envAllowlist ?? []).length).toBe(expectedCodexRunEnvAllowlist.length);
     expect(call.options).not.toHaveProperty("env");
     expect(call.options.stdin).toEqual(expect.any(String));
     expect(call.options.stdin).toContain("draft_quality");
@@ -496,5 +544,87 @@ describe("codex cli provider", () => {
       }),
     });
     expectSafeFailure(result, [promptSentinel, stderrSentinel, authPath, "sensitive stack"]);
+  });
+
+  it("builds codex argv with no -m flag when the request carries no model", async () => {
+    const runner = fakeRunner(successProcessResult(await readFixture("final-stdout.json")));
+    const provider = await createProvider(runner);
+
+    await provider.generateStructured(structuredRequest());
+
+    const call = runner.calls[0] as CapturedRun;
+    expect(call.args).not.toContain("-m");
+  });
+
+  it("appends -m <model> to codex argv when the request carries a model", async () => {
+    const runner = fakeRunner(successProcessResult(await readFixture("final-stdout.json")));
+    const provider = await createProvider(runner);
+
+    await provider.generateStructured(
+      structuredRequest({
+        options: {
+          timeoutMs: 12_345,
+          outputByteLimit: 98_765,
+          attempts: 1,
+          model: "gpt-5.2-codex",
+        } as NormalizedStructuredLlmRequest<DraftOutput>["options"],
+      }),
+    );
+
+    const call = runner.calls[0] as CapturedRun;
+    expect(valueAfter(call.args, "-m")).toBe("gpt-5.2-codex");
+  });
+});
+
+describe("codex command builder", () => {
+  const builderOptions = {
+    workspaceRoot,
+    schemaFile: "/tmp/x-builder-codex-schema/draft_quality.json",
+  };
+
+  // Pin the exact argv the builder produces with no model so a regression in the
+  // base command is caught alongside the new model flag.
+  const baselineArgv = [
+    "exec",
+    "--ephemeral",
+    "--sandbox",
+    "read-only",
+    "--cd",
+    workspaceRoot,
+    "--output-schema",
+    builderOptions.schemaFile,
+    "--color",
+    "never",
+    "-",
+  ];
+
+  it("produces argv byte-identical to today's codex command when no model is set", async () => {
+    const CodexCommandBuilder = await loadCodexCommandBuilder();
+    const builder = new CodexCommandBuilder();
+
+    const args = builder.build(builderOptions);
+
+    expect([...args]).toEqual(baselineArgv);
+    expect(args).not.toContain("-m");
+  });
+
+  it("produces the same argv when the model is an empty string (treated as absent)", async () => {
+    const CodexCommandBuilder = await loadCodexCommandBuilder();
+    const builder = new CodexCommandBuilder();
+
+    const args = builder.build({ ...builderOptions, model: "" });
+
+    expect([...args]).toEqual(baselineArgv);
+    expect(args).not.toContain("-m");
+  });
+
+  it("appends -m <model> exactly once when a model is set", async () => {
+    const CodexCommandBuilder = await loadCodexCommandBuilder();
+    const builder = new CodexCommandBuilder();
+
+    const args = builder.build({ ...builderOptions, model: "gpt-5.2-codex" });
+
+    expect(valueAfter(args, "-m")).toBe("gpt-5.2-codex");
+    expect(args.filter((arg) => arg === "-m")).toHaveLength(1);
   });
 });

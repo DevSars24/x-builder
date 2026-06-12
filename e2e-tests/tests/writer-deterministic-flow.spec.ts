@@ -1,17 +1,19 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
-const engineBaseUrl = "http://127.0.0.1:4173";
+import {
+  corsHeaders,
+  engineBaseUrl,
+  fulfillJson,
+  fulfillPreflight,
+  requestJson,
+  settingsBody,
+  statusBody,
+} from "./support/engine-stub";
+
 const checkedAt = "2026-06-08T08:00:00.000Z";
 const learningCaveat =
   "Static rule check. Imported performance data is not connected yet.";
 const heuristicLabel = "Heuristic rank, not prediction.";
-
-const corsHeaders = {
-  "access-control-allow-headers": "content-type",
-  "access-control-allow-methods": "GET, PATCH, POST, OPTIONS",
-  "access-control-allow-origin": "*",
-  "content-type": "application/json",
-};
 
 const candidates = [
   {
@@ -60,44 +62,6 @@ type StubEngineOptions = {
   analyze?: (route: Route, body: AnalyzeRequest, requestCount: number) => Promise<void>;
   generate?: (route: Route, body: unknown, requestCount: number) => Promise<void>;
 };
-
-function subsystem(label: string) {
-  return {
-    checkedAt,
-    details: {},
-    label,
-    retryable: true,
-    state: "ready",
-  };
-}
-
-function readyStatus() {
-  return {
-    codex: subsystem("Codex judge"),
-    deterministic: subsystem("Deterministic scorer"),
-    engine: subsystem("Engine"),
-    generatedAt: checkedAt,
-    lastRun: {
-      state: "none",
-    },
-    overall: "ready",
-    storage: subsystem("Storage"),
-    version: "e2e",
-  };
-}
-
-function settingsResponse() {
-  return {
-    settings: {
-      codexCommandLabel: "Codex judge",
-      engineBaseUrl,
-      runCodexJudgeAfterGeneration: false,
-      showDeterministicDetails: true,
-      storagePath: "~/.x-builder/e2e",
-    },
-    source: "defaults",
-  };
-}
 
 function postCoach(mode: "preview" | "expanded", index: number) {
   const failed = {
@@ -268,38 +232,18 @@ function routeError(message: string, code: "generation_failed" | "deterministic_
   };
 }
 
-async function fulfillJson(route: Route, status: number, body: unknown) {
-  await route.fulfill({
-    body: JSON.stringify(body),
-    headers: corsHeaders,
-    status,
-  });
-}
-
-async function fulfillPreflight(route: Route) {
-  await route.fulfill({
-    headers: corsHeaders,
-    status: 204,
-  });
-}
-
-function requestJson(route: Route): unknown {
-  const postData = route.request().postData();
-
-  if (postData === null) {
-    throw new Error(`Expected JSON request body for ${route.request().url()}.`);
-  }
-
-  return JSON.parse(postData);
-}
-
 async function stubEngine(
   page: Page,
   captured: CapturedRequests,
   options: StubEngineOptions = {},
 ) {
+  // /status, /settings, and /drafts/judge come from the shared parameterized
+  // builder (default-ready Codex slot) so this spec carries no bespoke status
+  // or settings literals. /ideas/generate and /posts/analyze stay local: they
+  // sequence deterministic-domain responses per request, which is this spec's
+  // subject under test.
   await page.route(`${engineBaseUrl}/status`, async (route) => {
-    await fulfillJson(route, 200, readyStatus());
+    await fulfillJson(route, 200, statusBody());
   });
 
   await page.route(`${engineBaseUrl}/settings`, async (route) => {
@@ -308,7 +252,26 @@ async function stubEngine(
       return;
     }
 
-    await fulfillJson(route, 200, settingsResponse());
+    await fulfillJson(route, 200, settingsBody());
+  });
+
+  await page.route(`${engineBaseUrl}/drafts/judge`, async (route) => {
+    if (route.request().method() === "OPTIONS") {
+      await fulfillPreflight(route);
+      return;
+    }
+
+    await route.fulfill({
+      body: JSON.stringify({
+        code: "judge_failed",
+        message: "Judging is not exercised in this flow.",
+        retryable: true,
+        scope: "judge",
+        status: 503,
+      }),
+      headers: corsHeaders,
+      status: 503,
+    });
   });
 
   await page.route(`${engineBaseUrl}/ideas/generate`, async (route) => {

@@ -28,10 +28,11 @@ import {
 import { z } from "zod";
 
 import { DeterministicAnalysisService } from "../deterministic/deterministic-analysis-service.js";
-import { CodexCliProvider } from "../llm/codex-cli-provider.js";
-import { CodexReadinessProbe } from "../llm/codex-readiness-probe.js";
 import { JudgeDraftService, type JudgeDraft } from "../llm/judge-draft-service.js";
+import { judgeProviderRegistry } from "../llm/judge-provider-registry.js";
+import { createSettingsJudgeProviderResolver } from "../llm/judge-provider-resolver.js";
 import { NodeProcessRunner, type ProcessRunner } from "../llm/process-runner.js";
+import { SelectedJudgeReadinessProbe } from "../llm/selected-judge-readiness-probe.js";
 import { StructuredLlmService } from "../llm/structured-llm-service.js";
 import {
   JsonFileAppSettingsRepository,
@@ -49,7 +50,7 @@ export type ReadinessProbe = {
 
 export type ReadinessDependencies = {
   deterministic: ReadinessProbe;
-  codex: ReadinessProbe;
+  llm: ReadinessProbe;
   storage: ReadinessProbe;
 };
 
@@ -139,7 +140,7 @@ const deterministicAnalysisError = (): ApiError =>
 const judgeFailedError = (retryable: boolean): ApiError =>
   normalize({
     code: "judge_failed",
-    message: "The Codex judge could not score this draft. Try again.",
+    message: "The judge could not score this draft. Try again.",
     scope: "judge",
     retryable,
     status: retryable ? 503 : 500,
@@ -266,15 +267,6 @@ const failedProbeStatus = (label: string): SubsystemStatus =>
     retryable: true,
   });
 
-const unresolvedWorkspaceRootStatus = (): SubsystemStatus =>
-  subsystem("unavailable", "Codex judge", {
-    message: "Workspace root could not be resolved.",
-    retryable: true,
-    details: {
-      reason: "workspace_root_unresolved",
-    },
-  });
-
 // Walk up from a path to the first directory that exists. Settings are written
 // with mkdir -p, so writability of the nearest existing ancestor determines
 // whether the engine can persist — the leaf dir need not exist yet.
@@ -300,13 +292,17 @@ export function createDefaultReadinessDependencies(
   const startupCwd = options.startupCwd ?? process.cwd();
   const settingsRoot = options.settingsRoot ?? defaultSettingsRoot;
   const workspaceRoot = resolveWorkspaceRoot(startupCwd);
-  const codexProbe = workspaceRoot
-    ? new CodexReadinessProbe({
-        runner: options.codexRunner ?? new NodeProcessRunner(),
-        workspaceRoot,
-        executionTimeoutMs: readinessTimeoutMsDefault,
-      })
-    : null;
+  // The selected-provider probe resolves the active provider from the same
+  // settings repository the judge path uses, then runs that provider's readiness
+  // spec from the registry against the startup-resolved workspace root.
+  const settingsRepository = new JsonFileAppSettingsRepository({ root: settingsRoot });
+  const selectedJudgeProbe = new SelectedJudgeReadinessProbe({
+    resolveProvider: createSettingsJudgeProviderResolver(settingsRepository),
+    registry: judgeProviderRegistry,
+    resolveWorkspaceRoot: () => workspaceRoot,
+    runner: options.codexRunner ?? new NodeProcessRunner(),
+    executionTimeoutMs: readinessTimeoutMsDefault,
+  });
 
   return {
     deterministic: {
@@ -318,8 +314,8 @@ export function createDefaultReadinessDependencies(
           },
         }),
     },
-    codex: {
-      check: () => (codexProbe ? codexProbe.check() : unresolvedWorkspaceRootStatus()),
+    llm: {
+      check: () => selectedJudgeProbe.check(),
     },
     storage: {
       check: async () => {
@@ -342,21 +338,23 @@ export function createDefaultReadinessDependencies(
 
 const probeLabels: Record<keyof ReadinessDependencies, string> = {
   deterministic: "Deterministic scorer",
-  codex: "Codex judge",
+  // Provider-agnostic fallback label for the selected-judge slot: a probe
+  // timeout or crash cannot name a provider, so the slot reads "Judge".
+  llm: "Judge",
   storage: "Storage",
 };
 
 const overallFromSubsystems = (
   engine: SubsystemStatus,
   deterministic: SubsystemStatus,
-  codex: SubsystemStatus,
+  llm: SubsystemStatus,
   storage: SubsystemStatus,
 ): AppStatus["overall"] => {
   if (engine.state !== "ready") {
     return "unavailable";
   }
 
-  return [deterministic, codex, storage].every((status) => status.state === "ready")
+  return [deterministic, llm, storage].every((status) => status.state === "ready")
     ? "ready"
     : "partial";
 };
@@ -390,20 +388,20 @@ class DefaultReadinessService implements ReadinessService {
       },
     });
 
-    const [deterministic, codex, storage] = await Promise.all([
+    const [deterministic, llm, storage] = await Promise.all([
       this.checkProbe("deterministic"),
-      this.checkProbe("codex"),
+      this.checkProbe("llm"),
       this.checkProbe("storage"),
     ]);
     const generatedAt = nowIso();
 
     return appStatusSchema.parse({
-      overall: overallFromSubsystems(engine, deterministic, codex, storage),
+      overall: overallFromSubsystems(engine, deterministic, llm, storage),
       version: packageVersion,
       generatedAt,
       engine,
       deterministic,
-      codex,
+      llm,
       storage,
       lastRun: {
         state: "none",
@@ -456,19 +454,49 @@ const configureCors = (
 export type CreateDefaultJudgeDraftServiceOptions = {
   startupCwd?: string;
   runner?: ProcessRunner;
+  settingsRepository?: AppSettingsRepository;
 };
+
+// Per-provider mapping from a resolved provider id to the settings model field
+// that configures it. Codex is the only registered provider in this ticket.
+const judgeProviderModelKeys = {
+  "codex-cli": "codexModel",
+  "claude-cli": "claudeModel",
+  "cursor-cli": "cursorModel",
+} as const;
 
 export const createDefaultJudgeDraftService = (
   options: CreateDefaultJudgeDraftServiceOptions = {},
 ): JudgeDraft => {
   const workspaceRoot = resolveWorkspaceRoot(options.startupCwd ?? process.cwd());
+  const runner = options.runner ?? new NodeProcessRunner();
+  const settingsRepository =
+    options.settingsRepository ?? new JsonFileAppSettingsRepository({ root: defaultSettingsRoot });
   // With no resolvable workspace root the provider list is empty, so the judge
   // request resolves to a provider_unconfigured failure rather than throwing.
   const providers = workspaceRoot
-    ? [new CodexCliProvider({ runner: options.runner ?? new NodeProcessRunner(), workspaceRoot })]
+    ? judgeProviderRegistry.map((entry) => entry.createProvider({ runner, workspaceRoot }))
     : [];
 
-  return new JudgeDraftService(new StructuredLlmService({ providers }));
+  const resolveProvider = createSettingsJudgeProviderResolver(settingsRepository);
+  // Read the active provider's configured model from the same per-call settings
+  // load; an empty or absent value leaves the provider on its own default.
+  const resolveModel = async (): Promise<string | undefined> => {
+    try {
+      const { settings } = await settingsRepository.load();
+      const provider = await resolveProvider();
+
+      return settings[judgeProviderModelKeys[provider]];
+    } catch {
+      return undefined;
+    }
+  };
+
+  return new JudgeDraftService(
+    new StructuredLlmService({ providers }),
+    resolveProvider,
+    resolveModel,
+  );
 };
 
 export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
@@ -487,7 +515,10 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
       options.readinessDependencies ?? createDefaultReadinessDependencies(),
       options.readinessTimeoutMs ?? readinessTimeoutMsDefault,
     );
-  const judgeDraftService = options.judgeDraftService ?? createDefaultJudgeDraftService();
+  // One repository backs both the settings routes and the judge resolver/model
+  // path, so a settings PATCH takes effect on the very next judge call.
+  const judgeDraftService =
+    options.judgeDraftService ?? createDefaultJudgeDraftService({ settingsRepository });
 
   app.setNotFoundHandler((_request, reply) => {
     const apiError = notFoundError();

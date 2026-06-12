@@ -85,7 +85,7 @@ function createPartialStatus(): AppStatus {
   const checkedAt = "2026-06-06T12:00:00.000Z";
 
   return {
-    codex: {
+    llm: {
       checkedAt,
       details: {},
       label: "Codex judge",

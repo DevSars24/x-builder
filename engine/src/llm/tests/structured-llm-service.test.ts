@@ -139,15 +139,6 @@ function fakeProvider(
 ): FakeProvider {
   return {
     id: "codex-cli",
-    checkReadiness: vi.fn(async () => ({
-      state: "ready",
-      label: "Codex CLI",
-      retryable: false,
-      details: {
-        adapter: "codex-cli",
-      },
-      checkedAt: "2026-06-09T10:00:00.000Z",
-    })),
     generateStructured,
   } as FakeProvider;
 }
@@ -379,6 +370,52 @@ describe("structured LLM service", () => {
       expect(provider.generateStructured).toHaveBeenCalledOnce();
     },
   );
+
+  it("normalizes a request with no model option to an undefined model rather than a default", async () => {
+    const provider = fakeProvider();
+    const service = await createService(provider);
+
+    await service.generateStructured(request());
+
+    const normalized = provider.generateStructured.mock.calls[0]![0];
+    expect(normalized.options.model).toBeUndefined();
+  });
+
+  it("passes a non-empty model option through to the provider request unchanged", async () => {
+    const provider = fakeProvider();
+    const service = await createService(provider);
+
+    await service.generateStructured(
+      request({
+        options: {
+          model: "gpt-5.2-codex",
+        },
+      }),
+    );
+
+    const normalized = provider.generateStructured.mock.calls[0]![0];
+    expect(normalized.options.model).toBe("gpt-5.2-codex");
+  });
+
+  it("rejects an empty-string model option as an unsafe request before calling a provider", async () => {
+    const provider = fakeProvider();
+    const service = await createService(provider);
+
+    const result = await service.generateStructured(
+      request({
+        options: {
+          model: "",
+        },
+      }),
+    );
+
+    expect(result).toMatchObject({
+      status: "failed",
+      code: "unsafe_request",
+      retryable: false,
+    });
+    expect(provider.generateStructured).not.toHaveBeenCalled();
+  });
 
   it("does not log prompts or raw provider output details", async () => {
     const promptSentinel = "SENSITIVE_PROMPT_SENTINEL_DO_NOT_LOG";

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   apiErrorSchema,
   appSettingsResponseSchema,
+  appSettingsSchema,
   appStatusSchema,
   generateIdeaResponseSchema,
   type AppSettings,
@@ -40,7 +41,7 @@ const readinessDependencies = () => ({
   deterministic: {
     check: vi.fn(async () => subsystem("ready", "Deterministic scorer", { retryable: false })),
   },
-  codex: {
+  llm: {
     check: vi.fn(async () => subsystem("unconfigured", "Codex judge")),
   },
   storage: {
@@ -58,13 +59,12 @@ const withTempRoot = async <T>(run: (root: string) => Promise<T>): Promise<T> =>
   }
 };
 
-const patchedSettings: AppSettings = {
+const patchedSettings: AppSettings = appSettingsSchema.parse({
   engineBaseUrl: "http://localhost:5199",
   storagePath: "/tmp/x-builder-integration-storage",
-  codexCommandLabel: "Local Codex judge",
-  runCodexJudgeAfterGeneration: true,
+  judgeProvider: "codex-cli",
   showDeterministicDetails: false,
-};
+});
 
 describe("engine and shared schema integration", () => {
   it("uses the local engine bind address and port for the runtime entrypoint", () => {
@@ -132,11 +132,11 @@ describe("engine and shared schema integration", () => {
       expect(status.overall).toBe("partial");
       expect(status.engine.state).toBe("ready");
       expect(status.deterministic.state).toBe("ready");
-      expect(status.codex.state).toBe("unconfigured");
+      expect(status.llm.state).toBe("unconfigured");
       expect(status.storage.state).toBe("ready");
       expect(status.lastRun.state).toBe("none");
       expect(dependencies.deterministic.check).toHaveBeenCalledOnce();
-      expect(dependencies.codex.check).toHaveBeenCalledOnce();
+      expect(dependencies.llm.check).toHaveBeenCalledOnce();
       expect(dependencies.storage.check).toHaveBeenCalledOnce();
     } finally {
       await app.close();
@@ -160,7 +160,7 @@ describe("engine and shared schema integration", () => {
       expect(payload).not.toHaveProperty("generatedAt");
       expect(payload).not.toHaveProperty("engine");
       expect(payload).not.toHaveProperty("deterministic");
-      expect(payload).not.toHaveProperty("codex");
+      expect(payload).not.toHaveProperty("llm");
       expect(payload).not.toHaveProperty("storage");
       expect(() => appStatusSchema.parse(payload)).toThrow();
     } finally {

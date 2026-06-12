@@ -1,160 +1,9 @@
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
-const engineBaseUrl = "http://127.0.0.1:4173";
-const checkedAt = "2026-06-06T00:00:00.000Z";
+import { stubEngine } from "./support/engine-stub";
 
-const corsHeaders = {
-  "access-control-allow-headers": "content-type",
-  "access-control-allow-methods": "GET, PATCH, POST, OPTIONS",
-  "access-control-allow-origin": "*",
-  "content-type": "application/json",
-};
-
-type CapturedRequests = {
-  analyze: number;
-  generate: number;
-  settings: number;
-  status: number;
-};
-
-type StubEngineOptions = {
-  status?: () => ReturnType<typeof readyStatus>;
-};
-
-function subsystem(label: string) {
-  return {
-    checkedAt,
-    details: {},
-    label,
-    retryable: true,
-    state: "ready",
-  };
-}
-
-function readyStatus() {
-  return {
-    codex: subsystem("Codex judge"),
-    deterministic: subsystem("Deterministic scorer"),
-    engine: subsystem("Engine"),
-    generatedAt: checkedAt,
-    lastRun: {
-      state: "none",
-    },
-    overall: "ready",
-    storage: subsystem("Storage"),
-    version: "e2e",
-  };
-}
-
-function codexUnavailableStatus() {
-  return {
-    ...readyStatus(),
-    codex: {
-      ...subsystem("Codex judge"),
-      message: "Codex is unavailable. Deterministic scoring still works.",
-      state: "unavailable",
-    },
-    overall: "partial",
-  };
-}
-
-function settingsResponse() {
-  return {
-    settings: {
-      codexCommandLabel: "Codex judge",
-      engineBaseUrl: engineBaseUrl,
-      runCodexJudgeAfterGeneration: false,
-      showDeterministicDetails: true,
-      storagePath: "~/.x-builder/e2e",
-    },
-    source: "defaults",
-  };
-}
-
-function requestJson(route: Route): unknown {
-  const postData = route.request().postData();
-
-  if (postData === null) {
-    throw new Error(`Expected JSON request body for ${route.request().url()}.`);
-  }
-
-  return JSON.parse(postData);
-}
-
-async function fulfillJson(route: Route, status: number, body: unknown) {
-  await route.fulfill({
-    body: JSON.stringify(body),
-    headers: corsHeaders,
-    status,
-  });
-}
-
-async function fulfillPreflight(route: Route) {
-  await route.fulfill({
-    headers: corsHeaders,
-    status: 204,
-  });
-}
-
-async function stubEngine(page: Page, options: StubEngineOptions = {}) {
-  const capturedRequests: CapturedRequests = {
-    analyze: 0,
-    generate: 0,
-    settings: 0,
-    status: 0,
-  };
-  const status = options.status ?? readyStatus;
-
-  await page.route(`${engineBaseUrl}/status`, async (route) => {
-    capturedRequests.status += 1;
-    await fulfillJson(route, 200, status());
-  });
-
-  await page.route(`${engineBaseUrl}/settings`, async (route) => {
-    if (route.request().method() === "OPTIONS") {
-      await fulfillPreflight(route);
-      return;
-    }
-
-    capturedRequests.settings += 1;
-    await fulfillJson(route, 200, settingsResponse());
-  });
-
-  await page.route(`${engineBaseUrl}/ideas/generate`, async (route) => {
-    if (route.request().method() === "OPTIONS") {
-      await fulfillPreflight(route);
-      return;
-    }
-
-    capturedRequests.generate += 1;
-    await fulfillJson(route, 503, {
-      code: "engine_unreachable",
-      message: "The local engine could not be reached. Try again.",
-      retryable: true,
-      scope: "app",
-      status: 503,
-    });
-  });
-
-  await page.route(`${engineBaseUrl}/posts/analyze`, async (route) => {
-    if (route.request().method() === "OPTIONS") {
-      await fulfillPreflight(route);
-      return;
-    }
-
-    capturedRequests.analyze += 1;
-    requestJson(route);
-    await fulfillJson(route, 503, {
-      code: "deterministic_analysis_failed",
-      message: "Deterministic scoring is temporarily unavailable.",
-      retryable: true,
-      scope: "deterministic",
-      status: 503,
-    });
-  });
-
-  return capturedRequests;
-}
+const codexUnavailableMessage =
+  "Codex is unavailable. Deterministic scoring still works.";
 
 test("opens at root inside the shell and resolves to Writer", async ({ page }) => {
   const requests = await stubEngine(page);
@@ -208,6 +57,10 @@ test("sidebar navigation reaches every shell route with active state", async ({ 
 
   await expect(page.getByLabel("Engine URL")).toBeVisible();
   await expect(page.getByLabel("Storage path")).toBeVisible();
+  await expect(page.getByLabel("Judge provider")).toBeVisible();
+  await expect(page.getByLabel("Codex model")).toBeVisible();
+  await expect(page.getByLabel("Claude model")).toBeVisible();
+  await expect(page.getByLabel("Cursor model")).toBeVisible();
   await expect(page.getByRole("button", { name: "Back to Studio" })).toBeVisible();
   expect(requests.status).toBeGreaterThan(0);
   expect(requests.settings).toBeGreaterThan(0);
@@ -269,7 +122,10 @@ test("studio preserves draft during deterministic backend failure", async ({ pag
 });
 
 test("keeps Writer usable when only Codex readiness is unavailable", async ({ page }) => {
-  const requests = await stubEngine(page, { status: codexUnavailableStatus });
+  const requests = await stubEngine(page, {
+    slotState: "unavailable",
+    slotMessage: codexUnavailableMessage,
+  });
 
   await page.goto("/writer");
 
@@ -277,9 +133,7 @@ test("keeps Writer usable when only Codex readiness is unavailable", async ({ pa
   await expect(status.getByText("Engine ready")).toBeVisible();
   await expect(status.getByText("Deterministic scorer ready")).toBeVisible();
   await expect(status.getByText("Codex judge unavailable")).toBeVisible();
-  await expect(
-    status.getByText("Codex is unavailable. Deterministic scoring still works."),
-  ).toBeVisible();
+  await expect(status.getByText(codexUnavailableMessage)).toBeVisible();
   await expect(status.getByRole("button", { name: "Open Settings" })).toBeVisible();
 
   await expect(page.getByRole("heading", { level: 1, name: "Studio" })).toBeVisible();
@@ -291,7 +145,10 @@ test("keeps Writer usable when only Codex readiness is unavailable", async ({ pa
 });
 
 test("opens Settings from partial readiness without exposing raw judge controls", async ({ page }) => {
-  const requests = await stubEngine(page, { status: codexUnavailableStatus });
+  const requests = await stubEngine(page, {
+    slotState: "unavailable",
+    slotMessage: codexUnavailableMessage,
+  });
 
   await page.goto("/writer");
 
@@ -305,8 +162,19 @@ test("opens Settings from partial readiness without exposing raw judge controls"
   await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
   await expect(page.getByLabel("Engine URL")).toBeVisible();
   await expect(page.getByLabel("Storage path")).toBeVisible();
-  await expect(page.getByLabel("Codex command label")).toBeVisible();
+  await expect(page.getByLabel("Judge provider")).toBeVisible();
+  await expect(page.getByLabel("Codex command label")).toHaveCount(0);
+  await expect(page.getByText("Codex command label")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Test readiness" })).toBeEnabled();
+  await expect(page.getByText("Judge provider")).not.toHaveText(
+    /codex exec|raw llm|llm judge|judge retry|retry judge/i,
+  );
+  await expect(page.getByText("Codex model")).not.toHaveText(
+    /codex exec|raw llm|llm judge|judge retry|retry judge/i,
+  );
+  await expect(page.getByText("Leave empty to use the provider's default.")).not.toHaveText(
+    /codex exec|raw llm|llm judge|judge retry|retry judge/i,
+  );
 
   await page.getByRole("button", { name: "Test readiness" }).click();
 

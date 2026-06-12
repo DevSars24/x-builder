@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 ---
 
 # CAD-016: [DOC] Judge Provider Documentation
@@ -41,3 +41,4 @@ Both pages written; commands and field names verified against the shipped implem
 ## Pipeline Log
 
 - 2026-06-11 — Created by arch-recon (multi-provider epic extension; validated APPROVE_WITH_CONCERNS, cycle 2).
+- 2026-06-12 — [DOC] pipeline DONE (rgb-tdd, White; processed after the post-epic gates passed). Two pages: NEW user How-To `docs/how-to/choose-judge-provider.md` (Diataxis How-To — pick a provider via the "Judge provider" select + Save + Test readiness; per-provider install/auth: Codex `codex login`, Claude keychain/OAuth or `ANTHROPIC_API_KEY`, Cursor `cursor-agent login` or `CURSOR_API_KEY`; status-badge meaning + selected-provider `partial`; presence-only readiness vs auth-at-judge-time; privacy/trust note; per-provider model fields + per-CLI naming + invalid-name-rejected-at-judge-time); UPDATED `docs/features/codex-adapter/tickets/README.md` (Reference — extension marked shipped, User-documentation link, per-provider model-selection note). Plain markdown, no docs site generator (per Project Profile) → no build step. Documents only shipped CAD-007..015 behavior; no code changes.

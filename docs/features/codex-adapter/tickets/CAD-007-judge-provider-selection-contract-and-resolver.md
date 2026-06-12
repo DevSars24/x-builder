@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 ---
 
 # CAD-007: [FND] Judge Provider Selection Contract and Resolver
@@ -104,3 +104,4 @@ Settings file present but `judgeProvider` missing (legacy) → default fills; mo
 
 - 2026-06-11 — Created by arch-recon (multi-provider epic extension; validated APPROVE_WITH_CONCERNS, cycle 2).
 - 2026-06-11 — Amended for per-provider model selection (validated APPROVE_WITH_CONCERNS, delta): flat `codexModel`/`claudeModel`/`cursorModel` keys + optional-no-default `options.model`; this ticket owns the codex `-m` builder touch (kept out of the CAD-009 [RFR] to preserve its byte-identical invariant). Model flags live-verified: codex `-m/--model`, claude `--model` (honored), cursor `--model` (catalog via `--list-models`).
+- 2026-06-11 — RGB pipeline DONE (rgb-tdd): Red tests `3009d55` → Blue(Red) APPROVE → Green impl `ac3dcd6` → Blue(Green)+Yellow APPROVE → [FND] architecture checkpoint APPROVE. New modules `judge-provider-registry.ts` + `judge-provider-resolver.ts`; shared enum/`judgeProviderLabels`/`judgeProvider`+3 model keys; `options.model` plumbing (codex `-m` iff set, byte-identical otherwise); two dead fields removed repo-wide; `judgeFailedError` generalized. Suites green (shared 40 / engine 227 / client 150), typecheck+lint clean. No concerns. On branch `feat/CAD-extension-multi-provider-judge` (not merged).

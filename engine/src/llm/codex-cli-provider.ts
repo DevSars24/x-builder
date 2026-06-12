@@ -2,13 +2,13 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { defaultProcessEnvAllowlist } from "./process-runner.js";
+import { baseProcessEnvAllowlist } from "./process-runner.js";
 import type { ProcessRunner, ProcessRunResult } from "./process-runner.js";
+import { buildStructuredPromptEnvelope } from "./structured-prompt-envelope.js";
 import type {
   KnownLlmProviderErrorCode,
   LlmProvider,
   LlmProviderId,
-  LlmProviderReadiness,
   NormalizedStructuredLlmRequest,
   StructuredLlmProviderResult,
 } from "./structured-llm-service.js";
@@ -17,9 +17,23 @@ const providerId = "codex-cli";
 
 const maxSchemaFileNameLength = 80;
 
+// The codex CLI run inherits the provider-agnostic base allowlist plus the
+// codex-specific environment variables it needs at exec time. Composing from
+// the base keeps the shared names in one place so they cannot drift.
+export const codexCliProcessEnvAllowlist = [
+  ...baseProcessEnvAllowlist,
+  "CODEX_HOME",
+  "CODEX_SQLITE_HOME",
+  "CODEX_API_KEY",
+  "CODEX_ACCESS_TOKEN",
+  "CODEX_CA_CERTIFICATE",
+  "RUST_LOG",
+] as const;
+
 export type CodexCommandBuilderOptions = {
   workspaceRoot: string;
   schemaFile: string;
+  model?: string;
 };
 
 export type CodexCliProviderOptions = {
@@ -47,7 +61,7 @@ export type CodexCliParseResult =
 
 export class CodexCommandBuilder {
   build(options: CodexCommandBuilderOptions): readonly string[] {
-    return [
+    const args = [
       "exec",
       "--ephemeral",
       "--sandbox",
@@ -60,6 +74,14 @@ export class CodexCommandBuilder {
       "never",
       "-",
     ];
+
+    // Only the active provider's configured model is appended; an empty or absent
+    // model leaves the argv byte-identical to the base command.
+    if (options.model !== undefined && options.model.length > 0) {
+      args.push("-m", options.model);
+    }
+
+    return args;
   }
 }
 
@@ -121,15 +143,6 @@ export class CodexCliProvider<TProviderOutput = unknown> implements LlmProvider<
     this.commandBuilder = options.commandBuilder ?? new CodexCommandBuilder();
   }
 
-  checkReadiness(): LlmProviderReadiness {
-    return {
-      state: "ready",
-      label: "Codex CLI",
-      retryable: false,
-      checkedAt: nowIso(),
-    };
-  }
-
   async generateStructured<TOutput>(
     request: NormalizedStructuredLlmRequest<TOutput>,
   ): Promise<StructuredLlmProviderResult<TProviderOutput>> {
@@ -140,14 +153,15 @@ export class CodexCliProvider<TProviderOutput = unknown> implements LlmProvider<
         const args = this.commandBuilder.build({
           workspaceRoot: this.workspaceRoot,
           schemaFile,
+          model: request.options.model,
         });
         const result = await this.runner.run("codex", args, {
           cwd: this.workspaceRoot,
           timeoutMs: request.options.timeoutMs,
           maxStdoutBytes: request.options.outputByteLimit,
           maxStderrBytes: request.options.outputByteLimit,
-          stdin: buildPrompt(request),
-          envAllowlist: [...defaultProcessEnvAllowlist],
+          stdin: buildStructuredPromptEnvelope(request),
+          envAllowlist: [...codexCliProcessEnvAllowlist],
         });
 
         if (result.status === "failed") {
@@ -246,22 +260,6 @@ const isJsonObjectString = (value: string): boolean => {
     return false;
   }
 };
-
-const buildPrompt = <TOutput>(request: NormalizedStructuredLlmRequest<TOutput>): string =>
-  [
-    "Task instructions:",
-    request.instructions,
-    "",
-    "Conversation:",
-    ...request.turns.map((turn) => `[${turn.role}]\n${turn.content}`),
-    "",
-    "Structured output contract:",
-    `Name: ${request.structuredOutput.name}`,
-    `Strict: ${request.structuredOutput.strict ? "true" : "false"}`,
-    "Return exactly one single JSON object that conforms to this JSON Schema.",
-    "Do not include Markdown, code fences, prose before or after JSON, JSONL events, or additional JSON values.",
-    JSON.stringify(request.structuredOutput.schema, null, 2),
-  ].join("\n");
 
 const safeSchemaFileBaseName = (name: string): string => {
   const safeName = name.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, maxSchemaFileNameLength);
