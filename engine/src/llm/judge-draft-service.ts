@@ -42,10 +42,12 @@ const scoreProperty = { type: "integer", minimum: 0, maximum: 100 };
 
 const verdictOutputSchema: Record<string, unknown> = {
   type: "object",
+  additionalProperties: false,
   required: ["scores", "confidence", "headline", "strengths", "improvements"],
   properties: {
     scores: {
       type: "object",
+      additionalProperties: false,
       required: [
         "overall",
         "replies",

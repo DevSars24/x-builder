@@ -4,6 +4,7 @@ import {
   type SubsystemStatus,
 } from "@x-builder/shared";
 
+import { baseProcessEnvAllowlist } from "./process-runner.js";
 import type { ProcessRunner, ProcessRunResult } from "./process-runner.js";
 
 const defaultExecutionTimeoutMs = 750;
@@ -55,7 +56,7 @@ export class CliReadinessProbe {
       timeoutMs: this.executionTimeoutMs,
       maxStdoutBytes: outputByteLimit,
       maxStderrBytes: outputByteLimit,
-      envAllowlist: ["PATH"],
+      envAllowlist: [...baseProcessEnvAllowlist],
     });
 
     if (result.status === "success") {
