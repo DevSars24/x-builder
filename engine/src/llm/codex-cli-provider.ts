@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { baseProcessEnvAllowlist } from "./process-runner.js";
 import type { ProcessRunner, ProcessRunResult } from "./process-runner.js";
+import { buildStructuredPromptEnvelope } from "./structured-prompt-envelope.js";
 import type {
   KnownLlmProviderErrorCode,
   LlmProvider,
@@ -159,7 +160,7 @@ export class CodexCliProvider<TProviderOutput = unknown> implements LlmProvider<
           timeoutMs: request.options.timeoutMs,
           maxStdoutBytes: request.options.outputByteLimit,
           maxStderrBytes: request.options.outputByteLimit,
-          stdin: buildPrompt(request),
+          stdin: buildStructuredPromptEnvelope(request),
           envAllowlist: [...codexCliProcessEnvAllowlist],
         });
 
@@ -259,22 +260,6 @@ const isJsonObjectString = (value: string): boolean => {
     return false;
   }
 };
-
-const buildPrompt = <TOutput>(request: NormalizedStructuredLlmRequest<TOutput>): string =>
-  [
-    "Task instructions:",
-    request.instructions,
-    "",
-    "Conversation:",
-    ...request.turns.map((turn) => `[${turn.role}]\n${turn.content}`),
-    "",
-    "Structured output contract:",
-    `Name: ${request.structuredOutput.name}`,
-    `Strict: ${request.structuredOutput.strict ? "true" : "false"}`,
-    "Return exactly one single JSON object that conforms to this JSON Schema.",
-    "Do not include Markdown, code fences, prose before or after JSON, JSONL events, or additional JSON values.",
-    JSON.stringify(request.structuredOutput.schema, null, 2),
-  ].join("\n");
 
 const safeSchemaFileBaseName = (name: string): string => {
   const safeName = name.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, maxSchemaFileNameLength);
