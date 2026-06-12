@@ -26,9 +26,9 @@ four-regime output from the RMU-005 tables/helpers. Spreads computed in **log sp
    This guarantees `reachRangeSchema(low ≤ high)` for both ranges and `rangeLow ≤ midpoint ≤ rangeHigh` for **every** multiplier product and **every** `// CALIBRATE` value, WITHOUT clamping the honest midpoint (the low-reach signal must survive — that is the point of the two-regime model; do NOT clamp `midpoint` up into the range).
 5. **expectedReplies.** `mid · replyRateTable[format]` (static path; judge `replies` override is RMU-008; tribe +20% is RMU-007).
 6. **Legacy mirror.** `rangeLow = stallRange.low`, `rangeHigh = escapeRange.high`, `midpoint = predictedMidImpressions = round(mid)` (honest, per step 4). Set `qualityBasis = "static"`, `baseSource`, `baseImpressions = base`, `reachModelVersion`.
-9. **Delete the now-dead legacy constants** (zero-trace — they go dead the moment `estimateEngagementRange` is rebuilt onto `formatReachTable`/`staticQualityCompression`): remove `formatEngagementMultipliers` and `staticScoreQualityMultipliers` (and the `scoreBand`/`formatMultiplier` lookups that referenced them) from `const/scoring-weights.ts` and `prediction-estimator.ts`. RMU-002 could not (both were still live then).
 7. **Confidence ladder.** Keep the relaxation but rename internally to reflect input richness (e.g. `inputRichnessConfidence`) with a comment that it reflects input richness, not accuracy.
 8. **Service wiring.** `DeterministicAnalysisService.analyzePosts` reads the full `scoringContext` and computes `hasExternalLink = detectExternalLink(item.text)` per item, passing `{ followers, trailingMedianImpressions, repeatHistory, hasExternalLink }` into `analyzeDraftText`.
+9. **Delete the now-dead legacy constants** (zero-trace — they go dead the moment `estimateEngagementRange` is rebuilt onto `formatReachTable`/`staticQualityCompression`): remove `formatEngagementMultipliers` and `staticScoreQualityMultipliers` (and the `scoreBand`/`formatMultiplier` lookups that referenced them) from `const/scoring-weights.ts` and `prediction-estimator.ts`. RMU-002 could not (both were still live then).
 
 ## Data Models
 

@@ -27,7 +27,7 @@ New cascade order (first match wins; concepts, not final regexes — write robus
 7. `audience_question` — tribe vocative (`Founders,` `Builders,` `Creators,` `Solo founders,` `Indie hackers,` `Makers,`) + a question answerable in < ~10s. (kept)
 8. `connect` — pure "let's connect" with NO CTA object (the broadened CTA cases now belong to `cta_farm`).
 9. `recognition_roast` — observational humor with a recognizable subject and no advice ("I know a guy", "your X friends", second-person roast, self-deprecating numbers joke).
-10. `milestone` — number + {followers, days, MRR, users, impressions, sales} + first person. (rename/extend of `goal_share`)
+10. `milestone` — first person AND a number AND either (a) a milestone noun {followers, days, MRR, users, impressions, sales} (numeric-achievement form, e.g. "I hit 10k followers in 73 days"), OR (b) a goal phrase {my goal, aiming to, by end of, i'm going to} (phrase form, e.g. "My goal is to ship 3 experiments by end of June"). This is the rename/**extend** of `goal_share` — it must catch BOTH `goal_share`'s old phrase-trigger posts and the numeric milestones `goal_share` missed.
 11. `story` — ≥3 visible lines + first-person `\b(i|my|we)\b`. (kept)
 12. `ab_choice` — bullet list `/^[-*]\s+/m` with ≤5 visible lines. (kept)
 13. `nuanced_question` — a question with 2+ clauses, conditional framing, or self-incriminating phrasing ("be honest, do you actually…").
@@ -74,7 +74,8 @@ exhaustive.
 - Given "USA has ChatGPT / China has DeepSeek / Europe has?" / When classified / Then `fill_blank_tribal`.
 - Given "You just sold your company for $100M. What's the first thing you do?" / When classified / Then `fantasy_question`.
 - Given "be honest, do you actually ship on weekends, or just tweet about it?" / When classified / Then `nuanced_question`.
-- Given "I hit 10k followers in 73 days" / When classified / Then `milestone`.
+- Given "I hit 10k followers in 73 days" / When classified / Then `milestone` (numeric-achievement form).
+- Given "My goal is to ship 3 experiments by end of June" / When classified / Then `milestone` (phrase form — the legacy `goal_share` assertion is rewritten to expect `milestone`, NOT a "was-unreachable" regression and NOT `wisdom_one_liner`).
 - Given a plain single-clause question "What's your stack?" / When classified / Then `genuine_question` (fallback preserved).
 - Given an advice one-liner with no question/story / When classified / Then `wisdom_one_liner`.
 - Given each remaining example string in the cascade / When classified / Then it maps to its named member.
