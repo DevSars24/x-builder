@@ -1,5 +1,6 @@
 import { judgeProviderLabels, type JudgeProviderId } from "@x-builder/shared";
 
+import { ClaudeCliProvider } from "./claude-cli-provider.js";
 import type { ProviderReadinessSpec } from "./cli-readiness-probe.js";
 import { CodexCliProvider } from "./codex-cli-provider.js";
 import type { ProcessRunner } from "./process-runner.js";
@@ -12,9 +13,9 @@ export type JudgeProviderRegistryEntry = {
   createProvider: (options: { runner: ProcessRunner; workspaceRoot: string }) => LlmProvider<unknown>;
 };
 
-// The single per-provider wiring point. Only codex is registered in the first
-// extension ticket; Claude/Cursor arrive in later tickets. Labels come from the
-// shared catalog — the engine declares no provider label strings.
+// The single per-provider wiring point. Codex and Claude are registered today;
+// Cursor arrives in a later ticket. Labels come from the shared catalog — the
+// engine declares no provider label strings.
 export const judgeProviderRegistry: readonly JudgeProviderRegistryEntry[] = [
   {
     id: "codex-cli",
@@ -26,5 +27,16 @@ export const judgeProviderRegistry: readonly JudgeProviderRegistryEntry[] = [
       sandbox: "read-only",
     },
     createProvider: ({ runner, workspaceRoot }) => new CodexCliProvider({ runner, workspaceRoot }),
+  },
+  {
+    id: "claude-cli",
+    judgeLabel: judgeProviderLabels["claude-cli"],
+    readiness: {
+      command: "claude",
+      adapter: "claude-cli",
+      label: judgeProviderLabels["claude-cli"],
+      sandbox: "tools-disabled",
+    },
+    createProvider: ({ runner, workspaceRoot }) => new ClaudeCliProvider({ runner, workspaceRoot }),
   },
 ];
