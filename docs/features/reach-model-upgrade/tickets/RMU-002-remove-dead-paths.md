@@ -1,5 +1,5 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # RMU-002: [RFR] Remove dead format-history, aiRating, and dormant relaxation paths
