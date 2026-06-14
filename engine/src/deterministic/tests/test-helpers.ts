@@ -7,6 +7,11 @@ export type RepeatHistoryEntry = {
   countLast7d: number;
 };
 
+export type JudgeSignals = {
+  impressions: number;
+  replies: number;
+};
+
 export type ReachInput = {
   text: string;
   score: number;
@@ -15,6 +20,7 @@ export type ReachInput = {
   trailingMedianImpressions: number | undefined;
   hasExternalLink: boolean;
   repeatHistory: RepeatHistoryEntry[];
+  judgeSignals?: JudgeSignals;
 };
 
 /**

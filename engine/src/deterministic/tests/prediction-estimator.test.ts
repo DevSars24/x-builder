@@ -5,6 +5,7 @@ import {
   computeRepeatMultiplier,
   computeStatusMultiplier,
   staticQualityCompression,
+  toJudgedQualityMultiplier,
 } from "../prediction-estimator";
 import {
   formatReachTable,
@@ -566,5 +567,118 @@ describe("reach-signal composition and clamps", () => {
 
     expect(prediction.escapeProbability).toBeLessThanOrEqual(1);
     expect(prediction.escapeProbability).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// The judge→reach bridge maps a judged 0..100 impressions score into a
+// continuous quality multiplier: clamp(0.5 · (2.5/0.5)^(impressions/100), 0.5, 2.5).
+describe("toJudgedQualityMultiplier", () => {
+  it("maps a top judged impressions score of 100 to the multiplier ceiling 2.5", () => {
+    expect(toJudgedQualityMultiplier(100)).toBeCloseTo(2.5, 10);
+  });
+
+  it("maps a judged impressions score of 0 to the multiplier floor 0.5", () => {
+    expect(toJudgedQualityMultiplier(0)).toBeCloseTo(0.5, 10);
+  });
+
+  it("maps a mid judged impressions score of 50 to the geometric midpoint ~1.118", () => {
+    // 0.5 · 5^0.5 = 0.5 · 2.2360679... = 1.1180339...
+    expect(toJudgedQualityMultiplier(50)).toBeCloseTo(1.118, 3);
+  });
+
+  it("is monotonic increasing across the 0..100 judged impressions range", () => {
+    let previous = toJudgedQualityMultiplier(0);
+
+    for (let impressions = 10; impressions <= 100; impressions += 10) {
+      const current = toJudgedQualityMultiplier(impressions);
+      expect(current).toBeGreaterThan(previous);
+      previous = current;
+    }
+  });
+
+  it("never escapes the clamped [0.5, 2.5] band across the range", () => {
+    for (let impressions = 0; impressions <= 100; impressions += 5) {
+      const multiplier = toJudgedQualityMultiplier(impressions);
+      expect(multiplier).toBeGreaterThanOrEqual(0.5);
+      expect(multiplier).toBeLessThanOrEqual(2.5);
+    }
+  });
+});
+
+// Pass-2 of the two-pass contract: when judgeSignals ride the input,
+// computeReachModel swaps the static quality slot for the judged multiplier and
+// the format reply rate for the judged reply lerp, and stamps qualityBasis="judge".
+// Other multipliers (format/link/repeat/status) and the tribe +20% are untouched.
+describe("computeReachModel judge-signal branch", () => {
+  // lerp(0.002, 0.025, t) = 0.002 + (0.025 - 0.002) · t
+  const lerp = (low: number, high: number, t: number): number => low + (high - low) * t;
+
+  it("uses the judged quality multiplier in the quality slot and stamps qualityBasis=judge", () => {
+    // cta_farm formatMult 3.0; followers 5000 -> base 2000; no link/repeat/status.
+    // judged impressions 100 -> quality 2.5, so mid = 2000 · 3.0 · 2.5 = 15000.
+    const prediction = requirePrediction(
+      ctaFarmInput(NEUTRAL_DRAFT, {
+        judgeSignals: { impressions: 100, replies: 80 },
+      }),
+    );
+
+    expect(prediction.qualityBasis).toBe("judge");
+
+    const base = prediction.baseImpressions;
+    const expectedMid = Math.max(1, base * 3.0 * 2.5);
+    expect(prediction.predictedMidImpressions).toBe(Math.round(expectedMid));
+  });
+
+  it("overrides expectedReplies with the judged reply lerp instead of the format reply rate", () => {
+    // judged replies 80 -> lerp(0.002, 0.025, 0.8) = 0.0204; mid = base · 3.0 · 2.5.
+    const prediction = requirePrediction(
+      ctaFarmInput(NEUTRAL_DRAFT, {
+        judgeSignals: { impressions: 100, replies: 80 },
+      }),
+    );
+
+    const mid = prediction.baseImpressions * 3.0 * 2.5;
+    expect(prediction.expectedReplies).toBeCloseTo(mid * lerp(0.002, 0.025, 0.8), 6);
+    // The format reply-rate path (cta_farm 0.02) must NOT be the source here.
+    expect(prediction.expectedReplies).not.toBeCloseTo(mid * 0.02, 6);
+  });
+
+  it("still applies the tribe +20% reply bonus on top of the judged reply lerp", () => {
+    const judgeSignals = { impressions: 100, replies: 80 };
+    const tribe = requirePrediction(
+      ctaFarmInput("Every founder I know wrestles with the same first hire.", {
+        judgeSignals,
+      }),
+    );
+
+    // Concrete judged value: mid = base · 3.0 · 2.5; replies = mid · lerp(0.002,
+    // 0.025, 0.8) · 1.2 (tribe). Anchored to the judged lerp so a static-path
+    // reply figure (mid · 0.02 · 1.2) cannot satisfy it.
+    const mid = tribe.baseImpressions * 3.0 * 2.5;
+    expect(tribe.expectedReplies).toBeCloseTo(mid * lerp(0.002, 0.025, 0.8) * 1.2, 6);
+    expect(tribe.predictedMidImpressions).toBe(Math.round(Math.max(1, mid)));
+  });
+
+  it("still applies the external-link midpoint damp alongside the judged quality slot", () => {
+    // The judged quality replaces only the quality slot; the 0.2 link damp still applies.
+    const linked = requirePrediction(
+      ctaFarmInput(NEUTRAL_DRAFT, {
+        judgeSignals: { impressions: 100, replies: 80 },
+        hasExternalLink: true,
+      }),
+    );
+
+    const base = linked.baseImpressions;
+    expect(linked.qualityBasis).toBe("judge");
+    expect(linked.predictedMidImpressions).toBe(Math.round(Math.max(1, base * 3.0 * 2.5 * 0.2)));
+  });
+
+  it("keeps qualityBasis=static and the static reply rate when no judgeSignals are present", () => {
+    const prediction = requirePrediction(ctaFarmInput(NEUTRAL_DRAFT));
+
+    expect(prediction.qualityBasis).toBe("static");
+    const mid = prediction.baseImpressions * 3.0 * 1.0; // static quality(66) = 1.0
+    expect(prediction.predictedMidImpressions).toBe(Math.round(Math.max(1, mid)));
+    expect(prediction.expectedReplies).toBeCloseTo(mid * 0.02, 6);
   });
 });

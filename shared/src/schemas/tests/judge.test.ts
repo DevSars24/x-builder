@@ -9,7 +9,9 @@ import {
   judgeVerdictSchema,
 } from "../../index.js";
 
-const scores = {
+// The eight original judge dimensions, kept as a named subset so the tightening
+// rejection assertions can construct a verdict that is MISSING the new dims.
+const eightDimScores = {
   overall: 78,
   replies: 80,
   profileClicks: 72,
@@ -20,16 +22,21 @@ const scores = {
   negativeRisk: 10,
 };
 
-// The full RMU-001 score set: the existing eight dimensions plus the five new
-// behavioral dimensions, with audienceMatch present-but-nullable on the wire.
-const extendedScores = {
-  ...scores,
+// The full producer score set the judge now always emits: the eight original
+// dimensions plus the four required behavioral dims and a present-but-nullable
+// audienceMatch (null when no account profile anchors audience fit). Every other
+// fixture and the valid verdict build on this so they stay valid once the four
+// behavioral dims are required and audienceMatch is required-nullable.
+const scores = {
+  ...eightDimScores,
   answerEffort: 55,
   strangerAnswerability: 48,
   statusDependency: 30,
   replyVsQuoteOrientation: 62,
   audienceMatch: null,
 };
+
+const extendedScores = scores;
 
 const validVerdict = {
   verdict: "slight_rework",
@@ -193,6 +200,79 @@ describe("judge score dimension widening", () => {
       answerEffort: 55,
       audienceMatch: null,
     });
+  });
+});
+
+// The producer (RMU-008) emits all thirteen dimensions, so the four behavioral
+// dims are no longer optional and audienceMatch is required on the wire (nullable
+// — an explicit null when no account profile, NOT an omitted key).
+describe("judge score producer schema tightening", () => {
+  const behavioralDims = [
+    "answerEffort",
+    "strangerAnswerability",
+    "statusDependency",
+    "replyVsQuoteOrientation",
+  ] as const;
+
+  it.each(behavioralDims)(
+    "rejects a verdict whose scores omit the required behavioral dimension %s",
+    (dimension) => {
+      const { [dimension]: _omitted, ...withoutOneDim } = scores;
+
+      expect(
+        judgeVerdictSchema.safeParse({ ...validVerdict, scores: withoutOneDim }).success,
+      ).toBe(false);
+    },
+  );
+
+  it("rejects scores that omit any of the four behavioral dimensions", () => {
+    // The eight-dimension legacy shape (none of the four behavioral dims present)
+    // no longer parses now that the producer always emits them.
+    expect(judgeScoresSchema.safeParse(eightDimScores).success).toBe(false);
+  });
+
+  it("rejects scores that omit audienceMatch entirely (it is required, not optional)", () => {
+    const { audienceMatch: _omitted, ...withoutAudienceMatch } = scores;
+
+    expect(judgeScoresSchema.safeParse(withoutAudienceMatch).success).toBe(false);
+    expect(
+      judgeVerdictSchema.safeParse({ ...validVerdict, scores: withoutAudienceMatch }).success,
+    ).toBe(false);
+  });
+
+  it("accepts scores carrying all four behavioral dims and an explicit null audienceMatch", () => {
+    const result = judgeScoresSchema.safeParse({
+      ...scores,
+      audienceMatch: null,
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      throw new Error("Expected the full producer score set with null audienceMatch to parse.");
+    }
+    expect(result.data).toMatchObject({
+      answerEffort: 55,
+      strangerAnswerability: 48,
+      statusDependency: 30,
+      replyVsQuoteOrientation: 62,
+      audienceMatch: null,
+    });
+  });
+
+  it("accepts a numeric audienceMatch when a profile anchors audience fit", () => {
+    const result = judgeScoresSchema.safeParse({ ...scores, audienceMatch: 72 });
+
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      throw new Error("Expected a numeric audienceMatch to parse.");
+    }
+    expect(result.data.audienceMatch).toBe(72);
+  });
+
+  it("rejects an audienceMatch that is out of the 0..100 range or non-integer", () => {
+    expect(judgeScoresSchema.safeParse({ ...scores, audienceMatch: 101 }).success).toBe(false);
+    expect(judgeScoresSchema.safeParse({ ...scores, audienceMatch: -1 }).success).toBe(false);
+    expect(judgeScoresSchema.safeParse({ ...scores, audienceMatch: 72.5 }).success).toBe(false);
   });
 });
 
