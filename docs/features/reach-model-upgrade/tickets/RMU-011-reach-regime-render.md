@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # RMU-011: Four-regime prediction render (`ReachRegimeBlock`)
@@ -90,3 +90,9 @@ not headings (no skipped levels under the card `h3`).
 
 `pEscape` 0 or 1; `stallRange`/`escapeRange` with equal low/high; `qualityBasis` is always
 present (server-supplied) — no legacy-payload fallback path.
+
+## Pipeline Log
+
+- 2026-06-14 — **Done.** Standard pipeline (largest cascade): Red (`a59bb71`) `ReachRegimeBlock` render + the full legacy-field deletion cascade across 9 test files (every residual `rangeLow`/`rangeHigh`/`midpoint`/prediction-`confidence` ref is a `not.toHaveProperty` guard or comment; judge confidence untouched) → Blue Validate Red APPROVE → Green source (`7315762`) `ReachRegimeBlock` + card/chip rewrite + deleted the legacy bridge (schema + `.refine`, engine `EngagementPrediction` type, estimator legacy-mirror + `deriveConfidence` ladder + 4 orphan weights, view-model) → Green flagged a stale pre-existing `analyzer.test.ts:21` prediction-`confidence` assertion the cascade missed → Red fix (`66672f1`) → Blue (Validate Green) APPROVE + Yellow APPROVE_WITH_CONCERNS. Full `pnpm test` green (shared 90 / client 210 / engine 508), typecheck 5/5, lint + ui-tokens clean. DoD: `rangeLow`/`rangeHigh` zero non-test source hits; judge confidence intact.
+- **Concern C4 (Yellow, non-blocking → epic-end triage):** Green mounted the FULL `ReachRegimeBlock` inside the compact `CandidateDeterministicSummary` (`:496`), but the ticket scopes that component to "the chip via `predictionSummary`." So the compact candidate-list item now shows the full 5-row block AND the chip (redundant). It is **test-driven** — Red's writer-page assertions pin the spaced `"800 – 2,400"` (the block's format, not the chip's `"800–2,400 typical"`) in that render — so reverting to chip-only means adjusting those Red assertions + removing the `:496` mount. No AC fails; tests green. Architect to decide at triage: keep the block in the compact view, or revert to chip-only.
+- Visual-AC note (non-blocking): the judge `Badge accent` adds one row, so the judge card is marginally taller than static — the Red test sanctions it as additive copy (counts regime `<dt>` rows, 5==5), but the literal "identical card height" wording isn't strictly met when refinement adds the badge.
