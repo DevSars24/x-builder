@@ -1,5 +1,4 @@
 import {
-  aiRatingQualityMultipliers,
   engagementPredictionWeights,
   formatEngagementMultipliers,
   staticScoreQualityMultipliers,
@@ -12,28 +11,14 @@ import type {
   PredictionSignal,
 } from "./types.js";
 
-const fallbackAiRatingBand =
-  aiRatingQualityMultipliers[aiRatingQualityMultipliers.length - 1]!;
 const fallbackStaticScoreBand =
   staticScoreQualityMultipliers[staticScoreQualityMultipliers.length - 1]!;
 
-function chooseQualityMultiplier(score: number, aiRating?: number): {
+function chooseQualityMultiplier(score: number): {
   signalKey: string;
   label: string;
   multiplier: number;
 } {
-  if (typeof aiRating === "number") {
-    const ratingBand = aiRatingQualityMultipliers.find(
-      (band) => aiRating >= band.minimumRating,
-    ) ?? fallbackAiRatingBand;
-
-    return {
-      signalKey: "quality_ai_rating",
-      label: `AI rating ${aiRating}/10`,
-      multiplier: ratingBand.multiplier,
-    };
-  }
-
   const scoreBand = staticScoreQualityMultipliers.find(
     (band) => score >= band.minimumScore,
   ) ?? fallbackStaticScoreBand;
@@ -56,14 +41,12 @@ export function estimateEngagementRange(input: {
   score: number;
   format: PostFormat;
   followers: number | undefined;
-  aiRating?: number;
 }): EngagementPrediction | null {
   const {
     text,
     score,
     format,
     followers,
-    aiRating,
   } = input;
   const trimmedText = text.trim();
 
@@ -85,7 +68,7 @@ export function estimateEngagementRange(input: {
   );
   const baseImpressions =
     engagementPredictionWeights.baseImpressionsPerThousandFollowers * followerScale;
-  const qualitySignal = chooseQualityMultiplier(score, aiRating);
+  const qualitySignal = chooseQualityMultiplier(score);
 
   if (qualitySignal.multiplier !== 1) {
     signals.push({
@@ -144,15 +127,12 @@ export function estimateEngagementRange(input: {
       : signals.length >= engagementPredictionWeights.mediumConfidenceSignalCount
         ? engagementPredictionWeights.mediumSignalUncertainty
         : engagementPredictionWeights.lowSignalUncertainty;
-  const hasAiRating = typeof aiRating === "number";
   const confidence =
-    (hasAiRating && signals.length >= engagementPredictionWeights.aiHighConfidenceSignalCount) ||
-    (signals.length >= engagementPredictionWeights.highConfidenceSignalCount &&
-      score >= engagementPredictionWeights.highConfidenceScoreMinimum)
+    signals.length >= engagementPredictionWeights.highConfidenceSignalCount &&
+    score >= engagementPredictionWeights.highConfidenceScoreMinimum
       ? "high"
-      : (hasAiRating && signals.length >= engagementPredictionWeights.aiMediumConfidenceSignalCount) ||
-          (signals.length >= engagementPredictionWeights.mediumConfidenceSignalCount &&
-            score >= engagementPredictionWeights.mediumConfidenceScoreMinimum)
+      : signals.length >= engagementPredictionWeights.mediumConfidenceSignalCount &&
+          score >= engagementPredictionWeights.mediumConfidenceScoreMinimum
         ? "medium"
         : "low";
 

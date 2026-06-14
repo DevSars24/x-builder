@@ -26,8 +26,6 @@ export const engagementPredictionWeights = {
   mediumConfidenceSignalCount: 2,
   highConfidenceScoreMinimum: 70,
   mediumConfidenceScoreMinimum: 50,
-  aiHighConfidenceSignalCount: 3,
-  aiMediumConfidenceSignalCount: 1,
   timelyTermMaximumBonus: 0.4,
   timelyTermBonusPerMatch: 0.15,
   tensionMultiplier: 1.25,
@@ -39,17 +37,6 @@ export const staticScoreQualityMultipliers = [
   { minimumScore: 70, multiplier: 1.4 },
   { minimumScore: 50, multiplier: 0.7 },
   { minimumScore: 0, multiplier: 0.35 },
-] as const;
-
-export const aiRatingQualityMultipliers = [
-  { minimumRating: 10, multiplier: 5 },
-  { minimumRating: 9, multiplier: 3.5 },
-  { minimumRating: 8, multiplier: 2.4 },
-  { minimumRating: 7, multiplier: 1.6 },
-  { minimumRating: 6, multiplier: 1.1 },
-  { minimumRating: 5, multiplier: 0.85 },
-  { minimumRating: 4, multiplier: 0.6 },
-  { minimumRating: 0, multiplier: 0.35 },
 ] as const;
 
 export const formatEngagementMultipliers: Record<PostFormat, number> = {

@@ -22,27 +22,6 @@ export const predictionFormatLabels: Record<PostFormat, string> = {
   milestone: "Milestone",
 };
 
-export const varietyFormatLabels: Record<PostFormat, string> = {
-  one_liner: "one-liner",
-  genuine_question: "genuine question",
-  hot_take: "hot take",
-  insight_share: "insight share",
-  goal_share: "goal share",
-  story: "story",
-  ab_choice: "A/B choice",
-  audience_question: "audience question",
-  connect: "connect invite",
-  other: "post",
-  fill_blank_tribal: "fill-in-the-blank",
-  cta_farm: "call-to-action",
-  fantasy_question: "fantasy question",
-  binary_choice: "binary choice",
-  nuanced_question: "nuanced question",
-  recognition_roast: "recognition roast",
-  wisdom_one_liner: "wisdom one-liner",
-  milestone: "milestone",
-};
-
 export function classifyPostFormat(text: string): PostFormat {
   const trimmedText = text.trim();
   const lowerText = trimmedText.toLowerCase();

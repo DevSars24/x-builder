@@ -20,7 +20,6 @@ export function analyzeDraftText(
           score: score.value,
           format,
           followers: options.followers,
-          aiRating: options.aiRating,
         });
 
   return {

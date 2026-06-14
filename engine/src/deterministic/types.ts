@@ -20,17 +20,6 @@ export type PostFormat =
   | "wisdom_one_liner"
   | "milestone";
 
-export type PostHistoryEntry = {
-  format: string;
-  at: string;
-  kind?: string;
-};
-
-export type RecordPostHistoryEntryInput = {
-  format: PostFormat;
-  kind?: string;
-};
-
 export type ScoreLearning = {
   text: string;
   relevance: "matched" | "general";
@@ -107,7 +96,6 @@ export type EngagementPrediction = {
 
 export type AnalyzeOptions = {
   followers?: number;
-  aiRating?: number;
   enabled?: Partial<Record<string, boolean>>;
   varietyCheck?: VoiceCheck;
 };
