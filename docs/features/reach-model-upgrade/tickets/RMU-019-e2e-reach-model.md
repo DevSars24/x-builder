@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # RMU-019: [E2E] Reach-model scale separation + classifier corpus + studio flow
@@ -24,3 +24,8 @@ status: in-progress
 Engine `/posts/analyze` + `/drafts/judge` end-to-end (judge boundary mocked) through both
 POSTs; `WriterPage` + `SettingsRoute` public drivers for the client flow. The corpus
 accuracy targets are NOT exercised here (corpus absent — see RMU-016).
+
+## Pipeline Log
+
+- 2026-06-14 — **Done.** [E2E] pipeline (Purple + Blue; no Red/Green). Orchestrator placement decision: tested IN-PROCESS (Fastify `inject` + SSR public drivers + a source-scan static policy) per the ticket's "Modules Under Test" — the repo's Playwright `e2e-tests/` workspace stubs the engine and can't exercise the real classifier/scale-separation, so it was not used. Purple (`53e6366`) added 3 test files (one per package): `client/src/features/writer/tests/studio-reach-model-e2e.test.tsx` (flow 1 full studio render + flow 2 empty-profile→Settings→re-judge recovery + scale-separation-no-delta + single-tree skeleton proxy), `engine/src/server/tests/classifier-corpus-analyze-e2e.test.ts` (flow 3: 14 spec strings through the REAL `/posts/analyze` incl. `"drop your startup link"`→`cta_farm`, `"Codex or Claude Code?"`→`binary_choice`; + a route-boundary `one_liner`-rejection assertion), and `shared/src/schemas/tests/no-legacy-reach-mirror-policy.test.ts` (a standing static-policy source scan of 7 prediction-path files for `rangeLow`/`rangeHigh`/`midpoint`/`confidence`, comments stripped, self-falsifiability anchors — replaces RMU-011's one-off `rg`). Existing one_liner/goal_share removal + legacy-absence unit coverage CITED, not duplicated. Blue Validate Purple **APPROVE** — independently re-ran the static-policy matcher AND injected a `midpoint` shim into the stripped estimator source (matcher flagged it → policy would FAIL), then reverted (tree clean); confirmed all 4 invariants genuinely falsifiable, flow 3 hits the real classifier (non-vacuous), mock honesty good, flow 2 confirms RMU-014 zero-trace (`judge` body `{text}` only). Scoped suites all pass: shared **94** / engine **535** / client **257**; typecheck clean; gates clean.
+- **Concern C6 (orchestrator/Yellow-style, non-blocking → epic-end triage):** the "prediction card does not unmount/remount when `qualityBasis` switches static→judge" invariant — a true React-runtime reconciliation property — was covered by an IN-PROCESS structural-skeleton proxy (the same `xb-reach-regime` card skeleton renders both states; a two-implementation facade fails). This satisfies the invariant's INTENT (single component tree, not a router to two implementations) but does not assert React's literal no-remount behavior, which would require a Playwright browser spec in the engine-stubbed `e2e-tests/` workspace. Architect to decide at triage whether an additional browser-level no-remount spec is wanted.
