@@ -1,5 +1,5 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # RMU-004: Format classifier — new members + corrected cascade
