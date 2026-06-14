@@ -203,15 +203,33 @@
 
 .xb-post-coach-card__section li span:last-child,
 .xb-post-coach-card__check-group li span:last-child,
-.xb-deterministic-signals__row span:first-child {
+.xb-deterministic-signals__row span:first-child,
+.xb-deterministic-signals__row dt {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.xb-deterministic-signals__row span:last-child {
+.xb-deterministic-signals__row span:last-child,
+.xb-deterministic-signals__row p {
   flex: 0 0 auto;
+  margin: 0;
   color: var(--text-secondary);
   font: var(--type-data);
+}
+
+.xb-reach-regime,
+.xb-reach-regime__regimes {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-2);
+}
+
+.xb-reach-regime__regimes dt {
+  color: var(--text-primary);
+}
+
+.xb-reach-regime__basis {
+  margin: 0;
 }
 
 .xb-post-coach-card__learnings p,

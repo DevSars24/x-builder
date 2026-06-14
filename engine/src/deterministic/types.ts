@@ -90,7 +90,7 @@ export type ReachRange = {
 };
 
 export type EngagementPrediction = {
-  // Two-regime reach output (RMU-006).
+  // Four-regime reach output (RMU-006).
   predictedMidImpressions: number;
   stallRange: ReachRange;
   escapeRange: ReachRange;
@@ -100,11 +100,6 @@ export type EngagementPrediction = {
   baseSource: "trailing_median" | "follower_estimate";
   qualityBasis: "static" | "judge";
   reachModelVersion: string;
-  // Transitional legacy mirror (removed in RMU-011).
-  rangeLow: number;
-  rangeHigh: number;
-  midpoint: number;
-  confidence: "low" | "medium" | "high";
   signals: PredictionSignal[];
 };
 

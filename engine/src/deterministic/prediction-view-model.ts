@@ -41,11 +41,6 @@ export const toEngagementPrediction = (input: {
     baseSource: prediction.baseSource,
     qualityBasis: prediction.qualityBasis,
     reachModelVersion: prediction.reachModelVersion,
-    // Transitional legacy mirror (removed in RMU-011).
-    rangeLow: prediction.rangeLow,
-    rangeHigh: prediction.rangeHigh,
-    midpoint: prediction.midpoint,
-    confidence: prediction.confidence,
     signals: prediction.signals,
   };
 };

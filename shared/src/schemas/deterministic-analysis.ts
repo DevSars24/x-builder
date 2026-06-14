@@ -115,15 +115,9 @@ export const reachRangeSchema = z
 
 export const availableEngagementPredictionSchema = z.object({
   status: z.literal("available"),
-  // Transitional legacy mirror (removed in RMU-011); still required as the
-  // migration bridge for consumers that read the old range shape.
-  rangeLow: z.number().int().min(0),
-  rangeHigh: z.number().int().min(0),
-  midpoint: z.number().int().min(0),
-  confidence: z.enum(["low", "medium", "high"]),
   signals: z.array(predictionSignalSchema),
-  // Two-regime reach fields. The producer always emits these since RMU-006, so
-  // they are required: a legacy-only available prediction no longer parses.
+  // Four-regime reach fields. These are the only available-prediction fields
+  // (besides signals) now that the RMU-006 legacy mirror is deleted.
   predictedMidImpressions: z.number().int().min(0),
   stallRange: reachRangeSchema,
   escapeRange: reachRangeSchema,
@@ -141,18 +135,10 @@ const disabledEngagementPredictionSchema = z.object({
   message: z.string().min(1).max(240),
 });
 
-export const engagementPredictionSchema = z
-  .discriminatedUnion("status", [
-    availableEngagementPredictionSchema,
-    disabledEngagementPredictionSchema,
-  ])
-  .refine(
-    (prediction) =>
-      prediction.status !== "available" ||
-      (prediction.rangeLow <= prediction.midpoint &&
-        prediction.midpoint <= prediction.rangeHigh),
-    "Engagement range must be ordered: rangeLow <= midpoint <= rangeHigh.",
-  );
+export const engagementPredictionSchema = z.discriminatedUnion("status", [
+  availableEngagementPredictionSchema,
+  disabledEngagementPredictionSchema,
+]);
 
 const analyzePostsRequestItemSchema = z.object({
   id: z.string().min(1).max(120),

@@ -20,10 +20,6 @@ export const engagementPredictionWeights = {
   highSignalUncertainty: 0.25,
   mediumSignalUncertainty: 0.4,
   lowSignalUncertainty: 0.6,
-  highConfidenceSignalCount: 4,
-  mediumConfidenceSignalCount: 2,
-  highConfidenceScoreMinimum: 70,
-  mediumConfidenceScoreMinimum: 50,
   timelyTermMaximumBonus: 0.4,
   timelyTermBonusPerMatch: 0.15,
 } as const;

@@ -227,7 +227,6 @@ export function computeReachModel(
   };
 
   const signals = collectReachSignals(input.text);
-  const confidence = deriveConfidence(signals.length, input.score);
 
   return {
     predictedMidImpressions,
@@ -239,20 +238,14 @@ export function computeReachModel(
     baseSource,
     qualityBasis,
     reachModelVersion,
-    // Transitional legacy mirror (removed in RMU-011).
-    rangeLow: stallRange.low,
-    rangeHigh: escapeRange.high,
-    midpoint: predictedMidImpressions,
-    confidence,
     signals,
   };
 }
 
 /**
  * Text-derived reach signals that survive the two-regime rebuild: timely
- * wording keyed to the trending-topic lexicon. This feeds the transitional
- * confidence ladder and the legacy mirror's `signals` array. It carries no
- * ranking, trend, or imported-data copy.
+ * wording keyed to the trending-topic lexicon. These populate the prediction's
+ * `signals` array. They carry no ranking, trend, or imported-data copy.
  */
 function collectReachSignals(text: string): PredictionSignal[] {
   const lowerText = text.trim().toLowerCase();
@@ -278,31 +271,6 @@ function collectReachSignals(text: string): PredictionSignal[] {
   }
 
   return signals;
-}
-
-/**
- * Transitional confidence ladder (bridge only, removed in RMU-011). Derives a
- * low/medium/high band from the surviving signal count and the static score.
- */
-function deriveConfidence(
-  signalCount: number,
-  score: number,
-): EngagementPrediction["confidence"] {
-  if (
-    signalCount >= engagementPredictionWeights.highConfidenceSignalCount &&
-    score >= engagementPredictionWeights.highConfidenceScoreMinimum
-  ) {
-    return "high";
-  }
-
-  if (
-    signalCount >= engagementPredictionWeights.mediumConfidenceSignalCount &&
-    score >= engagementPredictionWeights.mediumConfidenceScoreMinimum
-  ) {
-    return "medium";
-  }
-
-  return "low";
 }
 
 /**
