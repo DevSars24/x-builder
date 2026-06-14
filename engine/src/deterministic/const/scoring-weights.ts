@@ -26,7 +26,6 @@ export const engagementPredictionWeights = {
   mediumConfidenceScoreMinimum: 50,
   timelyTermMaximumBonus: 0.4,
   timelyTermBonusPerMatch: 0.15,
-  tensionMultiplier: 1.25,
 } as const;
 
 export const postCoachScoreBands = {

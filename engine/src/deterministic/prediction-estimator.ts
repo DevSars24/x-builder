@@ -15,7 +15,12 @@ import {
   wisdomStatusMin,
 } from "./const/reach-model-weights.js";
 import { reachModelVersion } from "./deterministic-analysis-constants.js";
-import { timelyTopicTerms } from "./rule-lexicon.js";
+import { tribeVocativeTerms } from "./rule-lexicon.js";
+import {
+  trendingTopicBonusPerMatch,
+  trendingTopicMaxBonus,
+  trendingTopicTerms,
+} from "./trending-topic-lexicon.js";
 import type {
   EngagementPrediction,
   PostFormat,
@@ -40,6 +45,18 @@ const halvedEscapeFormats = new Set<PostFormat>([
   "wisdom_one_liner",
   "insight_share",
 ]);
+
+// Reach-signal tuning constants. Each adjusts pEscape / expectedReplies only.
+const tribeVocativeReplyMultiplier = 1.2; // CALIBRATE
+const oneWordEscapeMultiplier = 1.4; // CALIBRATE
+const oneWordReplyMultiplier = 2.0; // CALIBRATE
+const answerEffortPenalty = 0.7; // CALIBRATE
+
+// Self-disclosure of failure or money specifics. A bare dollar amount or a
+// confession of loss reads as vulnerable rather than escape-worthy, so pEscape
+// is damped.
+const selfDisclosurePattern =
+  /\$[\d,]+|\b(?:lost|burned|wasted|blew)\b[^.?!]*\$?[\d,]+|\b(?:failed|failure|broke|bankrupt)\b/i; // CALIBRATE
 
 /**
  * Resolves the reach base. A supplied trailing median wins (zero counts as a
@@ -122,6 +139,52 @@ export function computeReachModel(
     escapeProbability *= 0.5;
   }
 
+  // Reach-signal adjustments (pEscape / expectedReplies only — never midpoint).
+  const lowerText = input.text.trim().toLowerCase();
+  let expectedReplies = mid * replyRateTable[input.format];
+
+  // Trending-topic bonus lifts pEscape per matching term, capped.
+  const trendingMatchCount = trendingTopicTerms.filter((term) =>
+    new RegExp(`\\b${term}\\b`, "i").test(lowerText),
+  ).length;
+
+  if (trendingMatchCount > 0) {
+    escapeProbability *=
+      1 +
+      Math.min(
+        trendingTopicMaxBonus,
+        trendingTopicBonusPerMatch * trendingMatchCount,
+      );
+  }
+
+  // Tribe vocative lifts expectedReplies only.
+  const tribeVocative = tribeVocativeTerms.some((term) =>
+    new RegExp(`\\b${term}\\b`, "i").test(lowerText),
+  );
+
+  if (tribeVocative) {
+    expectedReplies *= tribeVocativeReplyMultiplier;
+  }
+
+  // Answer-effort: an explicit one-word constraint lifts both pEscape and
+  // replies; an anecdote/justification question or a self-disclosure of failure
+  // or money specifics dampens pEscape.
+  if (/\bin (?:1|one) word\b/i.test(lowerText)) {
+    escapeProbability *= oneWordEscapeMultiplier;
+    expectedReplies *= oneWordReplyMultiplier;
+  }
+
+  if (
+    /\bhow did you\b|\bwhat made you\b|\band why\?/i.test(lowerText) ||
+    selfDisclosurePattern.test(lowerText)
+  ) {
+    escapeProbability *= answerEffortPenalty;
+  }
+
+  // Clamp the composed pEscape, then apply the external-link cap LAST so the cap
+  // always wins over any signal bonus.
+  escapeProbability = Math.min(1, Math.max(0, escapeProbability));
+
   if (input.hasExternalLink) {
     escapeProbability = Math.min(escapeProbability, externalLinkEscapeCap);
   }
@@ -134,7 +197,6 @@ export function computeReachModel(
     low: Math.round(escapeRangeLowCoeff * base),
     high: Math.round(escapeRangeHighCoeff * base),
   };
-  const expectedReplies = mid * replyRateTable[input.format];
 
   const signals = collectReachSignals(input.text);
   const confidence = deriveConfidence(signals.length, input.score);
@@ -160,16 +222,15 @@ export function computeReachModel(
 
 /**
  * Text-derived reach signals that survive the two-regime rebuild: timely
- * wording and a tension/contradiction marker. These feed the transitional
- * confidence ladder and the legacy mirror's `signals` array. None of them carry
+ * wording keyed to the trending-topic lexicon. This feeds the transitional
+ * confidence ladder and the legacy mirror's `signals` array. It carries no
  * ranking, trend, or imported-data copy.
  */
 function collectReachSignals(text: string): PredictionSignal[] {
-  const trimmedText = text.trim();
-  const lowerText = trimmedText.toLowerCase();
+  const lowerText = text.trim().toLowerCase();
   const signals: PredictionSignal[] = [];
 
-  const timelyTermCount = timelyTopicTerms.filter((term) =>
+  const timelyTermCount = trendingTopicTerms.filter((term) =>
     new RegExp(`\\b${term}\\b`, "i").test(lowerText),
   ).length;
 
@@ -185,18 +246,6 @@ function collectReachSignals(text: string): PredictionSignal[] {
       signal_key: "timely_wording",
       label: "Timely wording",
       multiplier: timelyMultiplier,
-    });
-  }
-
-  if (
-    /\b(but|yet|never|actually|instead|however|rather|despite|supposed to)\b/i.test(
-      trimmedText,
-    )
-  ) {
-    signals.push({
-      signal_key: "tension_contradiction",
-      label: "Tension / contradiction +25%",
-      multiplier: engagementPredictionWeights.tensionMultiplier,
     });
   }
 
