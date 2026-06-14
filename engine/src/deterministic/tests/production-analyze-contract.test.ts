@@ -140,10 +140,11 @@ function expectReachShape(
   });
   expect(prediction.escapeProbability).toBeCloseTo(escapeProbability, 10);
   expect(prediction.expectedReplies).toBeCloseTo(expectedReplies, 6);
-  // Legacy migration bridge (removed in RMU-011): mirrors the regimes.
-  expect(prediction.rangeLow).toBe(prediction.stallRange.low);
-  expect(prediction.rangeHigh).toBe(prediction.escapeRange.high);
-  expect(prediction.midpoint).toBe(prediction.predictedMidImpressions);
+  // The RMU-006 migration bridge is gone: no legacy mirror fields survive.
+  expect(prediction).not.toHaveProperty("rangeLow");
+  expect(prediction).not.toHaveProperty("rangeHigh");
+  expect(prediction).not.toHaveProperty("midpoint");
+  expect(prediction).not.toHaveProperty("confidence");
 }
 
 // Pinning suite for the production-observable analyze contract.
@@ -351,16 +352,14 @@ describe("production analyze contract (followers-only requests)", () => {
   });
 });
 
-describe("production reach output (transitional legacy bridge)", () => {
-  // The two-regime model replaces the old confidence-driven range. `confidence`
-  // survives only as a transitional legacy mirror (removed in RMU-011), so we no
-  // longer pin its exact value or the old format/zeitgeist/tension signal stack
-  // (those multiplier signals were emitted by the deleted
-  // formatEngagementMultipliers / staticScoreQualityMultipliers tables). We pin
-  // the stable end-state contract instead: the bridge field is a valid enum and
-  // the four-regime fields are present, derived from the base, and ordered.
+describe("production reach output (four-regime, no legacy bridge)", () => {
+  // The four-regime model replaces the old confidence-driven range, and the
+  // RMU-006 migration bridge is now deleted: rangeLow/rangeHigh/midpoint and the
+  // prediction confidence band no longer exist. We pin the stable end-state
+  // contract instead — quality basis present, four-regime fields derived from the
+  // base and ordered, and none of the deleted legacy fields surviving.
 
-  it("keeps the legacy confidence bridge a valid enum for every multi-line production draft", () => {
+  it("emits a four-regime reach shape with no legacy fields for a multi-line production draft", () => {
     const highDraft = [
       "I shipped an AI onboarding test last week but the first run never compounded.",
       "We removed the workspace invite step instead of adding more copy.",
@@ -372,14 +371,14 @@ describe("production reach output (transitional legacy bridge)", () => {
       throw new Error("Expected an available prediction for the multi-line story draft.");
     }
 
-    expect(["low", "medium", "high"]).toContain(item.prediction.confidence);
+    expect(item.prediction).not.toHaveProperty("confidence");
     // story format, score 85 (qualityMult 1.1), status-neutral, no link. The
     // draft carries tension/contrast words ("but", "instead", "actually") but no
     // lexicon terms, so no reach-signal adjustment applies.
     expectReachShape(item.prediction, { format: "story", score: 85, text: highDraft });
   });
 
-  it("emits ordered two-regime ranges and a present quality basis for every representative draft", () => {
+  it("emits ordered four-regime ranges and a present quality basis with no legacy fields for every representative draft", () => {
     for (const text of Object.values(FORMAT_FIXTURES)) {
       const item = scoreOneViaService(text, PRODUCTION_FOLLOWERS);
 
@@ -394,7 +393,10 @@ describe("production reach output (transitional legacy bridge)", () => {
       expect(prediction.escapeProbability).toBeGreaterThanOrEqual(0);
       expect(prediction.escapeProbability).toBeLessThanOrEqual(1);
       expect(prediction.predictedMidImpressions).toBeGreaterThanOrEqual(1);
-      expect(["low", "medium", "high"]).toContain(prediction.confidence);
+      expect(prediction).not.toHaveProperty("rangeLow");
+      expect(prediction).not.toHaveProperty("rangeHigh");
+      expect(prediction).not.toHaveProperty("midpoint");
+      expect(prediction).not.toHaveProperty("confidence");
     }
   });
 });

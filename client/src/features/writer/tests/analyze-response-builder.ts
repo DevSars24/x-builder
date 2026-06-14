@@ -10,7 +10,7 @@ import type {
 // route is remote-owned and schema-shaped, so the writer suites mock it and feed
 // it through this builder. Shared by the advanced-context model/panel suites and
 // the regime/two-pass suites that follow, so a single coherent fixture keeps the
-// reach fields (legacy mirror + four-regime additions) internally ordered.
+// four-regime reach fields internally ordered (stall/escape low <= high).
 
 type ScoredAnalyzedPostItem = Extract<AnalyzedPostItem, { status: "scored" }>;
 type ScoreFailedAnalyzedPostItem = Extract<
@@ -104,12 +104,8 @@ export function readyPostCoach(
 export function availablePrediction(
   overrides: Partial<AvailableEngagementPrediction> = {},
 ): AvailableEngagementPrediction {
-  const legacy = {
-    status: "available" as const,
-    rangeLow: 120,
-    rangeHigh: 280,
-    midpoint: 200,
-    confidence: "medium" as const,
+  return {
+    status: "available",
     signals: [
       {
         signal_key: "voice_score",
@@ -117,17 +113,12 @@ export function availablePrediction(
         multiplier: 0.9,
       },
     ],
-    ...overrides,
-  };
-
-  return {
-    ...legacy,
-    predictedMidImpressions: legacy.midpoint,
-    stallRange: { low: legacy.rangeLow, high: legacy.midpoint },
-    escapeRange: { low: legacy.midpoint, high: legacy.rangeHigh },
-    escapeProbability: 0.1,
-    expectedReplies: 4,
-    baseImpressions: legacy.midpoint,
+    predictedMidImpressions: 1500,
+    stallRange: { low: 800, high: 2400 },
+    escapeRange: { low: 6000, high: 40000 },
+    escapeProbability: 0.12,
+    expectedReplies: 9,
+    baseImpressions: 1500,
     baseSource: "follower_estimate",
     qualityBasis: "static",
     reachModelVersion: "reach-v1",

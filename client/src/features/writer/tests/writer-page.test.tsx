@@ -207,12 +207,10 @@ function readyPostCoach(
 function availablePrediction(
   overrides: Partial<AvailableEngagementPrediction> = {},
 ): AvailableEngagementPrediction {
-  const legacy = {
-    status: "available" as const,
-    rangeLow: 120,
-    rangeHigh: 280,
-    midpoint: 200,
-    confidence: "medium" as const,
+  // End-state four-regime contract: no legacy mirror fields. Tests that need a
+  // distinct reach value override stallRange/predictedMidImpressions directly.
+  return {
+    status: "available",
     signals: [
       {
         signal_key: "voice_score",
@@ -225,20 +223,12 @@ function availablePrediction(
         multiplier: 1.2,
       },
     ],
-    ...overrides,
-  };
-
-  // Four-regime reach fields became required in RMU-006. The client components
-  // still render only the legacy mirror until RMU-011, so derive these from the
-  // resolved mirror to keep every fixture internally coherent (low <= high).
-  return {
-    ...legacy,
-    predictedMidImpressions: legacy.midpoint,
-    stallRange: { low: legacy.rangeLow, high: legacy.midpoint },
-    escapeRange: { low: legacy.midpoint, high: legacy.rangeHigh },
-    escapeProbability: 0.1,
-    expectedReplies: 4,
-    baseImpressions: legacy.midpoint,
+    predictedMidImpressions: 1500,
+    stallRange: { low: 800, high: 2400 },
+    escapeRange: { low: 6000, high: 40000 },
+    escapeProbability: 0.12,
+    expectedReplies: 9,
+    baseImpressions: 1500,
     baseSource: "follower_estimate",
     qualityBasis: "static",
     reachModelVersion: "reach-v1",
@@ -485,8 +475,8 @@ describe("WriterPage manual follower prediction context", () => {
     expect(analyzePosts).toHaveBeenCalledWith(
       expectedAnalyzePostsRequest(response.candidates, { followers: 2400 }),
     );
-    expect(text).toContain("120 - 280");
-    expect(text).toContain("medium");
+    expect(text).toContain("800 – 2,400");
+    expect(text).toContain("12% escape");
     expect(text).not.toContain("missing_followers");
   });
 
@@ -558,9 +548,8 @@ describe("WriterPage manual follower prediction context", () => {
         items: response.candidates.map((candidate) =>
           scoredAnalysisItem(candidate, {
             prediction: availablePrediction({
-              rangeLow: 320,
-              rangeHigh: 640,
-              midpoint: 480,
+              predictedMidImpressions: 480,
+              stallRange: { low: 320, high: 640 },
             }),
           }),
         ),
@@ -590,7 +579,7 @@ describe("WriterPage manual follower prediction context", () => {
       2,
       expectedAnalyzePostsRequest(response.candidates, { followers: 4800 }),
     );
-    expect(recomputedText).toContain("320 - 640");
+    expect(recomputedText).toContain("320 – 640");
     expect(recomputedText).toContain(response.candidates[0]?.text);
   });
 
@@ -990,9 +979,8 @@ describe("WriterPage generation behavior", () => {
       items: response.candidates.map((candidate) =>
         scoredAnalysisItem(candidate, {
           prediction: availablePrediction({
-            rangeLow: 700,
-            rangeHigh: 1400,
-            midpoint: 1050,
+            predictedMidImpressions: 1050,
+            stallRange: { low: 700, high: 1400 },
           }),
         }),
       ),
@@ -1018,7 +1006,7 @@ describe("WriterPage generation behavior", () => {
       expectedAnalyzePostsRequest(response.candidates, { followers: 7777 }),
     );
     expect(html).toContain('value="7777"');
-    expect(text).toContain("700 - 1400");
+    expect(text).toContain("700 – 1,400");
     expect(text).not.toContain("Scoring candidate");
     expect(text).not.toContain("Prediction needs refresh.");
   });
@@ -1552,9 +1540,8 @@ describe("WriterPage generation behavior", () => {
       items: response.candidates.map((candidate) =>
         scoredAnalysisItem(candidate, {
           prediction: availablePrediction({
-            rangeLow: 500,
-            rangeHigh: 900,
-            midpoint: 700,
+            predictedMidImpressions: 700,
+            stallRange: { low: 500, high: 900 },
           }),
         }),
       ),
@@ -1565,8 +1552,8 @@ describe("WriterPage generation behavior", () => {
     const finalText = textContent(finalHtml);
 
     expect(analyzePosts).toHaveBeenCalledTimes(3);
-    expect(textContent(newerHtml)).toContain("500 - 900");
-    expect(finalText).toContain("500 - 900");
+    expect(textContent(newerHtml)).toContain("500 – 900");
+    expect(finalText).toContain("500 – 900");
     expect(finalText).not.toContain("Older scoring failure should not replace newer success.");
     expect(finalText).not.toContain("Route unavailable");
   });
@@ -1630,9 +1617,8 @@ describe("WriterPage generation behavior", () => {
       items: response.candidates.map((candidate) =>
         scoredAnalysisItem(candidate, {
           prediction: availablePrediction({
-            rangeLow: 420,
-            rangeHigh: 840,
-            midpoint: 630,
+            predictedMidImpressions: 630,
+            stallRange: { low: 420, high: 840 },
           }),
         }),
       ),
@@ -1648,8 +1634,8 @@ describe("WriterPage generation behavior", () => {
     );
     expect(html).toContain('value="7777"');
     expect(text).toContain("Prediction needs refresh.");
-    expect(text).not.toContain("420");
-    expect(text).not.toContain("840");
+    expect(text).not.toContain("420 – 840");
+    expect(text).not.toContain("Typical reach");
   });
 
   it("keeps newer idea edits when score retry resolves", async () => {
@@ -1743,9 +1729,8 @@ describe("WriterPage generation behavior", () => {
             detectedFormat: "story",
             postCoach: detailPostCoach,
             prediction: availablePrediction({
-              rangeLow: 410,
-              rangeHigh: 760,
-              midpoint: 585,
+              predictedMidImpressions: 585,
+              stallRange: { low: 410, high: 760 },
             }),
           }),
         ],
@@ -1783,7 +1768,7 @@ describe("WriterPage generation behavior", () => {
     expect(dialogText).toContain("Worth a look");
     expect(dialogText).toContain("API detail says the middle clause needs proof");
     expect(dialogText).toContain("Detail learning from expanded API data.");
-    expect(dialogText).toContain("410 - 760");
+    expect(dialogText).toContain("410 – 760");
     expect(dialogText).toContain("585");
     expect(text).toContain(oneLiner.text);
     expect(text).toContain(debateQuestion.text);
@@ -1853,9 +1838,8 @@ describe("WriterPage generation behavior", () => {
         items: [
           scoredAnalysisItem(miniFramework, {
             prediction: availablePrediction({
-              rangeLow: 410,
-              rangeHigh: 760,
-              midpoint: 585,
+              predictedMidImpressions: 585,
+              stallRange: { low: 410, high: 760 },
             }),
           }),
         ],
@@ -1870,14 +1854,14 @@ describe("WriterPage generation behavior", () => {
     await driver.generate();
     const openHtml = await driver.openDetails(miniFramework.id);
 
-    expect(dialogTextSegment(openHtml)).toContain("410 - 760");
+    expect(dialogTextSegment(openHtml)).toContain("410 – 760");
 
     const changedHtml = driver.updateFollowers("9999");
     const changedText = textContent(changedHtml);
 
     expect(changedHtml).not.toContain('role="dialog"');
     expect(changedText).not.toContain("Deterministic details");
-    expect(changedText).not.toContain("410 - 760");
+    expect(changedText).not.toContain("410 – 760");
     expect(changedText).toContain("Prediction needs refresh.");
   });
 

@@ -448,7 +448,7 @@ describe("advanced context edge cases", () => {
     const request = analyzePosts.mock.calls.at(-1)?.[0];
     expect(request?.scoringContext.trailingMedianImpressions).toBe(1800);
     expect(request?.scoringContext.followers).toBeUndefined();
-    expect(text).toContain("120 - 280");
+    expect(text).toContain("800 – 2,400");
     expect(text).not.toContain("Prediction needs follower count.");
   });
 

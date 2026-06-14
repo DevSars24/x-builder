@@ -84,28 +84,22 @@ const postCoach = {
   footerText: "Static heuristic checks only.",
 };
 
-// Legacy-only: carries the transitional mirror fields but NONE of the
-// four-regime reach fields. RMU-006 makes the producer always emit the
-// four-regime fields, so this shape is now REJECTED.
-const legacyOnlyAvailablePrediction = {
-  status: "available",
-  rangeLow: 180,
-  rangeHigh: 420,
-  midpoint: 300,
-  confidence: "medium",
-  signals: [
-    {
-      signal_key: "quality_voice",
-      label: "Static score 72",
-      multiplier: 0.8,
-    },
-  ],
-};
+// Reach signals survive the legacy-field deletion; they are shared by both the
+// complete prediction below and the legacy-field-rejection fixture.
+const reachSignals = [
+  {
+    signal_key: "quality_voice",
+    label: "Static score 72",
+    multiplier: 0.8,
+  },
+];
 
-// Complete available prediction: legacy mirror + all required four-regime
-// reach fields. This is what a post-RMU-006 producer emits.
+// Available prediction at the end-state contract: the four-regime reach fields
+// plus signals, with NONE of the deleted legacy mirror fields. This is the only
+// shape a producer emits once the RMU-006 bridge is removed.
 const availablePrediction = {
-  ...legacyOnlyAvailablePrediction,
+  status: "available",
+  signals: reachSignals,
   predictedMidImpressions: 300,
   stallRange: { low: 180, high: 360 },
   escapeRange: { low: 600, high: 2400 },
@@ -256,7 +250,8 @@ describe("deterministic analyze schemas", () => {
       },
       prediction: {
         status: "available",
-        confidence: "medium",
+        qualityBasis: "static",
+        predictedMidImpressions: 300,
       },
     });
   });
@@ -358,18 +353,34 @@ describe("deterministic analyze schemas", () => {
     ).toBe(false);
   });
 
-  it("rejects an available prediction whose range is not ordered low <= midpoint <= high", () => {
+  it("rejects an available prediction carrying only the deleted legacy mirror fields", () => {
+    // The RMU-006 bridge is gone: rangeLow/rangeHigh/midpoint/confidence no
+    // longer exist on the schema and cannot stand in for the four-regime fields.
     expect(
       engagementPredictionSchema.safeParse({
         status: "available",
-        rangeLow: 420,
-        rangeHigh: 180,
-        midpoint: 999,
+        rangeLow: 120,
+        rangeHigh: 280,
+        midpoint: 200,
         confidence: "medium",
         signals: [],
       }).success,
     ).toBe(false);
     expect(engagementPredictionSchema.safeParse(availablePrediction).success).toBe(true);
+  });
+
+  it("does not enforce a cross-field rangeLow <= midpoint <= rangeHigh ordering once the legacy mirror is gone", () => {
+    // The only prediction-range invariant left is reachRangeSchema (low <= high)
+    // on stall/escape. A prediction that adds extra legacy-shaped keys still
+    // parses by ignoring them — there is no cross-field refine to violate.
+    const withStrayLegacyKeys = {
+      ...availablePrediction,
+      rangeLow: 9_999,
+      midpoint: 1,
+      rangeHigh: 5,
+    };
+
+    expect(engagementPredictionSchema.safeParse(withStrayLegacyKeys).success).toBe(true);
   });
 
   it("keeps writer source format separate from analyzer detected format", () => {
@@ -551,10 +562,6 @@ describe("scoring context schema", () => {
 
 const completeAvailablePrediction = {
   status: "available",
-  rangeLow: 180,
-  rangeHigh: 420,
-  midpoint: 300,
-  confidence: "medium",
   signals: [
     {
       signal_key: "quality_voice",
@@ -593,23 +600,35 @@ describe("reach range schema", () => {
   });
 });
 
-describe("available engagement prediction four-regime widening", () => {
+describe("available engagement prediction four-regime contract", () => {
   it("is re-exported from the shared entrypoint", () => {
     expect(availableEngagementPredictionSchema).toBeDefined();
   });
 
-  it("rejects a legacy-only available prediction now that the four-regime fields are required", () => {
-    // RMU-006 makes the producer always emit the four-regime reach fields, so a
-    // prediction that carries only the legacy mirror fields no longer parses.
-    expect(engagementPredictionSchema.safeParse(legacyOnlyAvailablePrediction).success).toBe(false);
-    expect(
-      availableEngagementPredictionSchema.safeParse(legacyOnlyAvailablePrediction).success,
-    ).toBe(false);
-  });
-
-  it("parses a complete available prediction carrying the legacy mirror and every four-regime field", () => {
+  it("parses a four-regime available prediction that omits every deleted legacy mirror field", () => {
     expect(engagementPredictionSchema.safeParse(availablePrediction).success).toBe(true);
     expect(availableEngagementPredictionSchema.safeParse(availablePrediction).success).toBe(true);
+  });
+
+  it("strips the deleted legacy mirror fields from the parsed available prediction", () => {
+    // rangeLow/rangeHigh/midpoint and the prediction confidence band were removed
+    // with the RMU-006 bridge; even when supplied they must not survive parsing.
+    const result = availableEngagementPredictionSchema.safeParse({
+      ...availablePrediction,
+      rangeLow: 180,
+      rangeHigh: 420,
+      midpoint: 300,
+      confidence: "medium",
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      throw new Error("Expected a four-regime available prediction to parse.");
+    }
+    expect(result.data).not.toHaveProperty("rangeLow");
+    expect(result.data).not.toHaveProperty("rangeHigh");
+    expect(result.data).not.toHaveProperty("midpoint");
+    expect(result.data).not.toHaveProperty("confidence");
   });
 
   it("rejects a complete available prediction that omits any single required four-regime field", () => {
@@ -744,17 +763,6 @@ describe("available engagement prediction four-regime widening", () => {
       engagementPredictionSchema.safeParse({
         ...completeAvailablePrediction,
         expectedReplies: -2,
-      }).success,
-    ).toBe(false);
-  });
-
-  it("still rejects an available prediction whose legacy range is mis-ordered", () => {
-    expect(
-      engagementPredictionSchema.safeParse({
-        ...completeAvailablePrediction,
-        rangeLow: 999,
-        midpoint: 300,
-        rangeHigh: 420,
       }).success,
     ).toBe(false);
   });

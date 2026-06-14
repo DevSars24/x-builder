@@ -161,7 +161,6 @@ describe("deterministic analysis service", () => {
 
     expect(item.prediction).toMatchObject({
       status: "available",
-      confidence: expect.any(String),
       signals: expect.any(Array),
       qualityBasis: "static",
       baseSource: "follower_estimate",
@@ -173,7 +172,7 @@ describe("deterministic analysis service", () => {
 
     const prediction = item.prediction;
 
-    // Two-regime reach output, derived from the produced base.
+    // Four-regime reach output, derived from the produced base.
     expect(prediction.baseImpressions).toBeGreaterThanOrEqual(1);
     expect(prediction.predictedMidImpressions).toBeGreaterThanOrEqual(1);
     expect(prediction.stallRange.low).toBeLessThanOrEqual(prediction.stallRange.high);
@@ -187,14 +186,13 @@ describe("deterministic analysis service", () => {
     expect(prediction.expectedReplies).toBeGreaterThanOrEqual(0);
     expect(typeof prediction.reachModelVersion).toBe("string");
     expect(prediction.reachModelVersion.length).toBeGreaterThan(0);
-
-    // Transitional legacy mirror (removed in RMU-011): regime endpoints, ordered.
-    expect(prediction.rangeLow).toBe(prediction.stallRange.low);
-    expect(prediction.rangeHigh).toBe(prediction.escapeRange.high);
-    expect(prediction.midpoint).toBe(prediction.predictedMidImpressions);
-    expect(prediction.rangeLow).toBeLessThanOrEqual(prediction.midpoint);
-    expect(prediction.midpoint).toBeLessThanOrEqual(prediction.rangeHigh);
     expect(prediction.signals.length).toBeGreaterThanOrEqual(0);
+
+    // The deleted legacy mirror fields must not survive on the produced output.
+    expect(prediction).not.toHaveProperty("rangeLow");
+    expect(prediction).not.toHaveProperty("rangeHigh");
+    expect(prediction).not.toHaveProperty("midpoint");
+    expect(prediction).not.toHaveProperty("confidence");
   });
 
   it("surfaces an available prediction from a trailing median when followers are absent", async () => {

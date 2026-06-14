@@ -139,11 +139,6 @@ const scoredResponse = (request: AnalyzePostsRequest): AnalyzePostsResponse => (
     prediction: request.scoringContext.followers
       ? {
           status: "available",
-          // Legacy mirror (transitional, removed in RMU-011).
-          rangeLow: 120,
-          rangeHigh: 2280,
-          midpoint: 230,
-          confidence: "medium",
           signals: [
             {
               signal_key: "quality_voice",
@@ -151,7 +146,8 @@ const scoredResponse = (request: AnalyzePostsRequest): AnalyzePostsResponse => (
               multiplier: 0.8,
             },
           ],
-          // Four-regime reach fields (required since RMU-006).
+          // Four-regime reach fields (the only available-prediction shape now
+          // that the RMU-006 legacy mirror is deleted).
           predictedMidImpressions: 230,
           stallRange: { low: 120, high: 276 },
           escapeRange: { low: 570, high: 2280 },
@@ -295,7 +291,6 @@ describe("posts analyze API", () => {
         status: "scored",
         prediction: {
           status: "available",
-          confidence: expect.any(String),
           signals: expect.any(Array),
           qualityBasis: "static",
           baseSource: "follower_estimate",
@@ -321,10 +316,11 @@ describe("posts analyze API", () => {
       expect(typeof prediction.reachModelVersion).toBe("string");
       expect(prediction.reachModelVersion.length).toBeGreaterThan(0);
 
-      // Legacy mirror (transitional, removed in RMU-011).
-      expect(prediction.rangeLow).toBe(prediction.stallRange.low);
-      expect(prediction.rangeHigh).toBe(prediction.escapeRange.high);
-      expect(prediction.midpoint).toBe(prediction.predictedMidImpressions);
+      // The deleted legacy mirror fields must not survive over the HTTP boundary.
+      expect(prediction).not.toHaveProperty("rangeLow");
+      expect(prediction).not.toHaveProperty("rangeHigh");
+      expect(prediction).not.toHaveProperty("midpoint");
+      expect(prediction).not.toHaveProperty("confidence");
     } finally {
       await app.close();
     }

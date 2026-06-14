@@ -183,11 +183,6 @@ const mixedAnalysisResponse: AnalyzePostsResponse = {
       },
       prediction: {
         status: "available",
-        // Legacy mirror (rendered until RMU-011).
-        rangeLow: 120,
-        rangeHigh: 260,
-        midpoint: 190,
-        confidence: "medium",
         signals: [
           {
             signal_key: "quality_voice",
@@ -195,7 +190,8 @@ const mixedAnalysisResponse: AnalyzePostsResponse = {
             multiplier: 0.8,
           },
         ],
-        // Four-regime reach fields (required since RMU-006).
+        // Four-regime reach fields (the only available-prediction shape after the
+        // RMU-006 legacy mirror is deleted).
         predictedMidImpressions: 190,
         stallRange: { low: 120, high: 190 },
         escapeRange: { low: 190, high: 260 },
