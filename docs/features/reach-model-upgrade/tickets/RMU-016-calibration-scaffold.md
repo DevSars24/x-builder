@@ -1,5 +1,5 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # RMU-016: Calibration scaffold — normalizer, predictor-runner, per-format fit, leave-one-account-out validator
