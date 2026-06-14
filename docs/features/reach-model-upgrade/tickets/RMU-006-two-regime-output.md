@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # RMU-006: Two-regime reach output + expectedReplies + base override + disabled-guard fix
@@ -75,3 +75,9 @@ spreads; `pnpm test` + `pnpm typecheck` green.
 `trailingMedianImpressions=0` is a present value → `available`/`trailing_median`, base
 floored to ≥1 (also closes the `log(0)` risk). Both base inputs absent → `missing_followers`.
 `statusMult` only applies to `wisdom_one_liner`.
+
+## Pipeline Log
+
+- 2026-06-14 — **Done.** Standard pipeline (model rebuild): Red (`34a9248`) two-regime + disabled-guard + by-construction ranges + schema-tightening + rewrote 6 old-model pin files → Blue Validate Red **REJECT** (follower-estimate base only derived-from-produced, never hard-pinned — a base-computation bug would slip through) → Red fix (`1502795`, hard-pinned base 5000→2000, floor 100→80, cap 50000→4000) → Blue APPROVE → Green (`40a8b77`) `computeReachModel` + disabled-guard fix + schema tightening (9 fields → required) + deleted `formatEngagementMultipliers`/`staticScoreQualityMultipliers` → Green flagged the tightening broke 3 client fixtures → Red fixture update (`0c5f384`, added the four-regime fields to the client available-prediction fixtures) → Blue (Validate Green) + Yellow both APPROVE. Full `pnpm test` green (shared 81 / engine 466 / client 179), typecheck 5/5, lint clean, gates clean, deleted consts zero non-test hits.
+- F1 resolved in code: ranges ordered by construction (`stallRange=[round(min(0.3·base,mid)), round(max(0.3·base,1.2·mid))]`, `escapeRange=[round(3·base),round(12·base)]`); honest midpoint never clamped up (verified by the worst-case + 16×4×2 ordering sweep). Base unambiguous (`baseImpressionsPerThousandFollowers=400` ⇒ `clamp(0.4·followers,80,4000)`).
+- Transitional bridge: legacy `rangeLow`/`rangeHigh`/`midpoint`/`confidence` derived from the regimes, live consumer (client `components.tsx`) today, **deleted in RMU-011**. Confidence signal_key renamed `zeitgeist`→`timely_wording` (within the transitional confidence bridge; no new behavior).
