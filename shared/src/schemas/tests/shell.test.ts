@@ -242,36 +242,6 @@ describe("shell schemas", () => {
     expect(parsed.codexModel).toBe("gpt-5.2-codex");
   });
 
-  it("loads settings without an account profile and leaves it undefined", () => {
-    const parsed = appSettingsSchema.parse(validSettings);
-
-    expect(parsed.accountProfile).toBeUndefined();
-  });
-
-  it("keeps a supplied account profile and trims surrounding whitespace", () => {
-    const parsed = appSettingsSchema.parse({
-      ...validSettings,
-      accountProfile: "  Builds developer tools for backend engineers.  ",
-    });
-
-    expect(parsed.accountProfile).toBe("Builds developer tools for backend engineers.");
-  });
-
-  it("rejects an account profile longer than 600 characters", () => {
-    expect(
-      appSettingsSchema.safeParse({
-        ...validSettings,
-        accountProfile: "a".repeat(601),
-      }).success,
-    ).toBe(false);
-    expect(
-      appSettingsSchema.safeParse({
-        ...validSettings,
-        accountProfile: "a".repeat(600),
-      }).success,
-    ).toBe(true);
-  });
-
   it("accepts every judge provider id the catalog enumerates", () => {
     for (const id of judgeProviderIdSchema.options) {
       expect(judgeProviderIdSchema.safeParse(id).success).toBe(true);

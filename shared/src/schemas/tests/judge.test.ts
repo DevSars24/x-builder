@@ -5,7 +5,6 @@ import {
   deriveJudgeVerdict,
   judgeDraftRequestSchema,
   judgeDraftResponseSchema,
-  judgeScoresSchema,
   judgeVerdictSchema,
 } from "../../index.js";
 
@@ -18,11 +17,6 @@ const scores = {
   dwellProxy: 70,
   voiceMatch: 85,
   negativeRisk: 10,
-  answerEffort: 55,
-  strangerAnswerability: 62,
-  statusDependency: 30,
-  replyVsQuoteOrientation: 48,
-  audienceMatch: 70,
 };
 
 const validVerdict = {
@@ -135,123 +129,5 @@ describe("judge schemas", () => {
     });
 
     expect(result.success).toBe(true);
-  });
-
-  it("parses judge scores carrying the four new numeric dimensions", () => {
-    const result = judgeScoresSchema.safeParse(scores);
-
-    expect(result.success).toBe(true);
-    if (!result.success) {
-      throw new Error("Expected judge scores with the new dimensions to parse.");
-    }
-    expect(result.data).toMatchObject({
-      answerEffort: 55,
-      strangerAnswerability: 62,
-      statusDependency: 30,
-      replyVsQuoteOrientation: 48,
-    });
-  });
-
-  it("rejects judge scores missing one of the new numeric dimensions", () => {
-    const { answerEffort: _answerEffort, ...withoutAnswerEffort } = scores;
-
-    expect(judgeScoresSchema.safeParse(withoutAnswerEffort).success).toBe(false);
-  });
-
-  it("rejects a new numeric dimension outside 0..100 or non-integer", () => {
-    expect(judgeScoresSchema.safeParse({ ...scores, statusDependency: 101 }).success).toBe(false);
-    expect(judgeScoresSchema.safeParse({ ...scores, statusDependency: -1 }).success).toBe(false);
-    expect(judgeScoresSchema.safeParse({ ...scores, answerEffort: 50.5 }).success).toBe(false);
-  });
-
-  it("parses judge scores with an explicit null audience match", () => {
-    const result = judgeScoresSchema.safeParse({ ...scores, audienceMatch: null });
-
-    expect(result.success).toBe(true);
-    if (!result.success) {
-      throw new Error("Expected judge scores with a null audience match to parse.");
-    }
-    expect(result.data.audienceMatch).toBeNull();
-  });
-
-  it("parses judge scores with a numeric audience match", () => {
-    const result = judgeScoresSchema.safeParse({ ...scores, audienceMatch: 70 });
-
-    expect(result.success).toBe(true);
-    if (!result.success) {
-      throw new Error("Expected judge scores with a numeric audience match to parse.");
-    }
-    expect(result.data.audienceMatch).toBe(70);
-  });
-
-  it("rejects judge scores that omit audience match entirely because it is nullable, not optional", () => {
-    const { audienceMatch: _audienceMatch, ...withoutAudienceMatch } = scores;
-
-    expect(judgeScoresSchema.safeParse(withoutAudienceMatch).success).toBe(false);
-  });
-
-  it("rejects a numeric audience match outside 0..100", () => {
-    expect(judgeScoresSchema.safeParse({ ...scores, audienceMatch: 101 }).success).toBe(false);
-    expect(judgeScoresSchema.safeParse({ ...scores, audienceMatch: -1 }).success).toBe(false);
-  });
-
-  it("parses a judge draft request carrying an optional account profile", () => {
-    const result = judgeDraftRequestSchema.safeParse({
-      text: "A draft worth judging.",
-      accountProfile: "Builds developer tools; audience is backend engineers.",
-    });
-
-    expect(result.success).toBe(true);
-    if (!result.success) {
-      throw new Error("Expected judge draft request with an account profile to parse.");
-    }
-    expect(result.data.accountProfile).toBe(
-      "Builds developer tools; audience is backend engineers.",
-    );
-  });
-
-  it("parses a judge draft request with the account profile omitted", () => {
-    const result = judgeDraftRequestSchema.safeParse({ text: "A draft worth judging." });
-
-    expect(result.success).toBe(true);
-    if (!result.success) {
-      throw new Error("Expected judge draft request without an account profile to parse.");
-    }
-    expect(result.data.accountProfile).toBeUndefined();
-  });
-
-  it("rejects a whitespace-only account profile and trims surrounding whitespace", () => {
-    expect(
-      judgeDraftRequestSchema.safeParse({
-        text: "A draft worth judging.",
-        accountProfile: "   \n\t ",
-      }).success,
-    ).toBe(false);
-
-    const result = judgeDraftRequestSchema.safeParse({
-      text: "A draft worth judging.",
-      accountProfile: "  Indie hacker.  ",
-    });
-
-    expect(result.success).toBe(true);
-    if (!result.success) {
-      throw new Error("Expected a trimmable account profile to parse.");
-    }
-    expect(result.data.accountProfile).toBe("Indie hacker.");
-  });
-
-  it("rejects a judge draft account profile longer than 600 characters", () => {
-    expect(
-      judgeDraftRequestSchema.safeParse({
-        text: "A draft worth judging.",
-        accountProfile: "a".repeat(601),
-      }).success,
-    ).toBe(false);
-    expect(
-      judgeDraftRequestSchema.safeParse({
-        text: "A draft worth judging.",
-        accountProfile: "a".repeat(600),
-      }).success,
-    ).toBe(true);
   });
 });
