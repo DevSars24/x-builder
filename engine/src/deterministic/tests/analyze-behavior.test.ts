@@ -9,9 +9,11 @@ import {
   buildPostCoachModel as derivePostCoachCard,
   selectPostCoachBadge as getPostCoachBadge,
 } from "../post-coach-model";
-import { estimateEngagementRange as predictEngagement } from "../prediction-estimator";
+import { computeReachModel } from "../prediction-estimator";
+import { formatReachTable, replyRateTable } from "../const/reach-model-weights";
 import { evaluateDraftVoice as runVoiceChecks } from "../voice-score";
 import type { VoiceCheck } from "../voice-check";
+import { buildReachInput } from "./test-helpers";
 
 const enrichedTextCheckIds = [
   "quality_answerable_question",
@@ -467,35 +469,43 @@ describe("deterministic post analyzer", () => {
     );
   });
 
-  it("keeps the engagement prediction card math stable", () => {
-    const prediction = predictEngagement({
-      text: "Clear writing compounds when the point is specific.",
-      score: 66,
-      format: "insight_share",
+  it("assembles the two-regime reach model from the base, format, and quality multipliers", () => {
+    const input = buildReachInput({
+      score: 66, // staticQualityCompression -> 1.0
+      format: "insight_share", // p50Multiplier 0.3
       followers: 1000,
+      trailingMedianImpressions: undefined,
+      hasExternalLink: false,
     });
+    const prediction = computeReachModel(input);
 
-    expect(prediction).toEqual({
-      rangeLow: 160,
-      rangeHigh: 372,
-      midpoint: 266,
-      confidence: "medium",
-      signals: [
-        {
-          signal_key: "quality_voice",
-          label: "Static score 66 (-30%)",
-          multiplier: 0.7,
-        },
-        {
-          signal_key: "format_insight_share",
-          label: "Insight format -5%",
-          multiplier: 0.95,
-        },
-      ],
+    if (prediction === null) {
+      throw new Error("Expected an available reach prediction.");
+    }
+
+    const base = prediction.baseImpressions;
+    const mid = Math.max(1, base * formatReachTable.insight_share.p50Multiplier * 1.0);
+
+    expect(prediction.baseSource).toBe("follower_estimate");
+    expect(prediction.qualityBasis).toBe("static");
+    expect(prediction.predictedMidImpressions).toBe(Math.round(mid));
+    expect(prediction.stallRange).toEqual({
+      low: Math.round(Math.min(0.3 * base, mid)),
+      high: Math.round(Math.max(0.3 * base, 1.2 * mid)),
     });
+    expect(prediction.escapeRange).toEqual({
+      low: Math.round(3 * base),
+      high: Math.round(12 * base),
+    });
+    // insight_share is in the halved-escape set.
+    expect(prediction.escapeProbability).toBeCloseTo(
+      formatReachTable.insight_share.escapeProbability * 0.5,
+      10,
+    );
+    expect(prediction.expectedReplies).toBeCloseTo(mid * replyRateTable.insight_share, 6);
   });
 
-  it("does not compute engagement prediction without explicit followers", () => {
+  it("does not compute engagement prediction without explicit followers or a trailing median", () => {
     const result = analyzePost(
       "genuine question: why do deterministic scoring tools need explicit follower context?",
     );
@@ -503,32 +513,36 @@ describe("deterministic post analyzer", () => {
     expect(result.prediction).toBeNull();
   });
 
-  it("does not let the exported engagement predictor use an implicit follower fallback", () => {
-    const prediction = predictEngagement({
-      text: "Clear writing compounds when the point is specific.",
-      score: 66,
-      format: "insight_share",
-      followers: undefined,
-    });
+  it("returns null from the reach model when both followers and trailing median are absent", () => {
+    const prediction = computeReachModel(
+      buildReachInput({
+        score: 66,
+        format: "insight_share",
+        followers: undefined,
+        trailingMedianImpressions: undefined,
+      }),
+    );
 
     expect(prediction).toBeNull();
   });
 
-  it("documents current zeitgeist prediction math without live-trend copy claims", () => {
-    const prediction = predictEngagement({
-      text: "AI onboarding gets easier when the first run has one clear success moment.",
-      score: 66,
-      format: "insight_share",
-      followers: 1000,
-    });
+  it("keeps reach-model output free of live-trend copy claims in its signals", () => {
+    const prediction = computeReachModel(
+      buildReachInput({
+        text: "AI onboarding gets easier when the first run has one clear success moment.",
+        score: 66,
+        format: "insight_share",
+        followers: 1000,
+      }),
+    );
 
-    const signal = prediction?.signals.find((item) => item.signal_key === "zeitgeist");
+    if (prediction === null) {
+      throw new Error("Expected an available reach prediction.");
+    }
 
-    expect(signal).toMatchObject({
-      signal_key: "zeitgeist",
-      multiplier: 1.15,
-    });
-    expect(signal?.label).not.toMatch(bannedClaimPattern);
+    for (const signal of prediction.signals) {
+      expect(signal.label).not.toMatch(bannedClaimPattern);
+    }
   });
 
   it("supports disabled checks and an injected variety check for future engine composition", () => {

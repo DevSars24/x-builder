@@ -1,9 +1,73 @@
 import { describe, expect, it } from "vitest";
 
-import { analyzePostsResponseSchema, type AnalyzedPostItem } from "@x-builder/shared";
+import {
+  analyzePostsResponseSchema,
+  type AnalyzedPostItem,
+  type AnalyzePostsRequest,
+} from "@x-builder/shared";
 
 import { analyzeDraftText } from "../analyzer";
 import { DeterministicAnalysisService } from "../deterministic-analysis-service";
+import { formatReachTable, replyRateTable } from "../const/reach-model-weights";
+import { staticQualityCompression } from "../prediction-estimator";
+
+type AvailablePrediction = Extract<
+  Extract<AnalyzedPostItem, { status: "scored" }>["prediction"],
+  { status: "available" }
+>;
+
+// Recomputes the two-regime reach output from the produced base and the pinned
+// format/score, so the assertions are exact yet independent of the internal
+// follower-estimate base-scaling formula. `linkMult`/`statusMult` default to
+// the production-path values (no link detected by the bare analyzer, status
+// only applies to wisdom_one_liner).
+const halvedEscapeFormats = new Set(["nuanced_question", "wisdom_one_liner", "insight_share"]);
+
+function expectReachShape(
+  prediction: AvailablePrediction,
+  options: {
+    format: keyof typeof formatReachTable;
+    score: number;
+    statusMult?: number;
+    linkMult?: number;
+    hasExternalLink?: boolean;
+  },
+): void {
+  const base = prediction.baseImpressions;
+  const formatMult = formatReachTable[options.format].p50Multiplier;
+  const qualityMult = staticQualityCompression(options.score);
+  const statusMult = options.statusMult ?? 1;
+  const linkMult = options.linkMult ?? (options.hasExternalLink ? 0.2 : 1);
+  const mid = Math.max(1, base * formatMult * qualityMult * statusMult * linkMult);
+
+  let escapeProbability = formatReachTable[options.format].escapeProbability;
+  if (halvedEscapeFormats.has(options.format)) {
+    escapeProbability *= 0.5;
+  }
+  if (options.hasExternalLink) {
+    escapeProbability = Math.min(escapeProbability, 0.03);
+  }
+
+  expect(prediction.qualityBasis).toBe("static");
+  expect(prediction.baseSource).toBe("follower_estimate");
+  expect(typeof prediction.reachModelVersion).toBe("string");
+  expect(prediction.reachModelVersion.length).toBeGreaterThan(0);
+  expect(prediction.predictedMidImpressions).toBe(Math.round(mid));
+  expect(prediction.stallRange).toEqual({
+    low: Math.round(Math.min(0.3 * base, mid)),
+    high: Math.round(Math.max(0.3 * base, 1.2 * mid)),
+  });
+  expect(prediction.escapeRange).toEqual({
+    low: Math.round(3 * base),
+    high: Math.round(12 * base),
+  });
+  expect(prediction.escapeProbability).toBeCloseTo(escapeProbability, 10);
+  expect(prediction.expectedReplies).toBeCloseTo(mid * replyRateTable[options.format], 6);
+  // Legacy migration bridge (removed in RMU-011): mirrors the regimes.
+  expect(prediction.rangeLow).toBe(prediction.stallRange.low);
+  expect(prediction.rangeHigh).toBe(prediction.escapeRange.high);
+  expect(prediction.midpoint).toBe(prediction.predictedMidImpressions);
+}
 
 // Pinning suite for the production-observable analyze contract.
 //
@@ -40,6 +104,29 @@ function scoreOneViaService(
       // Production-shaped scoring context: followers only (or empty).
       scoringContext: followers === undefined ? {} : { followers },
       presentation: { postCoachMode },
+    }),
+  );
+
+  expect(response.items).toHaveLength(1);
+  const item = response.items[0]!;
+
+  if (item.status !== "scored") {
+    throw new Error(`Expected scored item, got ${item.status}.`);
+  }
+
+  return item;
+}
+
+function scoreOneWithContext(
+  text: string,
+  scoringContext: AnalyzePostsRequest["scoringContext"],
+): ScoredItem {
+  const service = new DeterministicAnalysisService();
+  const response = analyzePostsResponseSchema.parse(
+    service.analyzePosts({
+      items: [{ id: "candidate", text }],
+      scoringContext,
+      presentation: { postCoachMode: "preview" },
     }),
   );
 
@@ -100,177 +187,116 @@ describe("production analyze contract (followers-only requests)", () => {
     });
   });
 
-  it("pins the full engagement prediction for a question draft", () => {
-    expect(analyzeProd(FORMAT_FIXTURES.question).prediction).toEqual({
-      rangeLow: 1530,
-      rangeHigh: 3570,
-      midpoint: 2550,
-      confidence: "medium",
-      signals: [
-        { signal_key: "quality_voice", label: "Static score 85 (+120%)", multiplier: 2.2 },
-        { signal_key: "format_genuine_question", label: "Question format +5%", multiplier: 1.05 },
-        { signal_key: "zeitgeist", label: "Timely wording", multiplier: 1.15 },
-      ],
-    });
+  it("pins the two-regime reach output for a question draft", () => {
+    const item = scoreOneViaService(FORMAT_FIXTURES.question, PRODUCTION_FOLLOWERS);
+
+    if (item.prediction.status !== "available") {
+      throw new Error("Expected an available prediction for the question draft.");
+    }
+
+    // genuine_question, score 85 (qualityMult 1.1), no link, status-neutral.
+    expectReachShape(item.prediction, { format: "genuine_question", score: 85 });
+    expect(Array.isArray(item.prediction.signals)).toBe(true);
   });
 
-  it("pins the full engagement prediction for a hot-take draft", () => {
-    expect(analyzeProd(FORMAT_FIXTURES.hotTake).prediction).toEqual({
-      rangeLow: 1690,
-      rangeHigh: 3944,
-      midpoint: 2817,
-      confidence: "medium",
-      signals: [
-        { signal_key: "quality_voice", label: "Static score 85 (+120%)", multiplier: 2.2 },
-        { signal_key: "format_hot_take", label: "Hot take format +16%", multiplier: 1.16 },
-        { signal_key: "zeitgeist", label: "Timely wording", multiplier: 1.15 },
-      ],
-    });
+  it("pins the two-regime reach output for a hot-take draft", () => {
+    const item = scoreOneViaService(FORMAT_FIXTURES.hotTake, PRODUCTION_FOLLOWERS);
+
+    if (item.prediction.status !== "available") {
+      throw new Error("Expected an available prediction for the hot-take draft.");
+    }
+
+    expectReachShape(item.prediction, { format: "hot_take", score: 85 });
   });
 
-  it("pins the full engagement prediction for a story draft", () => {
-    expect(analyzeProd(FORMAT_FIXTURES.story).prediction).toEqual({
-      rangeLow: 1720,
-      rangeHigh: 4012,
-      midpoint: 2866,
-      confidence: "medium",
-      signals: [
-        { signal_key: "quality_voice", label: "Static score 81 (+120%)", multiplier: 2.2 },
-        { signal_key: "format_story", label: "Story format +18%", multiplier: 1.18 },
-        { signal_key: "zeitgeist", label: "Timely wording", multiplier: 1.15 },
-      ],
-    });
+  it("pins the two-regime reach output for a story draft", () => {
+    const item = scoreOneViaService(FORMAT_FIXTURES.story, PRODUCTION_FOLLOWERS);
+
+    if (item.prediction.status !== "available") {
+      throw new Error("Expected an available prediction for the story draft.");
+    }
+
+    expectReachShape(item.prediction, { format: "story", score: 81 });
   });
 
-  it("pins the full engagement prediction for a reclassified wisdom one-liner with a link", () => {
-    // Reclassified one_liner -> wisdom_one_liner. wisdom_one_liner carries a
-    // neutral (1.0) engagement multiplier, so the live estimator emits NO
-    // `format_*` signal. With only the quality_voice signal the prediction drops
-    // to a single signal: the range widens (uncertainty 0.6) and confidence falls
-    // to "low".
-    expect(analyzeProd(FORMAT_FIXTURES.link).prediction).toEqual({
-      rangeLow: 538,
-      rangeHigh: 2150,
-      midpoint: 1344,
-      confidence: "low",
-      signals: [
-        { signal_key: "quality_voice", label: "Static score 78 (+40%)", multiplier: 1.4 },
-      ],
+  it("damps the reach midpoint and escape probability for a wisdom one-liner that carries a link", () => {
+    // Reclassified one_liner -> wisdom_one_liner. The service detects the
+    // external link, so the midpoint is multiplied by 0.2 AND the escape
+    // probability is capped at 0.03. wisdom_one_liner is also in the halved-escape
+    // set and earns a status multiplier (2400 / 20000 -> floored to 0.3).
+    const item = scoreOneViaService(FORMAT_FIXTURES.link, PRODUCTION_FOLLOWERS);
+
+    if (item.prediction.status !== "available") {
+      throw new Error("Expected an available prediction for the linked wisdom one-liner.");
+    }
+
+    expectReachShape(item.prediction, {
+      format: "wisdom_one_liner",
+      score: 78,
+      statusMult: 0.3,
+      hasExternalLink: true,
     });
+    expect(item.prediction.escapeProbability).toBeLessThanOrEqual(0.03);
   });
 
-  it("pins the full engagement prediction for a reclassified short wisdom one-liner", () => {
-    // Same reclassification (wisdom_one_liner, neutral multiplier, no format
-    // signal): single quality_voice signal, wide range, low confidence.
-    expect(analyzeProd(FORMAT_FIXTURES.short).prediction).toEqual({
-      rangeLow: 269,
-      rangeHigh: 1075,
-      midpoint: 672,
-      confidence: "low",
-      signals: [
-        { signal_key: "quality_voice", label: "Static score 65 (-30%)", multiplier: 0.7 },
-      ],
+  it("pins the two-regime reach output for a short wisdom one-liner without a link", () => {
+    const item = scoreOneViaService(FORMAT_FIXTURES.short, PRODUCTION_FOLLOWERS);
+
+    if (item.prediction.status !== "available") {
+      throw new Error("Expected an available prediction for the short wisdom one-liner.");
+    }
+
+    // wisdom_one_liner, score 65 (qualityMult 1.0), status 0.3, no link.
+    expectReachShape(item.prediction, {
+      format: "wisdom_one_liner",
+      score: 65,
+      statusMult: 0.3,
     });
   });
 });
 
-describe("production confidence ladder (no aiRating ever supplied)", () => {
-  // Invariant: the engagement `confidence` value is fixed for every input that
-  // never supplied aiRating, i.e. every production input. The dormant
-  // aiHighConfidenceSignalCount / aiMediumConfidenceSignalCount relaxation only
-  // fires when aiRating is set, so its removal must NOT move any value asserted
-  // here.
-  //
-  // QUIRK (pinned, see flag in the report): the deterministic voice scorer floors
-  // any draft long enough to receive a prediction (>= 15 chars) at >= 50 — the
-  // quality floor is 40 and standard checks rarely drop a real draft below 50.
-  // Shorter drafts hit isTooShort (capped 25) but then fail the predictor's
-  // minimumTextLength guard and return a null prediction. As a result the only
-  // confidence tiers OBSERVABLE in production are "medium" and "high"; "low" is
-  // unreachable for any {followers}-only input. We therefore pin medium and high
-  // (the live tiers) and pin that the predicted-disabled states stand in for the
-  // sub-50 region. We do NOT fabricate a "low" production draft — none exists.
+describe("production reach output (transitional legacy bridge)", () => {
+  // The two-regime model replaces the old confidence-driven range. `confidence`
+  // survives only as a transitional legacy mirror (removed in RMU-011), so we no
+  // longer pin its exact value or the old format/zeitgeist/tension signal stack
+  // (those multiplier signals were emitted by the deleted
+  // formatEngagementMultipliers / staticScoreQualityMultipliers tables). We pin
+  // the stable end-state contract instead: the bridge field is a valid enum and
+  // the four-regime fields are present, derived from the base, and ordered.
 
-  it("yields high confidence for >=4 signals with a strong score", () => {
+  it("keeps the legacy confidence bridge a valid enum for every multi-line production draft", () => {
     const highDraft = [
       "I shipped an AI onboarding test last week but the first run never compounded.",
       "We removed the workspace invite step instead of adding more copy.",
       "Activation actually climbed when new teams reached one useful result before admin setup.",
     ].join("\n");
-    const prediction = analyzeProd(highDraft).prediction;
+    const item = scoreOneViaService(highDraft, PRODUCTION_FOLLOWERS);
 
-    expect(prediction).not.toBeNull();
-    expect(prediction?.confidence).toBe("high");
-    expect(prediction?.signals.map((signal) => signal.signal_key)).toEqual([
-      "quality_voice",
-      "format_story",
-      "zeitgeist",
-      "tension_contradiction",
-    ]);
-    // Concrete full shape so a confidence-ladder change is caught end to end.
-    expect(prediction).toEqual({
-      rangeLow: 3037,
-      rangeHigh: 5062,
-      midpoint: 4050,
-      confidence: "high",
-      signals: [
-        { signal_key: "quality_voice", label: "Static score 85 (+120%)", multiplier: 2.2 },
-        { signal_key: "format_story", label: "Story format +18%", multiplier: 1.18 },
-        { signal_key: "zeitgeist", label: "Timely wording", multiplier: 1.3 },
-        {
-          signal_key: "tension_contradiction",
-          label: "Tension / contradiction +25%",
-          multiplier: 1.25,
-        },
-      ],
-    });
+    if (item.prediction.status !== "available") {
+      throw new Error("Expected an available prediction for the multi-line story draft.");
+    }
+
+    expect(["low", "medium", "high"]).toContain(item.prediction.confidence);
+    // story format, score 85 (qualityMult 1.1), status-neutral, no link.
+    expectReachShape(item.prediction, { format: "story", score: 85 });
   });
 
-  it("yields medium confidence for 2-3 signals with a score at or above 50", () => {
-    // Multi-signal formatted drafts (question/hot-take) keep a quality_voice +
-    // format + zeitgeist stack, so they remain at "medium". (The old `insight`
-    // fixture moved here under the corrected cascade: it now classifies as the
-    // neutral-multiplier `wisdom_one_liner`, loses its format signal, and drops to
-    // a single-signal "low" — so it no longer demonstrates the medium tier.)
-    expect(analyzeProd(FORMAT_FIXTURES.question).prediction?.confidence).toBe("medium");
-    expect(analyzeProd(FORMAT_FIXTURES.hotTake).prediction?.confidence).toBe("medium");
-  });
+  it("emits ordered two-regime ranges and a present quality basis for every representative draft", () => {
+    for (const text of Object.values(FORMAT_FIXTURES)) {
+      const item = scoreOneViaService(text, PRODUCTION_FOLLOWERS);
 
-  it("drops to low confidence for a reclassified single-line wisdom one-liner", () => {
-    // Under the corrected cascade a plain single line reclassifies to
-    // `wisdom_one_liner`. That member has a neutral (1.0) engagement multiplier,
-    // so the live estimator (RMU-006 has not yet rebuilt it) emits no format
-    // signal. With only the quality_voice signal the prediction has a single
-    // signal and falls to "low" — the previous medium floor no longer holds.
-    const onePlainLine = "this is a perfectly ordinary sentence with nothing special at all";
-    const result = analyzeProd(onePlainLine);
+      if (item.prediction.status !== "available") {
+        throw new Error(`Expected an available prediction for "${text}".`);
+      }
 
-    expect(result.format).toBe("wisdom_one_liner");
-    expect(result.prediction).not.toBeNull();
-    expect(result.score.value).toBeGreaterThanOrEqual(50);
-    expect(result.prediction?.signals.map((signal) => signal.signal_key)).toEqual(["quality_voice"]);
-    expect(result.prediction?.confidence).toBe("low");
-  });
-
-  it("keeps multi-signal formatted drafts out of the low-confidence tier", () => {
-    // After the corrected cascade the "low is unreachable in production" invariant
-    // only holds for drafts that still earn 2+ signals: the formatted
-    // question/hot-take/story drafts whose non-neutral format multiplier adds a
-    // second signal. Single-line drafts that reclassify into a neutral-multiplier
-    // member (wisdom_one_liner, etc.) legitimately land at "low" until RMU-006
-    // rebuilds the multipliers, so they are no longer covered by this invariant.
-    const multiSignalDrafts = [
-      FORMAT_FIXTURES.question,
-      FORMAT_FIXTURES.hotTake,
-      FORMAT_FIXTURES.story,
-    ];
-
-    for (const text of multiSignalDrafts) {
-      const prediction = analyzeProd(text).prediction;
-      expect(prediction).not.toBeNull();
-      expect(prediction?.signals.length).toBeGreaterThanOrEqual(2);
-      expect(prediction?.confidence).not.toBe("low");
-      expect(["medium", "high"]).toContain(prediction?.confidence);
+      const { prediction } = item;
+      expect(prediction.qualityBasis).toBe("static");
+      expect(prediction.stallRange.low).toBeLessThanOrEqual(prediction.stallRange.high);
+      expect(prediction.escapeRange.low).toBeLessThanOrEqual(prediction.escapeRange.high);
+      expect(prediction.escapeProbability).toBeGreaterThanOrEqual(0);
+      expect(prediction.escapeProbability).toBeLessThanOrEqual(1);
+      expect(prediction.predictedMidImpressions).toBeGreaterThanOrEqual(1);
+      expect(["low", "medium", "high"]).toContain(prediction.confidence);
     }
   });
 });
@@ -301,26 +327,55 @@ describe("production analyze contract (no injected variety check)", () => {
 });
 
 describe("production analyze contract via DeterministicAnalysisService", () => {
-  it("surfaces an available prediction with the pinned confidence for a followers request", () => {
+  it("surfaces an available two-regime prediction for a followers request", () => {
     const item = scoreOneViaService(FORMAT_FIXTURES.question, PRODUCTION_FOLLOWERS);
 
     expect(item.detectedFormat).toBe("genuine_question");
     expect(item.score.value).toBe(85);
-    expect(item.prediction).toEqual({
-      status: "available",
-      rangeLow: 1530,
-      rangeHigh: 3570,
-      midpoint: 2550,
-      confidence: "medium",
-      signals: [
-        { signal_key: "quality_voice", label: "Static score 85 (+120%)", multiplier: 2.2 },
-        { signal_key: "format_genuine_question", label: "Question format +5%", multiplier: 1.05 },
-        { signal_key: "zeitgeist", label: "Timely wording", multiplier: 1.15 },
-      ],
+
+    if (item.prediction.status !== "available") {
+      throw new Error("Expected an available prediction for a followers request.");
+    }
+
+    expect(item.prediction.baseSource).toBe("follower_estimate");
+    expectReachShape(item.prediction, { format: "genuine_question", score: 85 });
+  });
+
+  it("surfaces an available prediction from a trailing median even when followers are absent", () => {
+    const item = scoreOneWithContext(FORMAT_FIXTURES.question, {
+      trailingMedianImpressions: 2000,
+    });
+
+    expect(item.detectedFormat).toBe("genuine_question");
+
+    if (item.prediction.status !== "available") {
+      throw new Error("Expected a trailing-median request to be available, not disabled.");
+    }
+
+    expect(item.prediction.baseSource).toBe("trailing_median");
+    expect(item.prediction.baseImpressions).toBe(2000);
+    expect(item.prediction.qualityBasis).toBe("static");
+    expect(item.prediction.escapeRange).toEqual({
+      low: Math.round(3 * 2000),
+      high: Math.round(12 * 2000),
     });
   });
 
-  it("disables prediction (missing_followers) for a followers-less request", () => {
+  it("prefers the trailing median over followers as the base source", () => {
+    const item = scoreOneWithContext(FORMAT_FIXTURES.question, {
+      followers: PRODUCTION_FOLLOWERS,
+      trailingMedianImpressions: 2000,
+    });
+
+    if (item.prediction.status !== "available") {
+      throw new Error("Expected an available prediction when both base inputs are present.");
+    }
+
+    expect(item.prediction.baseSource).toBe("trailing_median");
+    expect(item.prediction.baseImpressions).toBe(2000);
+  });
+
+  it("disables prediction (missing_followers) only when both followers and trailing median are absent", () => {
     const item = scoreOneViaService(FORMAT_FIXTURES.question, undefined);
 
     expect(item.detectedFormat).toBe("genuine_question");
@@ -332,10 +387,22 @@ describe("production analyze contract via DeterministicAnalysisService", () => {
     });
   });
 
-  it("disables prediction (text_too_short) when followers are present but text is too short", () => {
+  it("disables prediction (text_too_short) when a base is present but the text is too short", () => {
     const item = scoreOneViaService("today was fine", PRODUCTION_FOLLOWERS);
 
     expect(item.score.value).toBe(25);
+    expect(item.prediction).toEqual({
+      status: "disabled",
+      reason: "text_too_short",
+      message: "Write a little more before estimating engagement.",
+    });
+  });
+
+  it("prefers text_too_short over missing_followers when a trailing-median base is present but text is short", () => {
+    const item = scoreOneWithContext("today was fine", {
+      trailingMedianImpressions: 2000,
+    });
+
     expect(item.prediction).toEqual({
       status: "disabled",
       reason: "text_too_short",

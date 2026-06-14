@@ -12,6 +12,8 @@ export type ReachInput = {
   score: number;
   format: PostFormat;
   followers: number | undefined;
+  trailingMedianImpressions: number | undefined;
+  hasExternalLink: boolean;
   repeatHistory: RepeatHistoryEntry[];
 };
 
@@ -26,6 +28,8 @@ export function buildReachInput(overrides: Partial<ReachInput> = {}): ReachInput
     score: 66,
     format: "insight_share",
     followers: 1000,
+    trailingMedianImpressions: undefined,
+    hasExternalLink: false,
     repeatHistory: [],
     ...overrides,
   };

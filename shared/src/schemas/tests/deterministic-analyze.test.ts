@@ -84,7 +84,10 @@ const postCoach = {
   footerText: "Static heuristic checks only.",
 };
 
-const availablePrediction = {
+// Legacy-only: carries the transitional mirror fields but NONE of the
+// four-regime reach fields. RMU-006 makes the producer always emit the
+// four-regime fields, so this shape is now REJECTED.
+const legacyOnlyAvailablePrediction = {
   status: "available",
   rangeLow: 180,
   rangeHigh: 420,
@@ -97,6 +100,21 @@ const availablePrediction = {
       multiplier: 0.8,
     },
   ],
+};
+
+// Complete available prediction: legacy mirror + all required four-regime
+// reach fields. This is what a post-RMU-006 producer emits.
+const availablePrediction = {
+  ...legacyOnlyAvailablePrediction,
+  predictedMidImpressions: 300,
+  stallRange: { low: 180, high: 360 },
+  escapeRange: { low: 600, high: 2400 },
+  escapeProbability: 0.1,
+  expectedReplies: 6,
+  baseImpressions: 200,
+  baseSource: "follower_estimate",
+  qualityBasis: "static",
+  reachModelVersion: "reach-v1",
 };
 
 const missingFollowersPrediction = {
@@ -580,9 +598,39 @@ describe("available engagement prediction four-regime widening", () => {
     expect(availableEngagementPredictionSchema).toBeDefined();
   });
 
-  it("still parses a legacy available prediction that carries only the required fields", () => {
+  it("rejects a legacy-only available prediction now that the four-regime fields are required", () => {
+    // RMU-006 makes the producer always emit the four-regime reach fields, so a
+    // prediction that carries only the legacy mirror fields no longer parses.
+    expect(engagementPredictionSchema.safeParse(legacyOnlyAvailablePrediction).success).toBe(false);
+    expect(
+      availableEngagementPredictionSchema.safeParse(legacyOnlyAvailablePrediction).success,
+    ).toBe(false);
+  });
+
+  it("parses a complete available prediction carrying the legacy mirror and every four-regime field", () => {
     expect(engagementPredictionSchema.safeParse(availablePrediction).success).toBe(true);
     expect(availableEngagementPredictionSchema.safeParse(availablePrediction).success).toBe(true);
+  });
+
+  it("rejects a complete available prediction that omits any single required four-regime field", () => {
+    const requiredFourRegimeFields = [
+      "predictedMidImpressions",
+      "stallRange",
+      "escapeRange",
+      "escapeProbability",
+      "expectedReplies",
+      "baseImpressions",
+      "baseSource",
+      "qualityBasis",
+      "reachModelVersion",
+    ] as const;
+
+    for (const field of requiredFourRegimeFields) {
+      const { [field]: _omitted, ...withoutField } = availablePrediction;
+
+      expect(engagementPredictionSchema.safeParse(withoutField).success).toBe(false);
+      expect(availableEngagementPredictionSchema.safeParse(withoutField).success).toBe(false);
+    }
   });
 
   it("retains the four-regime reach fields when an available prediction supplies them", () => {
