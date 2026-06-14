@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # RMU-001: [FND] Extend shared Zod contracts
@@ -81,3 +81,9 @@ only `{ followers }` round-trips unchanged. All `Record<PostFormat, …>` maps c
 
 `trailingMedianImpressions = 0` is a present value (not absent). `judgeSignals` absent on
 pass-1 is valid. `one_liner`/`goal_share` still parse at RMU-001 (the live classifier still emits them); RMU-004 removes them from the enum.
+
+## Pipeline Log
+
+- 2026-06-14 — **Done.** RGB pipeline: Red (`96a2876`) → Blue APPROVE → Green (`c4a515f`) → contract revision (`9a6e29d`, optional-until-producer) → corrective Red (`986c332`, Blue APPROVE) → corrective Green (`df3663e`). Step-7: Blue (Validate Green) APPROVE_WITH_CONCERNS, Yellow APPROVE. [FND] architectural checkpoint APPROVE. Full `pnpm test` green (shared 79 / engine 345 / client 171), `pnpm typecheck` 5/5, `pnpm lint` clean, `gates.py all` clean.
+- Contract shape: legacy prediction fields + `one_liner`/`goal_share` kept as **transitional migration bridges** (deleted RMU-011 / RMU-004); new four-regime + judge dims are `.optional()` (tightened by producers RMU-006 / RMU-008); no parse-time `.default()` (use-time defaults in RMU-006).
+- **Concern C1 (Blue, non-blocking):** an unrelated 313-line `docs/design-system/ui-uplift-brief.md` (untracked user file) was swept into Green's `c4a515f` by a broad `git add`. No AC/DoD/runtime/test impact. Recommend untracking (`git rm --cached`, keeps file on disk) to keep the RMU-001 changeset auditable. Pending user triage.
