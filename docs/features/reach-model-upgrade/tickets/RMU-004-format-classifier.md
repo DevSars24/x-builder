@@ -58,8 +58,10 @@ User entry: typing a draft in the writer studio.
 ## Scope Boundaries / Out of Scope
 
 Classification only. Zero-trace: no edits to reach tables, multipliers, or
-`formatReachTable`/`replyRateTable` (RMU-005). Does not remove `one_liner`/`goal_share`
-from the schema. No label change for existing members the UI already renders.
+`formatReachTable`/`replyRateTable` (RMU-005). **Removes** `one_liner`/`goal_share` from
+`PostFormat`/`detectedPostFormatSchema` and `predictionFormatLabels` (per Implementation
+Details — they are no longer emitted; `varietyFormatLabels`/`formatEngagementMultipliers`
+are deleted wholesale in RMU-002/RMU-006). No label change for the members the UI still renders.
 
 ## Test Strategy & Fixture Ownership
 
