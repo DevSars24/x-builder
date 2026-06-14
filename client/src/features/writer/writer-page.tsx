@@ -10,7 +10,7 @@ import { judgeProviderLabels } from "@x-builder/shared";
 import type { JudgeScores, JudgeVerdictLabel } from "@x-builder/shared";
 
 import { RouteErrorBanner } from "../../shell/route-error-banner";
-import { Alert, Badge, Button, Drawer, Skeleton } from "../../ui/foundation";
+import { Alert, Badge, Button, Drawer, Input, Skeleton, Switch } from "../../ui/foundation";
 import {
   CandidateDeterministicSummary,
   DeterministicDetailInspector,
@@ -22,9 +22,11 @@ import {
   applyFollowerDraftChange,
   applyIdeaChange,
   closeDetails,
+  applyAdvancedContextChange,
   closeDetailsWithEscape,
   createInitialModel,
   focusManualFollowers,
+  runAdvancedContextChange,
   runApplyFollowers,
   runGenerate,
   runOpenDetails,
@@ -35,6 +37,7 @@ import {
   runRetryScore,
   runScoreDraft,
   shouldRetryAnalysis,
+  type AdvancedContext,
   type CandidateAnalysisState,
   type JudgeState,
   type WriterApiClient,
@@ -75,6 +78,7 @@ export type WriterPagePublicDriver = {
   retryDetails: () => Promise<string>;
   retryScore: (itemId: string) => Promise<string>;
   scoreDraft: () => Promise<string>;
+  updateAdvancedContext: (patch: AdvancedContext) => Promise<string>;
   updateFollowers: (followers: string) => string;
   updateIdea: (idea: string) => string;
 };
@@ -101,6 +105,7 @@ function candidateLabel(candidate: WriterCandidate): string {
 
 type WriterPageViewProps = WriterPageModel & {
   judgeReady: boolean;
+  onAdvancedContextChange: (patch: AdvancedContext) => void;
   onApplyFollowers: () => void;
   onCloseDetails: () => void;
   onFocusFollowers: () => void;
@@ -358,7 +363,169 @@ export function JudgePanel({
   );
 }
 
+const plannedHourHelper = "0–23 UTC";
+const plannedHourRangeError = "Enter a whole hour from 0 to 23 (UTC).";
+
+// Parses a numeric advanced-context input back to a number, returning undefined
+// when the field is emptied so the value is dropped from the model and request.
+function numberFieldValue(raw: string): number | undefined {
+  const trimmed = raw.trim();
+
+  return trimmed.length === 0 ? undefined : Number(trimmed);
+}
+
+function isPlannedHourOutOfRange(plannedHourUtc: number | undefined): boolean {
+  if (plannedHourUtc === undefined) {
+    return false;
+  }
+
+  return (
+    !Number.isInteger(plannedHourUtc) || plannedHourUtc < 0 || plannedHourUtc > 23
+  );
+}
+
+function RepeatHistoryControl({
+  disabled,
+  onChange,
+  value,
+}: {
+  disabled: boolean;
+  onChange: (next: AdvancedContext["repeatHistory"]) => void;
+  value: AdvancedContext["repeatHistory"];
+}): ReactElement {
+  const similarInLast7Days = value?.similarInLast7Days ?? false;
+
+  return (
+    <div className="xb-advanced-context__repeat-history">
+      <label className="xb-advanced-context__checkbox" htmlFor="advanced-repeat-history">
+        <input
+          checked={similarInLast7Days}
+          disabled={disabled}
+          id="advanced-repeat-history"
+          onChange={(event) =>
+            onChange(
+              event.target.checked
+                ? { similarInLast7Days: true, date: value?.date }
+                : { similarInLast7Days: false },
+            )
+          }
+          type="checkbox"
+        />
+        <span className="xb-advanced-context__checkbox-label">
+          I posted something similar in the last 7 days
+        </span>
+      </label>
+      {similarInLast7Days ? (
+        <Input
+          disabled={disabled}
+          helperText="When did you last post something similar?"
+          id="advanced-repeat-history-date"
+          label="Last similar post"
+          onChange={(event) =>
+            onChange({ similarInLast7Days: true, date: event.target.value })
+          }
+          type="date"
+          value={value?.date ?? ""}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function AdvancedContextPanel({
+  advancedContext,
+  disabled,
+  onAdvancedContextChange,
+}: {
+  advancedContext: AdvancedContext;
+  disabled: boolean;
+  onAdvancedContextChange: (patch: AdvancedContext) => void;
+}): ReactElement {
+  const [open, setOpen] = useState(false);
+  const plannedHourError = isPlannedHourOutOfRange(advancedContext.plannedHourUtc)
+    ? plannedHourRangeError
+    : undefined;
+
+  return (
+    <details
+      className="xb-advanced-context"
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+      open={open}
+    >
+      <summary
+        className="xb-advanced-context__summary"
+        style={{ font: "var(--type-label)" }}
+      >
+        Advanced context (optional)
+      </summary>
+      <div className="xb-advanced-context__fields">
+        <Input
+          disabled={disabled}
+          helperText="Median views of your last 20 original posts — exclude pinned and RTs. Find in X Analytics."
+          id="advanced-trailing-median"
+          label="Trailing median impressions"
+          min={0}
+          onChange={(event) =>
+            onAdvancedContextChange({
+              trailingMedianImpressions: numberFieldValue(event.target.value),
+            })
+          }
+          type="number"
+          value={String(advancedContext.trailingMedianImpressions ?? "")}
+        />
+        <RepeatHistoryControl
+          disabled={disabled}
+          onChange={(repeatHistory) => onAdvancedContextChange({ repeatHistory })}
+          value={advancedContext.repeatHistory}
+        />
+        <Input
+          disabled={disabled}
+          error={plannedHourError}
+          helperText={plannedHourHelper}
+          id="advanced-planned-hour"
+          label="Planned posting hour (UTC)"
+          max={23}
+          min={0}
+          onChange={(event) =>
+            onAdvancedContextChange({
+              plannedHourUtc: numberFieldValue(event.target.value),
+            })
+          }
+          type="number"
+          value={String(advancedContext.plannedHourUtc ?? "")}
+        />
+        <Switch
+          checked={advancedContext.willAttachMedia ?? false}
+          className="xb-advanced-context__switch"
+          disabled={disabled}
+          id="advanced-will-attach-media"
+          label="Will attach media"
+          labelClassName="xb-advanced-context__switch-label"
+          onChange={(willAttachMedia) =>
+            onAdvancedContextChange({ willAttachMedia })
+          }
+        />
+        <Input
+          disabled={disabled}
+          helperText="How long has this account been active?"
+          id="advanced-account-age"
+          label="Account age (years)"
+          min={0}
+          onChange={(event) =>
+            onAdvancedContextChange({
+              accountAgeYears: numberFieldValue(event.target.value),
+            })
+          }
+          type="number"
+          value={String(advancedContext.accountAgeYears ?? "")}
+        />
+      </div>
+    </details>
+  );
+}
+
 function WriterPageView({
+  advancedContext,
   analysisByCandidateId,
   appliedFollowers,
   candidates,
@@ -371,6 +538,7 @@ function WriterPageView({
   isGenerating,
   isScoring,
   judge,
+  onAdvancedContextChange,
   onApplyFollowers,
   onCloseDetails,
   onFocusFollowers,
@@ -449,6 +617,11 @@ function WriterPageView({
             onApplyFollowers={onApplyFollowers}
             onFollowersDraftChange={onFollowersChange}
             value={followerDraft}
+          />
+          <AdvancedContextPanel
+            advancedContext={advancedContext}
+            disabled={isGenerating || isScoring}
+            onAdvancedContextChange={onAdvancedContextChange}
           />
           <section
             aria-label="Studio evaluation"
@@ -599,6 +772,10 @@ export function WriterPage({
     publishModel((current) => applyIdeaChange(current, idea));
   };
 
+  const updateAdvancedContext = (patch: AdvancedContext) => {
+    publishModel((current) => applyAdvancedContextChange(current, patch));
+  };
+
   const generate = () => {
     void runGenerate(apiClient, modelRef.current, publishModel);
   };
@@ -716,6 +893,7 @@ export function WriterPage({
     <WriterPageView
       {...model}
       judgeReady={judgeReady}
+      onAdvancedContextChange={updateAdvancedContext}
       onApplyFollowers={applyFollowers}
       onCloseDetails={closeDetailInspector}
       onFocusFollowers={focusFollowers}
@@ -740,6 +918,7 @@ function renderDriverPage(
     <WriterPageView
       {...model}
       judgeReady
+      onAdvancedContextChange={() => undefined}
       onApplyFollowers={() => undefined}
       onCloseDetails={() => undefined}
       onFocusFollowers={() => undefined}
@@ -825,6 +1004,10 @@ export function createWriterPagePublicDriver(
     },
     scoreDraft: async () => {
       await runScoreDraft(options.apiClient, model, publishModel);
+      return render();
+    },
+    updateAdvancedContext: async (patch: AdvancedContext) => {
+      await runAdvancedContextChange(options.apiClient, model, patch, publishModel);
       return render();
     },
     updateFollowers: (followers: string) => {

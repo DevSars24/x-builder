@@ -121,6 +121,7 @@ export type SwitchProps = {
   name?: string;
   disabled?: boolean;
   className?: string;
+  labelClassName?: string;
 };
 
 function cx(...classes: Array<string | false | null | undefined>) {
@@ -475,12 +476,13 @@ export function Switch({
   disabled,
   id,
   label,
+  labelClassName = "xb-settings-route__switch-label",
   name,
   onChange,
 }: SwitchProps): ReactElement {
   return (
     <label className={className} htmlFor={id}>
-      <span className="xb-settings-route__switch-label">{label}</span>
+      <span className={labelClassName}>{label}</span>
       <input
         checked={checked}
         disabled={disabled}

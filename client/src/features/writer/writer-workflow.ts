@@ -1,6 +1,7 @@
 import {
   apiErrorSchema,
   generateIdeaRequestSchema,
+  scoringContextSchema,
   type AnalyzedPostItem,
   type AnalyzePostsRequest,
   type AnalyzePostsResponse,
@@ -11,6 +12,8 @@ import {
   type JudgeDraftRequest,
   type JudgeDraftResponse,
   type JudgeVerdict,
+  type RepeatHistoryEntry,
+  type ScoringContext,
 } from "@x-builder/shared";
 
 export type WriterApiClient = {
@@ -31,6 +34,20 @@ export type WriterCandidate = {
   source: "draft" | "generated";
   text: string;
 };
+
+export type AdvancedContext = {
+  trailingMedianImpressions?: number;
+  repeatHistory?: { similarInLast7Days: boolean; date?: string };
+  plannedHourUtc?: number;
+  willAttachMedia?: boolean;
+  accountAgeYears?: number;
+};
+
+export type RefinementState =
+  | { status: "idle" }
+  | { status: "running"; requestId: number }
+  | { status: "refined"; requestId: number }
+  | { status: "skipped" };
 
 type CandidateReadyAnalysisState = {
   item: AnalyzedPostItem;
@@ -108,6 +125,7 @@ export type WriterPageModel = {
   activeFocusRequest: number;
   activeFocusTarget: string | null;
   activeGenerationRequestId: number | null;
+  advancedContext: AdvancedContext;
   analysisByCandidateId: Record<string, CandidateAnalysisState>;
   appliedFollowers: number | undefined;
   candidates: WriterCandidate[];
@@ -120,6 +138,7 @@ export type WriterPageModel = {
   isScoring: boolean;
   judge: JudgeState;
   lastPayload: GenerateIdeaRequest | null;
+  refinement: RefinementState;
   routeError: ApiError | null;
   routeErrorOrigin: "analysis" | "generation" | null;
 };
@@ -135,6 +154,7 @@ export function createInitialModel(): WriterPageModel {
     activeFocusRequest: 0,
     activeFocusTarget: null,
     activeGenerationRequestId: null,
+    advancedContext: {},
     analysisByCandidateId: {},
     appliedFollowers: undefined,
     candidates: [],
@@ -149,6 +169,7 @@ export function createInitialModel(): WriterPageModel {
     isScoring: false,
     judge: { status: "idle" },
     lastPayload: null,
+    refinement: { status: "idle" },
     routeError: null,
     routeErrorOrigin: null,
   };
@@ -241,9 +262,82 @@ function payloadFromIdea(idea: string): PayloadResult {
   };
 }
 
+// Maps the optional advanced-context inputs onto a scoring context, dropping any
+// empty/undefined field so an all-empty advanced context contributes no keys. The
+// follower count is layered in separately so advanced inputs never disturb it.
+function scoringContextFromAdvanced(
+  followers: number | undefined,
+  advancedContext: AdvancedContext,
+): ScoringContext {
+  const context: ScoringContext = {};
+
+  if (followers !== undefined) {
+    context.followers = followers;
+  }
+
+  assignValidScoringField(
+    context,
+    "trailingMedianImpressions",
+    advancedContext.trailingMedianImpressions,
+  );
+  assignValidScoringField(context, "plannedHourUtc", advancedContext.plannedHourUtc);
+  assignValidScoringField(context, "willAttachMedia", advancedContext.willAttachMedia);
+  assignValidScoringField(context, "accountAgeYears", advancedContext.accountAgeYears);
+
+  const repeatHistoryEntry = repeatHistoryEntryFromAdvanced(advancedContext.repeatHistory);
+
+  if (repeatHistoryEntry !== undefined) {
+    context.repeatHistory = [repeatHistoryEntry];
+  }
+
+  return context;
+}
+
+// Includes an advanced field only when it both has a value and clears that
+// field's own schema validation, so an out-of-range input (e.g. a planned hour
+// past 23) is silently dropped from the request rather than sent or coerced.
+function assignValidScoringField<Key extends keyof ScoringContext>(
+  context: ScoringContext,
+  key: Key,
+  value: ScoringContext[Key] | undefined,
+): void {
+  if (value === undefined) {
+    return;
+  }
+
+  if (scoringContextSchema.shape[key].safeParse(value).success) {
+    context[key] = value;
+  }
+}
+
+// One reported "similar post in the last 7 days" becomes a single repeat-history
+// entry. A whitespace-only or absent date falls back to the current time so the
+// entry always carries a schema-valid ISO `lastPostedAt`.
+function repeatHistoryEntryFromAdvanced(
+  repeatHistory: AdvancedContext["repeatHistory"],
+): RepeatHistoryEntry | undefined {
+  if (repeatHistory?.similarInLast7Days !== true) {
+    return undefined;
+  }
+
+  const trimmedDate = repeatHistory.date?.trim() ?? "";
+  const parsedDate = trimmedDate.length === 0 ? undefined : new Date(trimmedDate);
+  const lastPostedAt =
+    parsedDate !== undefined && !Number.isNaN(parsedDate.getTime())
+      ? parsedDate.toISOString()
+      : new Date().toISOString();
+
+  return {
+    format: "insight_share",
+    countLast7d: 1,
+    lastPostedAt,
+  };
+}
+
 function candidateAnalysisRequest(
   candidates: WriterCandidate[],
   followers: number | undefined,
+  advancedContext: AdvancedContext,
   postCoachMode: AnalyzePostsRequest["presentation"]["postCoachMode"] = "preview",
 ): AnalyzePostsRequest {
   return {
@@ -255,7 +349,7 @@ function candidateAnalysisRequest(
     presentation: {
       postCoachMode,
     },
-    scoringContext: followers === undefined ? {} : { followers },
+    scoringContext: scoringContextFromAdvanced(followers, advancedContext),
   };
 }
 
@@ -434,6 +528,7 @@ async function requestAnalysis(
   apiClient: WriterApiClient,
   candidates: WriterCandidate[],
   followers: number | undefined,
+  advancedContext: AdvancedContext,
   postCoachMode: AnalyzePostsRequest["presentation"]["postCoachMode"] = "preview",
 ): Promise<
   | {
@@ -447,7 +542,7 @@ async function requestAnalysis(
 > {
   try {
     const response = await apiClient.analyzePosts(
-      candidateAnalysisRequest(candidates, followers, postCoachMode),
+      candidateAnalysisRequest(candidates, followers, advancedContext, postCoachMode),
     );
 
     return {
@@ -710,7 +805,7 @@ function applyAnalysisLoading(
   };
 }
 
-function markAnalysisStale(
+export function markAnalysisStale(
   analysisByCandidateId: Record<string, CandidateAnalysisState>,
 ): Record<string, CandidateAnalysisState> {
   return Object.fromEntries(
@@ -773,6 +868,21 @@ export function applyFollowerDraftChange(
     followerDraft,
     followerError: null,
     isScoring: false,
+  };
+}
+
+export function applyAdvancedContextChange(
+  model: WriterPageModel,
+  patch: AdvancedContext,
+): WriterPageModel {
+  return {
+    ...model,
+    advancedContext: {
+      ...model.advancedContext,
+      ...patch,
+    },
+    analysisByCandidateId: markAnalysisStale(model.analysisByCandidateId),
+    refinement: { status: "idle" },
   };
 }
 
@@ -929,6 +1039,7 @@ async function runGenerationFromStart(
       apiClient,
       requestedCandidates,
       requestedFollowers,
+      currentModel.advancedContext,
     );
     currentModel = publishLatest(
       publish,
@@ -991,6 +1102,7 @@ async function runAnalysisForCandidates(
     apiClient,
     candidates,
     requestedFollowers,
+    currentModel.advancedContext,
   );
   currentModel = publishLatest(publish, currentModel, (latestModel) =>
     applyAnalysisResult(
@@ -1011,6 +1123,18 @@ export async function runRetryAnalysis(
   publish: PublishModel,
 ): Promise<WriterPageModel> {
   return runAnalysisForCandidates(apiClient, model, model.candidates, publish);
+}
+
+export async function runAdvancedContextChange(
+  apiClient: WriterApiClient,
+  model: WriterPageModel,
+  patch: AdvancedContext,
+  publish: PublishModel,
+): Promise<WriterPageModel> {
+  const nextModel = applyAdvancedContextChange(model, patch);
+  publish(nextModel);
+
+  return runAnalysisForCandidates(apiClient, nextModel, nextModel.candidates, publish);
 }
 
 export async function runApplyFollowers(
@@ -1148,6 +1272,7 @@ export async function runOpenDetails(
     apiClient,
     [candidate],
     requestedFollowers,
+    currentModel.advancedContext,
     "expanded",
   );
 
