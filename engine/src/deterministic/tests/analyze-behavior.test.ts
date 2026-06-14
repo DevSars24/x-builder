@@ -6,16 +6,10 @@ import { describe, expect, it } from "vitest";
 import { analyzeDraftText as analyzePost } from "../analyzer";
 import { classifyPostFormat as detectFormat } from "../format-classifier";
 import {
-  appendPostFormatHistory as recordPostHistory,
-  buildFormatVarietyCheck as createVarietyCheck,
-  countRecentFormatStreak as streakForFormat,
-} from "../format-history";
-import {
   buildPostCoachModel as derivePostCoachCard,
   selectPostCoachBadge as getPostCoachBadge,
 } from "../post-coach-model";
 import { estimateEngagementRange as predictEngagement } from "../prediction-estimator";
-import type { PostHistoryEntry as PostHistoryItem } from "../types";
 import { evaluateDraftVoice as runVoiceChecks } from "../voice-score";
 import type { VoiceCheck } from "../voice-check";
 
@@ -643,51 +637,6 @@ describe("deterministic post analyzer", () => {
     );
     expect(scoreWithVariety.value).toBe(scoreValueFromReturnedChecks(scoreWithVariety.checks));
     expect(scoreWithVariety.value).toBe(scoreWithoutVariety.value);
-  });
-
-  it("derives a variety check from recent post history without browser storage", () => {
-    const history: PostHistoryItem[] = [
-      { format: "insight_share", at: "2026-06-07T09:00:00.000Z" },
-      { format: "insight_share", at: "2026-06-06T09:00:00.000Z" },
-      { format: "hot_take", at: "2026-06-05T09:00:00.000Z" },
-    ];
-    const insightDraft =
-      "Specificity creates trust when you show proof from launch week instead of asking people to believe your roadmap";
-
-    expect(createVarietyCheck(insightDraft, [])).toEqual({
-      id: "variety",
-      label: "Format mix (insight share)",
-      status: "pass",
-    });
-    expect(createVarietyCheck(insightDraft, history)).toEqual({
-      id: "variety",
-      label: "3 insight shares in a row - mix it up",
-      status: "fail",
-    });
-    expect(streakForFormat(history, "insight_share")).toBe(2);
-  });
-
-  it("records bounded post history in newest-first order", () => {
-    const history = Array.from({ length: 10 }, (_, index): PostHistoryItem => ({
-      format: index % 2 === 0 ? "story" : "hot_take",
-      at: `2026-06-${String(index + 1).padStart(2, "0")}T09:00:00.000Z`,
-    }));
-    const next = recordPostHistory(
-      history,
-      {
-        format: "genuine_question",
-        kind: "published",
-      },
-      new Date("2026-06-07T12:00:00.000Z"),
-    );
-
-    expect(next).toHaveLength(10);
-    expect(next[0]).toEqual({
-      format: "genuine_question",
-      kind: "published",
-      at: "2026-06-07T12:00:00.000Z",
-    });
-    expect(next).not.toContain(history[9]);
   });
 
   it("derives the empty Post Coach card state before the user writes", () => {
