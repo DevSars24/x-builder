@@ -10,7 +10,15 @@ export type PostFormat =
   | "goal_share"
   | "ab_choice"
   | "connect"
-  | "other";
+  | "other"
+  | "fill_blank_tribal"
+  | "cta_farm"
+  | "fantasy_question"
+  | "binary_choice"
+  | "nuanced_question"
+  | "recognition_roast"
+  | "wisdom_one_liner"
+  | "milestone";
 
 export type PostHistoryEntry = {
   format: string;

@@ -17,6 +17,14 @@ export const detectedPostFormatSchema = z.enum([
   "ab_choice",
   "connect",
   "other",
+  "fill_blank_tribal",
+  "cta_farm",
+  "fantasy_question",
+  "binary_choice",
+  "nuanced_question",
+  "recognition_roast",
+  "wisdom_one_liner",
+  "milestone",
 ]);
 
 const voiceCheckSchema = z.object({
@@ -100,13 +108,32 @@ const predictionSignalSchema = z.object({
   multiplier: z.number().positive(),
 });
 
-const availableEngagementPredictionSchema = z.object({
+export const reachRangeSchema = z
+  .object({
+    low: z.number().int().min(0),
+    high: z.number().int().min(0),
+  })
+  .refine((range) => range.low <= range.high, "Reach range must be ordered: low <= high.");
+
+export const availableEngagementPredictionSchema = z.object({
   status: z.literal("available"),
   rangeLow: z.number().int().min(0),
   rangeHigh: z.number().int().min(0),
   midpoint: z.number().int().min(0),
   confidence: z.enum(["low", "medium", "high"]),
   signals: z.array(predictionSignalSchema),
+  // Transitional four-regime reach fields. The producer populates these in
+  // RMU-006 and they tighten to required in RMU-011; optional now so the
+  // untouched engine producer and existing fixtures keep compiling.
+  predictedMidImpressions: z.number().int().min(0).optional(),
+  stallRange: reachRangeSchema.optional(),
+  escapeRange: reachRangeSchema.optional(),
+  escapeProbability: z.number().min(0).max(1).optional(),
+  expectedReplies: z.number().min(0).optional(),
+  baseImpressions: z.number().int().min(0).optional(),
+  baseSource: z.enum(["trailing_median", "follower_estimate"]).optional(),
+  qualityBasis: z.enum(["static", "judge"]).optional(),
+  reachModelVersion: z.string().min(1).max(40).optional(),
 });
 
 const disabledEngagementPredictionSchema = z.object({
@@ -134,11 +161,52 @@ const analyzePostsRequestItemSchema = z.object({
   sourceFormat: deterministicSourceFormatSchema.optional(),
 });
 
+export const repeatHistoryEntrySchema = z.object({
+  format: detectedPostFormatSchema,
+  lastPostedAt: z.string().datetime(),
+  countLast7d: z.number().int().min(0).max(100),
+});
+
+export const judgeSignalsSchema = z.object({
+  impressions: z.number().int().min(0).max(100),
+  replies: z.number().int().min(0).max(100),
+});
+
+// repeatHistory and willAttachMedia are filled to neutral defaults at parse
+// time but stay optional on the inferred type, so a caller building a request
+// still only has to supply followers — the way scoringContext was consumed
+// before the reach-model widening.
+export type ScoringContext = {
+  followers?: number;
+  trailingMedianImpressions?: number;
+  repeatHistory?: RepeatHistoryEntry[];
+  plannedHourUtc?: number;
+  willAttachMedia?: boolean;
+  accountAgeYears?: number;
+  judgeSignals?: JudgeSignals;
+};
+
+export const scoringContextSchema = z
+  .object({
+    followers: z.number().int().positive().optional(),
+    trailingMedianImpressions: z.number().int().min(0).optional(),
+    repeatHistory: z.array(repeatHistoryEntrySchema).max(40).optional(),
+    plannedHourUtc: z.number().int().min(0).max(23).optional(),
+    willAttachMedia: z.boolean().optional(),
+    accountAgeYears: z.number().int().min(0).max(50).optional(),
+    judgeSignals: judgeSignalsSchema.optional(),
+  })
+  .transform(
+    (context): ScoringContext => ({
+      ...context,
+      repeatHistory: context.repeatHistory ?? [],
+      willAttachMedia: context.willAttachMedia ?? false,
+    }),
+  );
+
 export const analyzePostsRequestSchema = z.object({
   items: z.array(analyzePostsRequestItemSchema).min(1).max(10),
-  scoringContext: z.object({
-    followers: z.number().int().positive().optional(),
-  }),
+  scoringContext: scoringContextSchema,
   presentation: z
     .object({
       postCoachMode: z.enum(["preview", "expanded"]).default("preview"),
@@ -182,7 +250,10 @@ export const analyzePostsResponseSchema = z.object({
 export type DeterministicSourceFormat = z.infer<typeof deterministicSourceFormatSchema>;
 export type DetectedPostFormat = z.infer<typeof detectedPostFormatSchema>;
 export type PostCoachViewModel = z.infer<typeof postCoachViewModelSchema>;
+export type ReachRange = z.infer<typeof reachRangeSchema>;
 export type EngagementPrediction = z.infer<typeof engagementPredictionSchema>;
+export type RepeatHistoryEntry = z.infer<typeof repeatHistoryEntrySchema>;
+export type JudgeSignals = z.infer<typeof judgeSignalsSchema>;
 export type AnalyzePostsRequest = z.infer<typeof analyzePostsRequestSchema>;
 export type AnalyzedPostItem = z.infer<typeof analyzedPostItemSchema>;
 export type AnalyzePostsResponse = z.infer<typeof analyzePostsResponseSchema>;

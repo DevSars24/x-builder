@@ -12,6 +12,14 @@ export const predictionFormatLabels: Record<PostFormat, string> = {
   ab_choice: "A/B",
   connect: "Connect",
   other: "Other",
+  fill_blank_tribal: "Fill-blank",
+  cta_farm: "CTA",
+  fantasy_question: "Fantasy-Q",
+  binary_choice: "Binary",
+  nuanced_question: "Nuanced-Q",
+  recognition_roast: "Roast",
+  wisdom_one_liner: "Wisdom",
+  milestone: "Milestone",
 };
 
 export const varietyFormatLabels: Record<PostFormat, string> = {
@@ -25,6 +33,14 @@ export const varietyFormatLabels: Record<PostFormat, string> = {
   audience_question: "audience question",
   connect: "connect invite",
   other: "post",
+  fill_blank_tribal: "fill-in-the-blank",
+  cta_farm: "call-to-action",
+  fantasy_question: "fantasy question",
+  binary_choice: "binary choice",
+  nuanced_question: "nuanced question",
+  recognition_roast: "recognition roast",
+  wisdom_one_liner: "wisdom one-liner",
+  milestone: "milestone",
 };
 
 export function classifyPostFormat(text: string): PostFormat {

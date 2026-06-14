@@ -63,6 +63,14 @@ export const formatEngagementMultipliers: Record<PostFormat, number> = {
   ab_choice: 1.03,
   connect: 1.27,
   other: 1,
+  fill_blank_tribal: 1,
+  cta_farm: 1,
+  fantasy_question: 1,
+  binary_choice: 1,
+  nuanced_question: 1,
+  recognition_roast: 1,
+  wisdom_one_liner: 1,
+  milestone: 1,
 };
 
 export const postCoachScoreBands = {
