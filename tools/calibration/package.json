@@ -19,7 +19,8 @@
   },
   "dependencies": {
     "@x-builder/engine": "workspace:*",
-    "@x-builder/shared": "workspace:*"
+    "@x-builder/shared": "workspace:*",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "tsx": "^4.19.0",
