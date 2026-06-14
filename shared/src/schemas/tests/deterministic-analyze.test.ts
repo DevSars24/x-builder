@@ -384,9 +384,9 @@ describe("detected post format enum widening", () => {
     }
   });
 
-  it("still accepts the live classifier formats that are bridged until a later removal", () => {
-    expect(detectedPostFormatSchema.safeParse("one_liner").success).toBe(true);
-    expect(detectedPostFormatSchema.safeParse("goal_share").success).toBe(true);
+  it("no longer accepts the deleted one_liner and goal_share members once the classifier stops emitting them", () => {
+    expect(detectedPostFormatSchema.safeParse("one_liner").success).toBe(false);
+    expect(detectedPostFormatSchema.safeParse("goal_share").success).toBe(false);
   });
 
   it("still rejects an unknown detected post format string", () => {

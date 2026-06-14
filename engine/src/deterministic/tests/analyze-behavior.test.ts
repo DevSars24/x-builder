@@ -70,8 +70,12 @@ describe("deterministic post analyzer", () => {
     expect(detectFormat("Hot take: most dashboards are just procrastination")).toBe("hot_take");
     expect(detectFormat("genuine question: why do agents fail at handoffs?")).toBe("genuine_question");
     expect(detectFormat("Founders, what changed your onboarding?")).toBe("audience_question");
-    expect(detectFormat("My goal is to ship 3 experiments by end of June")).toBe("goal_share");
-    expect(detectFormat("Ship the uncomfortable version")).toBe("one_liner");
+    // Corrected cascade: the goal-phrase post is absorbed by the extended
+    // `milestone` member (it now catches both numeric milestones and goal phrases),
+    // and the bare advice line reclassifies to `wisdom_one_liner`. Neither
+    // `goal_share` nor `one_liner` is emitted any longer.
+    expect(detectFormat("My goal is to ship 3 experiments by end of June")).toBe("milestone");
+    expect(detectFormat("Ship the uncomfortable version")).toBe("wisdom_one_liner");
   });
 
   it("scores voice quality, learnings, and engageability deterministically", () => {

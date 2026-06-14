@@ -83,16 +83,19 @@ describe("production analyze contract (followers-only requests)", () => {
       format: "story",
       score: { value: 81 },
     });
+    // Under the corrected cascade these single advice/observation lines no longer
+    // collapse into the deleted `one_liner` member; they reclassify to
+    // `wisdom_one_liner`. Voice scores are format-independent, so they hold.
     expect(analyzeProd(FORMAT_FIXTURES.link)).toMatchObject({
-      format: "one_liner",
+      format: "wisdom_one_liner",
       score: { value: 78 },
     });
     expect(analyzeProd(FORMAT_FIXTURES.short)).toMatchObject({
-      format: "one_liner",
+      format: "wisdom_one_liner",
       score: { value: 65 },
     });
     expect(analyzeProd(FORMAT_FIXTURES.insight)).toMatchObject({
-      format: "one_liner",
+      format: "wisdom_one_liner",
       score: { value: 74 },
     });
   });
@@ -139,28 +142,33 @@ describe("production analyze contract (followers-only requests)", () => {
     });
   });
 
-  it("pins the full engagement prediction for a one-liner with a link", () => {
+  it("pins the full engagement prediction for a reclassified wisdom one-liner with a link", () => {
+    // Reclassified one_liner -> wisdom_one_liner. wisdom_one_liner carries a
+    // neutral (1.0) engagement multiplier, so the live estimator emits NO
+    // `format_*` signal. With only the quality_voice signal the prediction drops
+    // to a single signal: the range widens (uncertainty 0.6) and confidence falls
+    // to "low".
     expect(analyzeProd(FORMAT_FIXTURES.link).prediction).toEqual({
-      rangeLow: 677,
-      rangeHigh: 1581,
-      midpoint: 1129,
-      confidence: "medium",
+      rangeLow: 538,
+      rangeHigh: 2150,
+      midpoint: 1344,
+      confidence: "low",
       signals: [
         { signal_key: "quality_voice", label: "Static score 78 (+40%)", multiplier: 1.4 },
-        { signal_key: "format_one_liner", label: "One-liner format -16%", multiplier: 0.84 },
       ],
     });
   });
 
-  it("pins the full engagement prediction for a short one-liner", () => {
+  it("pins the full engagement prediction for a reclassified short wisdom one-liner", () => {
+    // Same reclassification (wisdom_one_liner, neutral multiplier, no format
+    // signal): single quality_voice signal, wide range, low confidence.
     expect(analyzeProd(FORMAT_FIXTURES.short).prediction).toEqual({
-      rangeLow: 339,
-      rangeHigh: 790,
-      midpoint: 564,
-      confidence: "medium",
+      rangeLow: 269,
+      rangeHigh: 1075,
+      midpoint: 672,
+      confidence: "low",
       signals: [
         { signal_key: "quality_voice", label: "Static score 65 (-30%)", multiplier: 0.7 },
-        { signal_key: "format_one_liner", label: "One-liner format -16%", multiplier: 0.84 },
       ],
     });
   });
@@ -219,42 +227,48 @@ describe("production confidence ladder (no aiRating ever supplied)", () => {
   });
 
   it("yields medium confidence for 2-3 signals with a score at or above 50", () => {
-    // The question/hot-take/story fixtures all land here; assert the contract directly.
+    // Multi-signal formatted drafts (question/hot-take) keep a quality_voice +
+    // format + zeitgeist stack, so they remain at "medium". (The old `insight`
+    // fixture moved here under the corrected cascade: it now classifies as the
+    // neutral-multiplier `wisdom_one_liner`, loses its format signal, and drops to
+    // a single-signal "low" — so it no longer demonstrates the medium tier.)
     expect(analyzeProd(FORMAT_FIXTURES.question).prediction?.confidence).toBe("medium");
-    expect(analyzeProd(FORMAT_FIXTURES.insight).prediction?.confidence).toBe("medium");
+    expect(analyzeProd(FORMAT_FIXTURES.hotTake).prediction?.confidence).toBe("medium");
   });
 
-  it("never drops below medium for a single-line one-liner that still earns a prediction", () => {
-    // QUIRK: even a low-effort one-liner floors at >= 50 and keeps a 2-signal
-    // medium. This pins that the production confidence value here is "medium"
-    // (not "low") so the dead aiMediumConfidenceSignalCount relaxation removal
-    // cannot change it.
+  it("drops to low confidence for a reclassified single-line wisdom one-liner", () => {
+    // Under the corrected cascade a plain single line reclassifies to
+    // `wisdom_one_liner`. That member has a neutral (1.0) engagement multiplier,
+    // so the live estimator (RMU-006 has not yet rebuilt it) emits no format
+    // signal. With only the quality_voice signal the prediction has a single
+    // signal and falls to "low" — the previous medium floor no longer holds.
     const onePlainLine = "this is a perfectly ordinary sentence with nothing special at all";
-    const prediction = analyzeProd(onePlainLine).prediction;
+    const result = analyzeProd(onePlainLine);
 
-    expect(prediction).not.toBeNull();
-    expect(analyzeProd(onePlainLine).score.value).toBeGreaterThanOrEqual(50);
-    expect(prediction?.confidence).toBe("medium");
+    expect(result.format).toBe("wisdom_one_liner");
+    expect(result.prediction).not.toBeNull();
+    expect(result.score.value).toBeGreaterThanOrEqual(50);
+    expect(result.prediction?.signals.map((signal) => signal.signal_key)).toEqual(["quality_voice"]);
+    expect(result.prediction?.confidence).toBe("low");
   });
 
-  it("never yields a low-confidence prediction for any {followers}-only production draft", () => {
-    // Locks the observable production confidence surface to {medium, high}. The
-    // estimator's "low" branch is unreachable in production (see QUIRK above), so
-    // a refactor that touches the confidence ladder must keep it unreachable.
-    const draftsThatProducePredictions = [
+  it("keeps multi-signal formatted drafts out of the low-confidence tier", () => {
+    // After the corrected cascade the "low is unreachable in production" invariant
+    // only holds for drafts that still earn 2+ signals: the formatted
+    // question/hot-take/story drafts whose non-neutral format multiplier adds a
+    // second signal. Single-line drafts that reclassify into a neutral-multiplier
+    // member (wisdom_one_liner, etc.) legitimately land at "low" until RMU-006
+    // rebuilds the multipliers, so they are no longer covered by this invariant.
+    const multiSignalDrafts = [
       FORMAT_FIXTURES.question,
       FORMAT_FIXTURES.hotTake,
       FORMAT_FIXTURES.story,
-      FORMAT_FIXTURES.link,
-      FORMAT_FIXTURES.short,
-      FORMAT_FIXTURES.insight,
-      "buy now buy now click here and smash that follow button immediately",
-      "LEVERAGE SYNERGY PARADIGM GOING FORWARD CIRCLE BACK MOVE THE NEEDLE #grind #hustle",
     ];
 
-    for (const text of draftsThatProducePredictions) {
+    for (const text of multiSignalDrafts) {
       const prediction = analyzeProd(text).prediction;
       expect(prediction).not.toBeNull();
+      expect(prediction?.signals.length).toBeGreaterThanOrEqual(2);
       expect(prediction?.confidence).not.toBe("low");
       expect(["medium", "high"]).toContain(prediction?.confidence);
     }
