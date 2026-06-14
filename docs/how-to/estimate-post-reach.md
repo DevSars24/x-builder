@@ -7,7 +7,7 @@ description: Read the Studio's reach estimate, sharpen it with optional Advanced
 
 The Studio scores every draft you write and, alongside the quality verdict, predicts how far the post is likely to travel. This guide shows you how to read the reach numbers, feed the estimate optional context for a sharper read, and judge a draft to refine the prediction a second time.
 
-Reach is driven mainly by the **format** of your post and the **size of your audience** — not by how clean the writing is. So the estimate works on its own, but you can make it more accurate by telling it a few things about your account and your posting habits.
+Reach is driven mainly by the **format** of your post and the **size of your audience** — not by how clean the writing is. The estimate works on its own, and the most useful thing you can add is your real impressions baseline (see Advanced context below).
 
 ## Read the four reach numbers
 
@@ -30,15 +30,18 @@ A high score does **not** mean high reach. Reach is driven mainly by the post's 
 
 ## Add Advanced context for a sharper estimate (optional)
 
-In the Studio, open the **Advanced context (optional)** section — it is collapsed by default, below the main scoring controls. Every field here is optional; the prediction works without any of them. Fill in whatever you know.
+In the Studio, open the **Advanced context (optional)** section — it is collapsed by default, below the main scoring controls. Every field here is optional; the prediction works without any of them.
 
-1. **Typical impressions** — the median views of your last ~20 original posts. Exclude pinned posts and reposts; you can find this in X Analytics. When you set this, it **replaces** the follower-based estimate, so it is the single most useful field to fill in.
-2. **Posted something similar in the last 7 days?** — a checkbox. Tick it if you have recently posted a similar take; an optional date field appears so you can say when. Reusing a format or angle too soon tends to dampen reach.
-3. **Planned posting hour** — the hour you plan to post, as a number from 0 to 23 in **UTC**. Out-of-range values are rejected with an inline error and are not applied.
+Two of these inputs change the reach estimate today:
+
+1. **Typical impressions** — the median views of your last ~20 original posts. Exclude pinned posts and reposts; you can find this in X Analytics. When you set this, it **replaces** the rough follower-based estimate with your real baseline, so it is the single most useful field to fill in. Changing it re-scores the draft.
+2. **Posted something similar in the last 7 days?** — a checkbox. Tick it if you have recently posted a similar take; an optional date field appears so you can say when. Reusing a format or angle too soon dampens the estimate. Changing it re-scores the draft.
+
+The remaining inputs are **recorded but do not change today's estimate** — they are captured for upcoming calibration of the model, so set them if you like, but the reach numbers won't move based on them yet:
+
+3. **Planned posting hour** — the hour you plan to post, 0–23 in **UTC** (out-of-range values are rejected inline).
 4. **Whether you'll attach media** — toggle on if the post will include an image or video.
 5. **Account age** — how many years old your account is.
-
-Changing any of these re-scores the draft automatically, so the reach numbers update as you fill them in.
 
 For the audience-match angle of the estimate, see [Set your account profile](set-account-profile.md).
 
