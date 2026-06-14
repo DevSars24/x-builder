@@ -20,6 +20,7 @@ export function analyzeDraftText(
     trailingMedianImpressions: options.trailingMedianImpressions,
     hasExternalLink: options.hasExternalLink ?? false,
     repeatHistory: options.repeatHistory ?? [],
+    ...(options.judgeSignals !== undefined ? { judgeSignals: options.judgeSignals } : {}),
   });
 
   return {

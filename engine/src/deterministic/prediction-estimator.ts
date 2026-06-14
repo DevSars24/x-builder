@@ -36,6 +36,10 @@ export type ReachModelInput = {
   trailingMedianImpressions: number | undefined;
   hasExternalLink: boolean;
   repeatHistory: RepeatHistoryEntry[];
+  // Pass-2 of the two-pass contract. When present, the judged 0..100 impressions
+  // score drives the quality slot and the judged replies score drives the reply
+  // rate, replacing the static-quality and format-reply-rate paths respectively.
+  judgeSignals?: { impressions: number; replies: number };
 };
 
 // Formats whose escape probability is halved relative to the table value: they
@@ -51,6 +55,17 @@ const tribeVocativeReplyMultiplier = 1.2; // CALIBRATE
 const oneWordEscapeMultiplier = 1.4; // CALIBRATE
 const oneWordReplyMultiplier = 2.0; // CALIBRATE
 const answerEffortPenalty = 0.7; // CALIBRATE
+
+// Judge-signal tuning constants (pass-2 only). The quality multiplier band maps
+// a judged 0..100 impressions score geometrically into [floor, ceiling]; the
+// reply-rate band maps a judged 0..100 replies score linearly into [low, high].
+const judgedQualityFloor = 0.5; // CALIBRATE
+const judgedQualityCeiling = 2.5; // CALIBRATE
+const judgedReplyRateLow = 0.002; // CALIBRATE
+const judgedReplyRateHigh = 0.025; // CALIBRATE
+
+// Linear interpolation helper used by the judged reply-rate band.
+const lerp = (low: number, high: number, t: number): number => low + (high - low) * t;
 
 // Self-disclosure of failure or money specifics. A bare dollar amount or a
 // confession of loss reads as vulnerable rather than escape-worthy, so pEscape
@@ -117,7 +132,14 @@ export function computeReachModel(
   const { base, baseSource } = resolved;
 
   const formatMultiplier = formatReachTable[input.format].p50Multiplier;
-  const qualityMultiplier = staticQualityCompression(input.score);
+  // Pass-2: a judged impressions score swaps the static-quality slot for the
+  // continuous judged-quality multiplier; every other slot is untouched.
+  const qualityBasis: EngagementPrediction["qualityBasis"] =
+    input.judgeSignals !== undefined ? "judge" : "static";
+  const qualityMultiplier =
+    input.judgeSignals !== undefined
+      ? toJudgedQualityMultiplier(input.judgeSignals.impressions)
+      : staticQualityCompression(input.score);
   const linkMultiplier = input.hasExternalLink ? externalLinkMidpointMultiplier : 1;
   const repeatMultiplier = computeRepeatMultiplier(input.repeatHistory, input.format);
   const statusMultiplier = computeStatusMultiplier(input.format, input.followers);
@@ -141,7 +163,13 @@ export function computeReachModel(
 
   // Reach-signal adjustments (pEscape / expectedReplies only — never midpoint).
   const lowerText = input.text.trim().toLowerCase();
-  let expectedReplies = mid * replyRateTable[input.format];
+  // Pass-2: a judged replies score swaps the format reply-rate table for the
+  // judged reply-rate lerp. The downstream signal bonuses (e.g. tribe +20%)
+  // still compose on top of whichever base reply figure is selected here.
+  let expectedReplies =
+    input.judgeSignals !== undefined
+      ? mid * lerp(judgedReplyRateLow, judgedReplyRateHigh, input.judgeSignals.replies / 100)
+      : mid * replyRateTable[input.format];
 
   // Trending-topic bonus lifts pEscape per matching term, capped.
   const trendingMatchCount = trendingTopicTerms.filter((term) =>
@@ -209,7 +237,7 @@ export function computeReachModel(
     expectedReplies,
     baseImpressions: base,
     baseSource,
-    qualityBasis: "static",
+    qualityBasis,
     reachModelVersion,
     // Transitional legacy mirror (removed in RMU-011).
     rangeLow: stallRange.low,
@@ -299,6 +327,27 @@ export function staticQualityCompression(score: number): number {
   }
 
   return 0.6;
+}
+
+/**
+ * Maps a judged 0..100 impressions score into the reach-model quality slot via a
+ * geometric sweep: clamp(floor · (ceiling/floor)^(impressions/100), floor,
+ * ceiling). 0 -> floor (0.5), 100 -> ceiling (2.5), 50 -> the geometric midpoint
+ * (~1.118). This replaces staticQualityCompression in pass-2.
+ *
+ * Double-count risk: the judge also reads the draft's FORMAT when it scores
+ * impressions, while computeReachModel applies a separate per-format multiplier
+ * (formatReachTable). The judged-quality multiplier therefore risks
+ * double-counting format strength. The clamped [0.5, 2.5] band keeps this
+ * bounded for now; calibration (the // CALIBRATE constants) is expected to
+ * disentangle the format contribution from the judged-quality contribution once
+ * real two-pass data is available.
+ */
+export function toJudgedQualityMultiplier(impressions: number): number {
+  const swept =
+    judgedQualityFloor *
+    (judgedQualityCeiling / judgedQualityFloor) ** (impressions / 100); // CALIBRATE
+  return Math.min(judgedQualityCeiling, Math.max(judgedQualityFloor, swept));
 }
 
 /**

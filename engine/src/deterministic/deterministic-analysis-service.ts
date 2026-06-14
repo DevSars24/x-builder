@@ -39,6 +39,11 @@ export class DeterministicAnalysisService {
             parsedRequest.scoringContext.trailingMedianImpressions,
           repeatHistory: parsedRequest.scoringContext.repeatHistory ?? [],
           hasExternalLink: detectExternalLink(item.text),
+          // Pass-2: a judged scoringContext threads judgeSignals into the reach
+          // model's judged-quality branch. Absent (pass-1) -> static quality.
+          ...(parsedRequest.scoringContext.judgeSignals !== undefined
+            ? { judgeSignals: parsedRequest.scoringContext.judgeSignals }
+            : {}),
         });
       } catch (error) {
         console.error("[deterministic-analysis] failed to score candidate", {

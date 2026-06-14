@@ -13,11 +13,10 @@ const judgeScoreValue = z.number().int().min(0).max(100);
 // why a post scores the way it does. Modelled on the x-post-performance rubric.
 // voiceMatch is generic ("authentic human voice, not AI-slop"), NOT tied to any
 // individual's voice profile.
-// The five behavioral dimensions are plain optional until the producer lands:
-// the four numeric dimensions plus audienceMatch (nullable when present — null
-// when no account profile anchors audience fit, a 0..100 score when one does).
-// The tightening (four behavioral required, audienceMatch nullable-required)
-// moves to RMU-008.
+// The producer (RMU-008) always emits all thirteen dimensions: the four
+// behavioral dimensions are required, and audienceMatch is required on the wire
+// but nullable — an explicit null when no account profile anchors audience fit,
+// a 0..100 score when one does.
 export const judgeScoresSchema = z.object({
   overall: judgeScoreValue,
   replies: judgeScoreValue,
@@ -27,11 +26,11 @@ export const judgeScoresSchema = z.object({
   dwellProxy: judgeScoreValue,
   voiceMatch: judgeScoreValue,
   negativeRisk: judgeScoreValue,
-  answerEffort: judgeScoreValue.optional(),
-  strangerAnswerability: judgeScoreValue.optional(),
-  statusDependency: judgeScoreValue.optional(),
-  replyVsQuoteOrientation: judgeScoreValue.optional(),
-  audienceMatch: judgeScoreValue.nullable().optional(),
+  answerEffort: judgeScoreValue,
+  strangerAnswerability: judgeScoreValue,
+  statusDependency: judgeScoreValue,
+  replyVsQuoteOrientation: judgeScoreValue,
+  audienceMatch: judgeScoreValue.nullable(),
 });
 
 export const judgeVerdictLabelSchema = z.enum([

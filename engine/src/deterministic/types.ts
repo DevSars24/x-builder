@@ -119,6 +119,9 @@ export type AnalyzeOptions = {
   trailingMedianImpressions?: number;
   hasExternalLink?: boolean;
   repeatHistory?: RepeatHistoryEntry[];
+  // Pass-2 judge signals (judged impressions/replies). When present they drive
+  // the judged-quality reach branch instead of the static-quality path.
+  judgeSignals?: { impressions: number; replies: number };
   enabled?: Partial<Record<string, boolean>>;
   varietyCheck?: VoiceCheck;
 };
