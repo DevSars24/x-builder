@@ -22,7 +22,12 @@ const appShellModulePath = "../app-shell";
 type SettingsFieldName = keyof AppSettings;
 type TextSettingsFieldName = Extract<
   SettingsFieldName,
-  "engineBaseUrl" | "storagePath" | "codexModel" | "claudeModel" | "cursorModel"
+  | "engineBaseUrl"
+  | "storagePath"
+  | "codexModel"
+  | "claudeModel"
+  | "cursorModel"
+  | "accountProfile"
 >;
 type SwitchSettingsFieldName = Extract<
   SettingsFieldName,
@@ -114,6 +119,53 @@ function expectInputValue(html: string, label: string, value: string) {
   expect(html).toContain(`value="${value.replaceAll('"', "&quot;")}"`);
 }
 
+function escapeTextAreaContent(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function textAreaMarkup(html: string): string {
+  const match = html.match(/<textarea\b[\s\S]*?<\/textarea>/);
+
+  if (match === null) {
+    throw new Error("Expected a <textarea> element in the Settings markup.");
+  }
+
+  return match[0];
+}
+
+function textAreaOpenTag(html: string): string {
+  const match = textAreaMarkup(html).match(/<textarea\b[^>]*>/);
+
+  if (match === null) {
+    throw new Error("Expected a <textarea> opening tag in the Settings markup.");
+  }
+
+  return match[0];
+}
+
+function textAreaInnerText(html: string): string {
+  const match = textAreaMarkup(html).match(/<textarea\b[^>]*>([\s\S]*)<\/textarea>/);
+
+  if (match === null || match[1] === undefined) {
+    throw new Error("Expected <textarea> inner text in the Settings markup.");
+  }
+
+  return match[1];
+}
+
+function expectTextAreaValue(html: string, value: string) {
+  expect(textAreaInnerText(html)).toBe(escapeTextAreaContent(value));
+}
+
+function attributeValue(tag: string, attribute: string): string | null {
+  const match = tag.match(new RegExp(`${attribute}="([^"]*)"`));
+
+  return match?.[1] ?? null;
+}
+
 const bannedJudgeJargon = /codex exec|raw llm|llm judge|judge retry|retry judge/i;
 
 function selectMarkup(html: string): string {
@@ -183,6 +235,7 @@ function switchInput(html: string): string {
 
 function createDefaultSettings(): AppSettings {
   return {
+    accountProfile: "",
     claudeModel: "",
     codexModel: "",
     cursorModel: "",
@@ -195,6 +248,7 @@ function createDefaultSettings(): AppSettings {
 
 function createSavedSettings(): AppSettings {
   return {
+    accountProfile: "",
     claudeModel: "",
     codexModel: "",
     cursorModel: "",
@@ -976,6 +1030,240 @@ describe("SettingsRoute judge provider selection", () => {
 
     expect(textContent(html)).toContain("Judge provider");
     expect(selectedOptionValue(select)).toBe("ghost-cli");
+  });
+});
+
+const accountProfileHelper =
+  "Describe your audience and niche. The judge uses this to score audience match.";
+
+describe("SettingsRoute account profile field", () => {
+  it("marks the form dirty when the account profile textarea is edited from a clean load", async () => {
+    const { SettingsRoute, createSettingsRoutePublicDriver } =
+      await loadSettingsRoute();
+    const apiClient = createApiClient({
+      getSettings: vi.fn(async () =>
+        settingsResponse(createDefaultSettings(), "defaults"),
+      ),
+    });
+    const driver = createDriver(createSettingsRoutePublicDriver, {
+      apiClient,
+      renderRoute: SettingsRoute,
+    });
+
+    const loadedHtml = await driver.load();
+    expect(textContent(loadedHtml)).not.toContain("Unsaved changes");
+
+    const dirtyHtml = driver.updateField(
+      "accountProfile",
+      "Solo founders building developer tools.",
+    );
+
+    expect(textContent(dirtyHtml)).toContain("Unsaved changes");
+    expectTextAreaValue(dirtyHtml, "Solo founders building developer tools.");
+  });
+
+  it("shows the persisted account profile in the textarea after a save-and-reload cycle", async () => {
+    const { SettingsRoute, createSettingsRoutePublicDriver } =
+      await loadSettingsRoute();
+    const persistedProfile = "Bootstrapped SaaS makers in the AI tooling niche.";
+    const persisted = vi.fn<SettingsApiClient["getSettings"]>(async () =>
+      settingsResponse(createDefaultSettings(), "defaults"),
+    );
+    const apiClient = createApiClient({
+      getSettings: persisted,
+      saveSettings: vi.fn(async (settings: AppSettings) => {
+        persisted.mockImplementation(async () =>
+          settingsResponse(settings, "persisted"),
+        );
+        return settingsResponse(settings, "persisted");
+      }),
+    });
+    const driver = createDriver(createSettingsRoutePublicDriver, {
+      apiClient,
+      renderRoute: SettingsRoute,
+    });
+
+    await driver.load();
+    driver.updateField("accountProfile", persistedProfile);
+    const savedHtml = await driver.save();
+
+    expect(apiClient.saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ accountProfile: persistedProfile }),
+    );
+    expect(textContent(savedHtml)).toContain("Settings saved");
+
+    const reloadedHtml = await driver.retryLoad();
+
+    expect(textContent(reloadedHtml)).toContain("Persisted settings");
+    expectTextAreaValue(reloadedHtml, persistedProfile);
+  });
+
+  it("resets the account profile to an empty textarea when Use defaults is chosen", async () => {
+    const { SettingsRoute, createSettingsRoutePublicDriver } =
+      await loadSettingsRoute();
+    const loadError = createApiError({
+      code: "settings_load_failed",
+      message: "Settings could not be loaded. Try again.",
+      retryable: true,
+      scope: "settings",
+      status: 500,
+    });
+    const apiClient = createApiClient({
+      getSettings: vi.fn(async () => {
+        throw Object.assign(new Error(loadError.message), {
+          apiError: loadError,
+        });
+      }),
+    });
+    const driver = createDriver(createSettingsRoutePublicDriver, {
+      apiClient,
+      renderRoute: SettingsRoute,
+    });
+
+    await driver.load();
+    const defaultsHtml = driver.useDefaults();
+
+    expect(textContent(defaultsHtml)).toContain("Using defaults");
+    expectTextAreaValue(defaultsHtml, "");
+  });
+
+  it("dirties on a whitespace-only profile and reflects it in the textarea while a saved empty profile resolves to no profile", async () => {
+    const { SettingsRoute, createSettingsRoutePublicDriver } =
+      await loadSettingsRoute();
+    const apiClient = createApiClient({
+      getSettings: vi.fn(async () =>
+        settingsResponse(createDefaultSettings(), "defaults"),
+      ),
+    });
+    const driver = createDriver(createSettingsRoutePublicDriver, {
+      apiClient,
+      renderRoute: SettingsRoute,
+    });
+
+    const loadedHtml = await driver.load();
+    expect(textContent(loadedHtml)).not.toContain("Unsaved changes");
+    expectTextAreaValue(loadedHtml, "");
+
+    const whitespaceHtml = driver.updateField("accountProfile", "   ");
+
+    // The whitespace draft differs from the saved empty value, so the form is
+    // dirty and the textarea reflects what the user typed (the schema trims it
+    // to the "no profile" value on persist — that bound is schema-enforced).
+    expect(textContent(whitespaceHtml)).toContain("Unsaved changes");
+    expectTextAreaValue(whitespaceHtml, "   ");
+  });
+});
+
+describe("SettingsRoute account profile rendering", () => {
+  it("mounts the account profile textarea after the judge provider select", async () => {
+    const { SettingsRoute, createSettingsRoutePublicDriver } =
+      await loadSettingsRoute();
+    const apiClient = createApiClient({
+      getSettings: vi.fn(async () =>
+        settingsResponse(createSavedSettings(), "persisted"),
+      ),
+    });
+
+    const html = await createDriver(createSettingsRoutePublicDriver, {
+      apiClient,
+      renderRoute: SettingsRoute,
+    }).load();
+
+    const selectEnd = html.indexOf("</select>");
+    const textAreaStart = html.indexOf("<textarea");
+
+    expect(selectEnd).toBeGreaterThanOrEqual(0);
+    expect(textAreaStart).toBeGreaterThan(selectEnd);
+  });
+
+  it("renders the account profile as a multi-line textarea with three or four rows", async () => {
+    const { SettingsRoute, createSettingsRoutePublicDriver } =
+      await loadSettingsRoute();
+    const apiClient = createApiClient({
+      getSettings: vi.fn(async () =>
+        settingsResponse(createSavedSettings(), "persisted"),
+      ),
+    });
+
+    const html = await createDriver(createSettingsRoutePublicDriver, {
+      apiClient,
+      renderRoute: SettingsRoute,
+    }).load();
+    const openTag = textAreaOpenTag(html);
+    const rows = Number(attributeValue(openTag, "rows"));
+
+    expect(rows).toBeGreaterThanOrEqual(3);
+    expect(rows).toBeLessThanOrEqual(4);
+  });
+
+  it("renders the account profile inside a settings-route field wrapper with the exact helper copy", async () => {
+    const { SettingsRoute, createSettingsRoutePublicDriver } =
+      await loadSettingsRoute();
+    const apiClient = createApiClient({
+      getSettings: vi.fn(async () =>
+        settingsResponse(createSavedSettings(), "persisted"),
+      ),
+    });
+
+    const html = await createDriver(createSettingsRoutePublicDriver, {
+      apiClient,
+      renderRoute: SettingsRoute,
+    }).load();
+
+    expect(textContent(html)).toContain("Account profile");
+    expect(textContent(html)).toContain(accountProfileHelper);
+    expect(html).toMatch(
+      /<label class="xb-settings-route__field"[\s\S]*?<textarea/,
+    );
+  });
+
+  it("wires the textarea label, id, and aria-describedby to expose an accessible name and description", async () => {
+    const { SettingsRoute, createSettingsRoutePublicDriver } =
+      await loadSettingsRoute();
+    const apiClient = createApiClient({
+      getSettings: vi.fn(async () =>
+        settingsResponse(createSavedSettings(), "persisted"),
+      ),
+    });
+
+    const html = await createDriver(createSettingsRoutePublicDriver, {
+      apiClient,
+      renderRoute: SettingsRoute,
+    }).load();
+    const openTag = textAreaOpenTag(html);
+    const id = attributeValue(openTag, "id");
+    const describedBy = attributeValue(openTag, "aria-describedby");
+
+    expect(id).toBe("settings-accountProfile");
+    expect(describedBy).not.toBeNull();
+    expect(html).toContain(`<label class="xb-settings-route__field" for="${id}">`);
+    expect(html).toMatch(
+      new RegExp(
+        `id="${describedBy}"[^>]*>${accountProfileHelper.replaceAll(".", "\\.")}`,
+      ),
+    );
+  });
+
+  it("shows the persisted account profile value as escaped textarea content on load", async () => {
+    const { SettingsRoute, createSettingsRoutePublicDriver } =
+      await loadSettingsRoute();
+    const persistedProfile = "B2B founders selling APIs to <enterprise> & SMB teams.";
+    const savedSettings: AppSettings = {
+      ...createSavedSettings(),
+      accountProfile: persistedProfile,
+    };
+    const apiClient = createApiClient({
+      getSettings: vi.fn(async () =>
+        settingsResponse(savedSettings, "persisted"),
+      ),
+    });
+
+    const html = await createDriver(createSettingsRoutePublicDriver, {
+      apiClient,
+      renderRoute: SettingsRoute,
+    }).load();
+
+    expectTextAreaValue(html, persistedProfile);
   });
 });
 
