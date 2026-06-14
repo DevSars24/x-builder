@@ -207,12 +207,12 @@ function readyPostCoach(
 function availablePrediction(
   overrides: Partial<AvailableEngagementPrediction> = {},
 ): AvailableEngagementPrediction {
-  return {
-    status: "available",
+  const legacy = {
+    status: "available" as const,
     rangeLow: 120,
     rangeHigh: 280,
     midpoint: 200,
-    confidence: "medium",
+    confidence: "medium" as const,
     signals: [
       {
         signal_key: "voice_score",
@@ -225,6 +225,23 @@ function availablePrediction(
         multiplier: 1.2,
       },
     ],
+    ...overrides,
+  };
+
+  // Four-regime reach fields became required in RMU-006. The client components
+  // still render only the legacy mirror until RMU-011, so derive these from the
+  // resolved mirror to keep every fixture internally coherent (low <= high).
+  return {
+    ...legacy,
+    predictedMidImpressions: legacy.midpoint,
+    stallRange: { low: legacy.rangeLow, high: legacy.midpoint },
+    escapeRange: { low: legacy.midpoint, high: legacy.rangeHigh },
+    escapeProbability: 0.1,
+    expectedReplies: 4,
+    baseImpressions: legacy.midpoint,
+    baseSource: "follower_estimate",
+    qualityBasis: "static",
+    reachModelVersion: "reach-v1",
     ...overrides,
   };
 }
