@@ -40,13 +40,11 @@ export const staticScoreQualityMultipliers = [
 ] as const;
 
 export const formatEngagementMultipliers: Record<PostFormat, number> = {
-  one_liner: 0.84,
   genuine_question: 1.05,
   hot_take: 1.16,
   audience_question: 0.99,
   story: 1.18,
   insight_share: 0.95,
-  goal_share: 0.99,
   ab_choice: 1.03,
   connect: 1.27,
   other: 1,

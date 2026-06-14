@@ -7,13 +7,11 @@ export const deterministicSourceFormatSchema = z.enum([
 ]);
 
 export const detectedPostFormatSchema = z.enum([
-  "one_liner",
   "genuine_question",
   "hot_take",
   "audience_question",
   "story",
   "insight_share",
-  "goal_share",
   "ab_choice",
   "connect",
   "other",

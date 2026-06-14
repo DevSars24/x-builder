@@ -1,13 +1,11 @@
 import type { VoiceCheck } from "./voice-check.js";
 
 export type PostFormat =
-  | "one_liner"
   | "genuine_question"
   | "hot_take"
   | "audience_question"
   | "story"
   | "insight_share"
-  | "goal_share"
   | "ab_choice"
   | "connect"
   | "other"
