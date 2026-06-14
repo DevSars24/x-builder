@@ -71,6 +71,7 @@ export type WriterPagePublicDriver = {
     focusRequest: number;
     html: string;
   };
+  judge: () => Promise<string>;
   openDetails: (itemId: string) => Promise<string>;
   openSettings: () => void;
   render: () => string;
@@ -597,6 +598,7 @@ function WriterPageView({
   onRetry,
   onRetryDetails,
   onRetryScore,
+  refinement,
   routeError,
 }: WriterPageViewProps): ReactElement {
   const ideaErrorId = fieldError === null ? undefined : "writer-idea-error";
@@ -674,6 +676,9 @@ function WriterPageView({
             aria-live="polite"
             className="xb-writer-results"
           >
+            {refinement.status === "running" ? (
+              <Badge variant="info">Refining reach…</Badge>
+            ) : null}
             {isGenerating ? (
               <div className="xb-writer-results__skeletons">
                 <Skeleton height={92} label="Generating candidate one" width={540} />
@@ -1024,6 +1029,16 @@ export function createWriterPagePublicDriver(
         focusRequest: model.activeFocusRequest,
         html: render(),
       };
+    },
+    judge: async () => {
+      // Mirror the interactive handler: fire judge→refine without blocking on the
+      // refine pass, so a still-pending pass-2 renders the running state. Settling
+      // the event loop lets an already-resolved refine land before the snapshot.
+      void runJudgeDraft(options.apiClient, model, publishModel);
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+      });
+      return render();
     },
     openDetails: async (itemId: string) => {
       await runOpenDetails(options.apiClient, model, itemId, publishModel);
