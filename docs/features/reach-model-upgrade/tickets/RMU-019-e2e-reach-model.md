@@ -16,8 +16,8 @@ status: todo
 
 - **Pre/post-judge scale separation:** pass-1 and pass-2 `predictedMidImpressions` are produced by different quality bases (`qualityBasis` differs), and the test asserts the two are **never numerically diffed or compared as the same scale** — a test that treats them as equal-scale (renders or computes a delta) must fail.
 - The prediction card does not unmount/remount when `qualityBasis` switches `static → judge` — single component tree (a router-to-separate-implementations facade fails).
-- The live classifier never emits `one_liner` or `goal_share` (a regression that re-emits them fails), while both remain valid `detectedPostFormatSchema` members (a payload carrying them still parses).
-- A legacy `available` prediction (no regime fields, `qualityBasis` absent → treated as `static`) renders the original card with no regime block (backward-compat facade check).
+- `one_liner` and `goal_share` are fully removed from `PostFormat`/`detectedPostFormatSchema` and every map — a payload carrying either now FAILS to parse, and a regression re-adding the members fails.
+- The final build has no `rangeLow`/`rangeHigh`/`midpoint`/`confidence` prediction fields and no derived legacy mirror anywhere (schema, engine type, estimator, client) — the card renders the four regimes directly; a facade that left a compat shim in fails.
 
 ## Modules Under Test
 

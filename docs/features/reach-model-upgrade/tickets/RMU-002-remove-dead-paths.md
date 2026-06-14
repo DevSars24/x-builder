@@ -29,8 +29,8 @@ bridge cleanly rather than around the latent 0-10 path.
 ## Scope Boundaries / Out of Scope
 
 Behavior-preserving deletions only. Zero-trace: no stubs, no commented-out code, no TODOs
-left behind. No new logic; no tension-regex change; no schema change (RMU-001 already kept
-`one_liner`/`goal_share` valid).
+left behind. No new logic; no tension-regex change; no schema change (`one_liner`/`goal_share`
+are still emitted by the live classifier at this point — RMU-004 deletes them).
 
 ## Test Strategy & Fixture Ownership
 

@@ -36,8 +36,15 @@ New cascade order (first match wins; concepts, not final regexes — write robus
 16. `insight_share` — final fallback.
 17. `other` — empty input.
 
-Update `predictionFormatLabels` to be exhaustive over the full union. The classifier
-**stops emitting** `one_liner` and `goal_share` (still valid schema members per RMU-001).
+The classifier no longer produces `one_liner` or `goal_share` (their content is now split
+across `wisdom_one_liner` / `recognition_roast` and absorbed by `milestone`). **This ticket
+deletes `one_liner` and `goal_share` outright** — remove them from `PostFormat` (`types.ts`)
+and `detectedPostFormatSchema` (shared), and from every `Record<PostFormat, …>` map
+(`predictionFormatLabels` here; `varietyFormatLabels`/`formatEngagementMultipliers` are
+deleted wholesale in RMU-002/RMU-006). They were retained from RMU-001 only because the live
+classifier still emitted them — this is their last emitter, so they go now (no deprecation
+window, no kept-for-a-release members). After this ticket a payload carrying `one_liner`/`goal_share`
+fails to parse.
 
 ## Data Models
 

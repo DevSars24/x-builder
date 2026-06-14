@@ -25,7 +25,7 @@ status: todo
 - That it powers the judge's **audience-match** read; when it's empty, the Studio shows "Needs account profile" with a shortcut to add it.
 
 **Reference note:**
-- That the `one_liner` and `goal_share` format labels are **deprecated** (kept one release for older saved data, removed next release).
+- That the post-format taxonomy was reworked (new formats like fill-in-the-blank, CTA, fantasy question, binary choice, milestone, etc.) — described in plain user terms, not internal enum names. No deprecated-label note is needed; the old `one_liner`/`goal_share` values are removed, not retained.
 
 ## Scope Boundaries / Out of Scope
 
