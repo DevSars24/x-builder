@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { estimateEngagementRange } from "../prediction-estimator";
-import { bannedClaimPattern } from "./test-helpers";
+import {
+  computeRepeatMultiplier,
+  computeStatusMultiplier,
+  estimateEngagementRange,
+  staticQualityCompression,
+} from "../prediction-estimator";
+import { bannedClaimPattern, buildReachInput } from "./test-helpers";
 
 describe("prediction-estimator", () => {
   it("keeps engagement prediction math stable", () => {
@@ -58,5 +63,83 @@ describe("prediction-estimator", () => {
       multiplier: 1.15,
     });
     expect(signal?.label).not.toMatch(bannedClaimPattern);
+  });
+});
+
+describe("staticQualityCompression", () => {
+  it.each([
+    [92, 1.3],
+    [90, 1.3],
+    [70, 1.1],
+    [50, 1.0],
+    [25, 0.8],
+    [24, 0.6],
+    [10, 0.6],
+  ])("maps a static score of %s to the compression factor %s", (score, factor) => {
+    expect(staticQualityCompression(score)).toBe(factor);
+  });
+});
+
+describe("computeRepeatMultiplier", () => {
+  it("decays a matching format by the repeat base raised to its recent count", () => {
+    const input = buildReachInput({
+      format: "hot_take",
+      repeatHistory: [
+        { format: "hot_take", lastPostedAt: "2026-06-13T10:00:00.000Z", countLast7d: 2 },
+      ],
+    });
+
+    expect(computeRepeatMultiplier(input.repeatHistory, input.format)).toBeCloseTo(0.3025, 6);
+  });
+
+  it("floors the decay at the repeat floor for a heavily repeated format", () => {
+    const input = buildReachInput({
+      format: "hot_take",
+      repeatHistory: [
+        { format: "hot_take", lastPostedAt: "2026-06-13T10:00:00.000Z", countLast7d: 10 },
+      ],
+    });
+
+    expect(computeRepeatMultiplier(input.repeatHistory, input.format)).toBe(0.2);
+  });
+
+  it("returns 1 when no history entry matches the current format", () => {
+    const input = buildReachInput({
+      format: "hot_take",
+      repeatHistory: [
+        { format: "story", lastPostedAt: "2026-06-13T10:00:00.000Z", countLast7d: 5 },
+      ],
+    });
+
+    expect(computeRepeatMultiplier(input.repeatHistory, input.format)).toBe(1);
+  });
+
+  it("returns 1 when the repeat history is empty", () => {
+    const input = buildReachInput({ format: "hot_take", repeatHistory: [] });
+
+    expect(computeRepeatMultiplier(input.repeatHistory, input.format)).toBe(1);
+  });
+});
+
+describe("computeStatusMultiplier", () => {
+  it("floors a low-follower wisdom_one_liner at the status minimum", () => {
+    expect(computeStatusMultiplier("wisdom_one_liner", 1400)).toBe(0.3);
+  });
+
+  it("returns the neutral status for a wisdom_one_liner at the divisor follower count", () => {
+    expect(computeStatusMultiplier("wisdom_one_liner", 20000)).toBe(1.0);
+  });
+
+  it("caps a high-follower wisdom_one_liner at the status maximum", () => {
+    expect(computeStatusMultiplier("wisdom_one_liner", 58000)).toBe(1.5);
+  });
+
+  it("returns 1 for a non-wisdom format regardless of follower count", () => {
+    expect(computeStatusMultiplier("hot_take", 1400)).toBe(1);
+    expect(computeStatusMultiplier("hot_take", 58000)).toBe(1);
+  });
+
+  it("falls back to 1 for a wisdom_one_liner with undefined followers", () => {
+    expect(computeStatusMultiplier("wisdom_one_liner", undefined)).toBe(1);
   });
 });
