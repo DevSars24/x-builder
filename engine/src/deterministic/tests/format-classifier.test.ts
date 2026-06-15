@@ -213,3 +213,40 @@ describe("format classifier corrected cascade", () => {
     }
   });
 });
+
+describe("founder-story classification", () => {
+  it("classifies a multiline first-person founder narrative with stakes, reversal, and proof as founder_story", () => {
+    const text = [
+      "I almost shut the product down last winter.",
+      "We had two customers, no runway, and every investor said no.",
+      "Then we shipped the workflow rewrite and signed our first paid customer.",
+    ].join("\n");
+
+    expect(classifyPostFormat(text)).toBe("founder_story");
+  });
+
+  it.each([
+    {
+      name: "missing founder or business stakes",
+      text: [
+        "I spent the weekend rewriting the settings page.",
+        "It took longer than expected.",
+        "Now it finally feels simpler.",
+      ].join("\n"),
+    },
+    {
+      name: "milestone without the full narrative shape",
+      text: [
+        "We hit 1,000 users today.",
+        "Huge milestone for the product.",
+        "Thank you to everyone who tried it.",
+      ].join("\n"),
+    },
+    {
+      name: "abstract personal reversal without hard proof",
+      text: ["I failed a lot before this worked.", "But now it finally does."].join("\n"),
+    },
+  ])("does not classify $name as founder_story", ({ text }) => {
+    expect(classifyPostFormat(text)).not.toBe("founder_story");
+  });
+});

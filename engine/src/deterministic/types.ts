@@ -5,6 +5,7 @@ export type PostFormat =
   | "hot_take"
   | "audience_question"
   | "story"
+  | "founder_story"
   | "insight_share"
   | "ab_choice"
   | "connect"

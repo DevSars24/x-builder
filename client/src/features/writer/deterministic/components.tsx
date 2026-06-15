@@ -1,6 +1,7 @@
 import type { ChangeEvent, ReactElement, ReactNode } from "react";
 import type {
   AnalyzedPostItem,
+  DetectedPostFormat,
   EngagementPrediction,
   PostCoachViewModel,
 } from "@x-builder/shared";
@@ -39,6 +40,14 @@ const reachRangeLabel = (range: { low: number; high: number }): string =>
 
 const escapeLikelihoodLabel = (escapeProbability: number): string =>
   `${Math.round(escapeProbability * 100)}% escape`;
+
+export function detectedFormatLabel(format: DetectedPostFormat): string {
+  if (format === "founder_story") {
+    return "Founder story";
+  }
+
+  return format;
+}
 
 export type CandidateDeterministicSummaryProps = {
   item: AnalyzedPostItem;
@@ -768,7 +777,7 @@ export function DeterministicDetailInspector(
           },
           {
             label: "Detected format",
-            value: props.item.detectedFormat,
+            value: detectedFormatLabel(props.item.detectedFormat),
           },
           {
             label: "Analyzed at",

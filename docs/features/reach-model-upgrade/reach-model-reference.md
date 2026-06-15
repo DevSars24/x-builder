@@ -24,12 +24,18 @@ The post-format taxonomy was reworked. Every draft is sorted into one of the fam
 | Recognition / roast | Observational humor about a recognizable person or type, with no advice. |
 | Hot take | An opinion stated up front as a strong claim. |
 | Milestone | A first-person achievement or goal stated with a number. |
+| Founder story | A multiline first-person founder or product narrative with business stakes, a reversal, and hard proof or a concrete outcome. |
 | Story | A short multi-line first-person anecdote. |
 | Wisdom one-liner | A single line of advice or a truth claim. |
 | Insight share | A general observation that does not fit the other families. |
 | Connection invite | A plain "let's connect" with no other ask. |
 
 The older "one-liner" and "goal-share" labels are no longer used.
+
+Founder-story classification is live, but event/emotional amplification is not. Any future
+amplification would need account-history producers for beat identity and prior-use count,
+and it could only widen breakout-tail estimates, not raise the median estimate. The app must
+not ask users to add emotional content for reach.
 
 ## Related pages
 

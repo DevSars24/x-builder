@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 ---
 
 # FSR-004: [INT] Analyze API founder-story wiring
@@ -31,3 +31,9 @@ reach model, shared response schemas, and the client request builder for the
 pass-2 judge refine path.
 
 ## Pipeline Log
+
+- 2026-06-15 — Done. Added real `/posts/analyze` route coverage for a founder-story
+  draft with `judgeSignals`, proving the real classifier emits
+  `detectedFormat: "founder_story"`, the prediction uses the existing judge-basis
+  reach path, and no amplifier-shaped keys or founder-story amplifier signals cross
+  the API boundary.

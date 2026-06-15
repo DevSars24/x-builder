@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 ---
 
 # Founder Story Reach
@@ -60,3 +60,10 @@ emotional content for reach.
 ## Sub-Tickets Overview
 
 See `tickets/README.md` for the build order.
+
+## Pipeline Log
+
+- 2026-06-15 — Done on `codex/founder-story-reach-rgb-tdd`. RGB/TDD implementation
+  completed across shared schema contract, engine classifier/reach tables,
+  calibration seed mirrors, client detected-format labeling, static no-amplifier
+  policy, analyze-route integration, Studio E2E smoke, and reach docs.

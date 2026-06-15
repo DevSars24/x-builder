@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 ---
 
 # FSR-006: [DOC] Future amplifier note
@@ -43,3 +43,10 @@ user-facing reach guide under `docs/`.
   chosen path in the Pipeline Log — Diataxis: How-To.
 
 ## Pipeline Log
+
+- 2026-06-15 — Done. Updated the reach-model epic, reach-model reference, and
+  `docs/how-to/estimate-post-reach.md`: maintainer docs state event/emotional
+  amplification is future-only, requires beat identity plus prior-use count, and
+  may widen only the upper tail; the user-facing how-to describes only the visible
+  `Founder story` classification and does not instruct users to add emotional
+  material.

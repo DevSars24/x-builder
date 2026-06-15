@@ -79,6 +79,13 @@ repeat decay and status curve from per-bucket aggregation. Validation: leave-one
 dependency. Accuracy targets (rho ≥ 0.5) are untestable until the corpus lands — calibration
 tickets test **mechanics only**.
 
+**Founder-story amendment.** `founder_story` is a runtime detected format now: a multiline
+first-person founder/product narrative with business stakes, reversal language, and hard
+proof or a concrete outcome. Event/emotional amplification remains future-only. It requires
+future account/history producers for beat identity and prior-use count, and even then may
+only widen the upper tail — it must not lift the median. The app may classify text that is
+already present, but it must not ask users to add emotional content for reach.
+
 ## API Endpoints
 
 - `POST /posts/analyze` — extend `scoringContext` (new Phase-0 inputs + optional `judgeSignals`); response prediction gains four-regime fields + `qualityBasis`/`baseSource`/`reachModelVersion`. Two-pass: pass-1 (no `judgeSignals`) and pass-2 (with `judgeSignals`).

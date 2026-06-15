@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 ---
 
 # FSR-003: [CHORE] Runtime no-amplifier verification
@@ -53,3 +53,8 @@ emotional content for reach.
 - `pnpm lint` passes.
 
 ## Pipeline Log
+
+- 2026-06-15 — Done. Added `no-founder-story-amplifier-policy.test.ts`, scanning
+  runtime contract paths, client UI, judge prompt code, and the user-facing reach
+  how-to for forbidden runtime amplifier fields and emotional-growth prompt copy,
+  with synthetic matcher guards to prevent vacuous passes.

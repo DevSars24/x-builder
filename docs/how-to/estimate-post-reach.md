@@ -9,6 +9,11 @@ The Studio scores every draft you write and, alongside the quality verdict, pred
 
 Reach is driven mainly by the **format** of your post and the **size of your audience** — not by how clean the writing is. The estimate works on its own, and the most useful thing you can add is your real impressions baseline (see Advanced context below).
 
+When a draft is a founder story, the details panel may show **Detected format: Founder story**.
+That label means the draft already reads like a first-person founder or product narrative
+with stakes, a turn, and concrete proof. It is only a classification label; the Studio does
+not ask you to make a post more personal for reach.
+
 ## Read the four reach numbers
 
 After a draft is scored, the prediction shows a headline expected-reach number plus four signals that describe the spread of likely outcomes. Reach has a long tail: most posts land in a normal range, and a few break out far beyond it. The four numbers describe both cases at once.

@@ -5,6 +5,7 @@ import {
   engineBaseUrl,
   fulfillJson,
   fulfillPreflight,
+  judgeBody,
   requestJson,
   settingsBody,
   statusBody,
@@ -44,12 +45,17 @@ type AnalyzeRequest = {
   };
   scoringContext: {
     followers?: number;
+    judgeSignals?: {
+      impressions: number;
+      replies: number;
+    };
   };
 };
 
 type CapturedRequests = {
   analyze: AnalyzeRequest[];
   generate: unknown[];
+  judge: unknown[];
 };
 
 type AnalysisSource = {
@@ -61,6 +67,7 @@ type AnalysisSource = {
 type StubEngineOptions = {
   analyze?: (route: Route, body: AnalyzeRequest, requestCount: number) => Promise<void>;
   generate?: (route: Route, body: unknown, requestCount: number) => Promise<void>;
+  judge?: (route: Route, body: unknown, requestCount: number) => Promise<void>;
 };
 
 function postCoach(mode: "preview" | "expanded", index: number) {
@@ -270,6 +277,14 @@ async function stubEngine(
       return;
     }
 
+    const body = requestJson(route);
+    captured.judge.push(body);
+
+    if (options.judge !== undefined) {
+      await options.judge(route, body, captured.judge.length);
+      return;
+    }
+
     await route.fulfill({
       body: JSON.stringify({
         code: "judge_failed",
@@ -336,6 +351,7 @@ test("studio scores pasted draft automatically with prediction above coach", asy
   const captured: CapturedRequests = {
     analyze: [],
     generate: [],
+    judge: [],
   };
   const draft = "Launch notes get better when they name the tradeoff, not just the feature.";
 
@@ -396,12 +412,106 @@ test("studio scores pasted draft automatically with prediction above coach", asy
   expect(pageText).not.toMatch(/live trend/i);
 });
 
+test("studio shows founder-story detected format without amplifier UI or judge fields", async ({
+  page,
+}) => {
+  const captured: CapturedRequests = {
+    analyze: [],
+    generate: [],
+    judge: [],
+  };
+  const draft = [
+    "I almost shut the product down last winter.",
+    "We had two customers, no runway, and every investor said no.",
+    "Then we shipped the workflow rewrite and signed our first paid customer.",
+  ].join("\n");
+
+  await stubEngine(page, captured, {
+    analyze: async (route, body, requestCount) => {
+      const qualityBasis = body.scoringContext.judgeSignals === undefined ? "static" : "judge";
+
+      await fulfillJson(route, 200, {
+        items: body.items.map((item, index) => {
+          const candidate = {
+            format: item.sourceFormat,
+            id: item.id,
+            text: item.text,
+          };
+          const scored = scoredCandidate(candidate, body.presentation.postCoachMode, index + 1);
+
+          return {
+            ...scored,
+            detectedFormat: "founder_story",
+            prediction:
+              scored.prediction.status === "available"
+                ? {
+                    ...scored.prediction,
+                    qualityBasis,
+                    predictedMidImpressions: qualityBasis === "judge" ? 620 : 480,
+                  }
+                : scored.prediction,
+          };
+        }),
+      });
+
+      if (requestCount === 3) {
+        expect(body.scoringContext.judgeSignals).toEqual({
+          impressions: 65,
+          replies: 80,
+        });
+        expect(Object.keys(body.scoringContext.judgeSignals ?? {}).sort()).toEqual([
+          "impressions",
+          "replies",
+        ]);
+      }
+    },
+    judge: async (route) => {
+      await fulfillJson(route, 200, judgeBody());
+    },
+  });
+  await page.goto("/writer");
+
+  await page.getByRole("spinbutton", { name: "Followers" }).fill("4200");
+  await page.getByRole("textbox", { name: "Draft" }).fill(draft);
+
+  await expect.poll(() => captured.analyze.length).toBe(1);
+
+  const results = page.getByRole("region", { name: "Studio evaluation" });
+  await expect(results.getByRole("heading", { name: "Engagement Prediction" })).toBeVisible();
+  await results.getByRole("button", { name: "Details" }).click();
+
+  await expect.poll(() => captured.analyze.length).toBe(2);
+
+  const details = page.getByRole("dialog", { name: "Deterministic details" });
+  await expect(details.getByText("Detected format")).toBeVisible();
+  await expect(details.getByText("Founder story")).toBeVisible();
+  await expect(details.getByText("founder_story")).toHaveCount(0);
+  await details.getByRole("button", { name: "Close deterministic details" }).click();
+
+  await page.getByRole("button", { name: "Judge draft" }).click();
+
+  await expect.poll(() => captured.judge.length).toBe(1);
+  await expect.poll(() => captured.analyze.length).toBe(3);
+
+  const judgePanel = page.getByRole("region", { name: "Draft judge" });
+  await expect(judgePanel.getByText("Slight rework")).toBeVisible();
+  await expect(results.getByText("Refined with judge signal")).toBeVisible();
+
+  const pageText = await page.locator("body").innerText();
+  expect(pageText).not.toMatch(/amplifier/i);
+  expect(pageText).not.toMatch(/make it more emotional/i);
+  expect(pageText).not.toMatch(/add personal stakes/i);
+  expect(pageText).not.toMatch(/share something vulnerable/i);
+  expect(pageText).not.toMatch(/use trauma|use adversity/i);
+});
+
 test("studio missing-followers recovery focuses the manual context panel", async ({
   page,
 }) => {
   const captured: CapturedRequests = {
     analyze: [],
     generate: [],
+    judge: [],
   };
   const draft = "Show deterministic scoring without follower context.";
 
@@ -450,6 +560,7 @@ test("studio retries deterministic scoring without generating alternatives", asy
   const captured: CapturedRequests = {
     analyze: [],
     generate: [],
+    judge: [],
   };
   const draft = "Make deterministic recovery obvious without changing the draft copy.";
   const draftCandidate = {
@@ -528,6 +639,7 @@ test("studio keeps draft visible when deterministic analysis route fails", async
   const captured: CapturedRequests = {
     analyze: [],
     generate: [],
+    judge: [],
   };
   const draft = "Keep the pasted draft on screen when scoring cannot reach the route.";
   const draftInput = () => page.getByRole("textbox", { name: "Draft" });

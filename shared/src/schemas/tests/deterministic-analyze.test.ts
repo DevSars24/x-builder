@@ -413,6 +413,10 @@ describe("detected post format enum widening", () => {
     }
   });
 
+  it("accepts founder_story as a detected post format", () => {
+    expect(detectedPostFormatSchema.safeParse("founder_story").success).toBe(true);
+  });
+
   it("no longer accepts the deleted one_liner and goal_share members once the classifier stops emitting them", () => {
     expect(detectedPostFormatSchema.safeParse("one_liner").success).toBe(false);
     expect(detectedPostFormatSchema.safeParse("goal_share").success).toBe(false);
@@ -457,6 +461,25 @@ describe("scoring context schema", () => {
     expect(parsed.scoringContext.plannedHourUtc).toBeUndefined();
     expect(parsed.scoringContext.accountAgeYears).toBeUndefined();
     expect(parsed.scoringContext.judgeSignals).toBeUndefined();
+  });
+
+  it("strips amplifier-shaped request keys without changing existing unknown-key semantics", () => {
+    const result = analyzePostsRequestSchema.safeParse({
+      items: [{ id: "candidate-1", text: "Ship the smaller version that creates proof." }],
+      scoringContext: {
+        followers: 2400,
+        amplifier: "founder_story_event",
+        eventContext: { beat: "launch" },
+      },
+      presentation: {},
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      throw new Error("Expected unknown scoring-context keys to strip, not reject.");
+    }
+    expect(result.data.scoringContext).not.toHaveProperty("amplifier");
+    expect(result.data.scoringContext).not.toHaveProperty("eventContext");
   });
 
   it("retains a fully populated scoring context including media, planning, and judge signals", () => {
@@ -629,6 +652,19 @@ describe("available engagement prediction four-regime contract", () => {
     expect(result.data).not.toHaveProperty("rangeHigh");
     expect(result.data).not.toHaveProperty("midpoint");
     expect(result.data).not.toHaveProperty("confidence");
+  });
+
+  it("strips amplifier-shaped prediction keys from parsed available predictions", () => {
+    const result = availableEngagementPredictionSchema.safeParse({
+      ...availablePrediction,
+      amplifierType: "founder_story_event",
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      throw new Error("Expected unknown prediction keys to strip, not reject.");
+    }
+    expect(result.data).not.toHaveProperty("amplifierType");
   });
 
   it("rejects a complete available prediction that omits any single required four-regime field", () => {

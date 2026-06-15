@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 ---
 
 # FSR-001: [FND] Runtime taxonomy contract
@@ -91,3 +91,8 @@ Unknown object keys still strip according to existing Zod behavior. The new enum
 member must not make generic strings acceptable.
 
 ## Pipeline Log
+
+- 2026-06-15 — Done. Red tests added for `founder_story` schema parsing,
+  amplifier-shaped unknown-key stripping, and `DeterministicDetailInspector`
+  rendering `Founder story` instead of raw `founder_story`; Green added the
+  shared enum member, engine `PostFormat` mirror, label helper, and details usage.

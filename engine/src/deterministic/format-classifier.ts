@@ -6,6 +6,7 @@ export const predictionFormatLabels: Record<PostFormat, string> = {
   hot_take: "Hot take",
   audience_question: "Audience-Q",
   story: "Story",
+  founder_story: "Founder story",
   insight_share: "Insight",
   ab_choice: "A/B",
   connect: "Connect",
@@ -47,6 +48,12 @@ const milestoneGoalPhrase = /\b(my goal|aiming to|by end of|i'?m going to)\b/i;
 
 const recognitionMarkers =
   /(\bwe all know\b|\bi know a guy\b|\bthat one (guy|friend|founder|person|dev|engineer|coworker)\b|\byour .*\bfriends?\b)/i;
+const founderStakePattern =
+  /\b(founder|startup|company|product|customer|users|revenue|mrr|arr|runway|investor|funding|sales|signups|launched|shipped|hired|quit|failed|lost|burned)\b/i;
+const reversalPattern =
+  /\b(but|then|until|after|instead|turned out|ended up|now|finally)\b/i;
+const hardProofPattern =
+  /(\$[\d,]+|\b\d+(\.\d+)?\s?(k|m|million|billion|%|percent)?\b|\b(first|paid|launched|shipped|closed|signed)\s+(customer|user|deal|sale|contract)\b)/i;
 
 export function classifyPostFormat(text: string): PostFormat {
   const trimmedText = text.trim();
@@ -114,7 +121,18 @@ export function classifyPostFormat(text: string): PostFormat {
     return "recognition_roast";
   }
 
-  // 10. milestone — first person + number + (milestone noun OR goal phrase).
+  // 10. founder_story — first-person founder narrative with stakes, reversal, and hard proof.
+  if (
+    visibleLines.length >= 3 &&
+    hasFirstPerson &&
+    founderStakePattern.test(trimmedText) &&
+    reversalPattern.test(trimmedText) &&
+    hardProofPattern.test(trimmedText)
+  ) {
+    return "founder_story";
+  }
+
+  // 11. milestone — first person + number + (milestone noun OR goal phrase).
   if (
     hasFirstPerson &&
     /\d/.test(trimmedText) &&
@@ -123,17 +141,17 @@ export function classifyPostFormat(text: string): PostFormat {
     return "milestone";
   }
 
-  // 11. story — three or more visible lines in first person.
+  // 12. story — three or more visible lines in first person.
   if (visibleLines.length >= 3 && hasFirstPerson) {
     return "story";
   }
 
-  // 12. ab_choice — bulleted list, no inline "X or Y?" question.
+  // 13. ab_choice — bulleted list, no inline "X or Y?" question.
   if (/^[-*]\s+/m.test(trimmedText) && visibleLines.length <= 5) {
     return "ab_choice";
   }
 
-  // 13. nuanced_question — multi-clause / conditional / self-incriminating question.
+  // 14. nuanced_question — multi-clause / conditional / self-incriminating question.
   if (
     isQuestion &&
     (/\bbe honest\b/i.test(trimmedText) ||
@@ -144,16 +162,16 @@ export function classifyPostFormat(text: string): PostFormat {
     return "nuanced_question";
   }
 
-  // 14. genuine_question — easy single-clause question fallback.
+  // 15. genuine_question — easy single-clause question fallback.
   if (isQuestion && visibleLines.length <= 3) {
     return "genuine_question";
   }
 
-  // 15. wisdom_one_liner — single advice/truth line (no question, no story).
+  // 16. wisdom_one_liner — single advice/truth line (no question, no story).
   if (visibleLines.length === 1) {
     return "wisdom_one_liner";
   }
 
-  // 16. insight_share — multi-line statement that matched nothing earlier.
+  // 17. insight_share — multi-line statement that matched nothing earlier.
   return "insight_share";
 }

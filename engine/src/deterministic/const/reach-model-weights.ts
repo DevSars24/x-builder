@@ -21,6 +21,7 @@ export const formatReachTable: Record<
   milestone: { p50Multiplier: 1.0, escapeProbability: 0.05 }, // CALIBRATE
   ab_choice: { p50Multiplier: 1.2, escapeProbability: 0.1 }, // CALIBRATE
   story: { p50Multiplier: 0.8, escapeProbability: 0.04 }, // CALIBRATE
+  founder_story: { p50Multiplier: 0.8, escapeProbability: 0.04 }, // CALIBRATE
   nuanced_question: { p50Multiplier: 0.5, escapeProbability: 0.03 }, // CALIBRATE
   wisdom_one_liner: { p50Multiplier: 1.0, escapeProbability: 0.03 }, // CALIBRATE
   insight_share: { p50Multiplier: 0.3, escapeProbability: 0.02 }, // CALIBRATE
@@ -44,6 +45,7 @@ export const replyRateTable: Record<PostFormat, number> = {
   hot_take: 0.008, // CALIBRATE
   other: 0.005, // CALIBRATE
   story: 0.005, // CALIBRATE
+  founder_story: 0.005, // CALIBRATE
   nuanced_question: 0.005, // CALIBRATE
   ab_choice: 0.005, // CALIBRATE
   wisdom_one_liner: 0.005, // CALIBRATE

@@ -897,4 +897,24 @@ describe("DeterministicDetailInspector", () => {
     expect(text).toContain("Add followers");
     expect(text).toContain("Retry expanded review");
   });
+
+  it("renders founder_story with the human detected-format label", async () => {
+    const { DeterministicDetailInspector } = await loadDeterministicComponents();
+    const item = scoredItem({
+      detectedFormat: "founder_story" as ScoredAnalyzedPostItem["detectedFormat"],
+    });
+
+    const html = render(
+      <DeterministicDetailInspector
+        state="ready"
+        item={item}
+        onRetryExpandedPostCoach={vi.fn()}
+      />,
+    );
+    const text = textContent(html);
+
+    expect(text).toContain("Detected format");
+    expect(text).toContain("Founder story");
+    expect(text).not.toContain("founder_story");
+  });
 });

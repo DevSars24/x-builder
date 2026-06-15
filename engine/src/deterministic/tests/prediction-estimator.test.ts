@@ -284,6 +284,41 @@ describe("computeReachModel", () => {
     expect(computeReachModel(input)).toBeNull();
   });
 
+  it("uses story-like weights for founder_story without adding amplifier-shaped output", () => {
+    const storyPrediction = requirePrediction(
+      buildReachInput({
+        followers: 5000,
+        format: "story",
+        score: QUALITY_SCORE,
+      }),
+    );
+    const founderStoryPrediction = requirePrediction(
+      buildReachInput({
+        followers: 5000,
+        format: "founder_story",
+        score: QUALITY_SCORE,
+      }),
+    );
+    const output = founderStoryPrediction as unknown as Record<string, unknown>;
+
+    expect(founderStoryPrediction.predictedMidImpressions).toBe(
+      storyPrediction.predictedMidImpressions,
+    );
+    expect(founderStoryPrediction.escapeProbability).toBe(
+      storyPrediction.escapeProbability,
+    );
+    expect(founderStoryPrediction.expectedReplies).toBe(
+      storyPrediction.expectedReplies,
+    );
+    expect(output).not.toHaveProperty("amplifierType");
+    expect(output).not.toHaveProperty("amplifier");
+    expect(
+      founderStoryPrediction.signals.some((signal) =>
+        signal.signal_key.startsWith("founder_story_"),
+      ),
+    ).toBe(false);
+  });
+
   it("orders both regimes by construction across every format and multiplier product", () => {
     const formats = Object.keys(formatReachTable) as Array<keyof typeof formatReachTable>;
 

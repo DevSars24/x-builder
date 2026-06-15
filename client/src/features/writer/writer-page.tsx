@@ -198,21 +198,36 @@ function CandidateAnalysis({
 function DraftAnalysis({
   candidate,
   onFocusFollowers,
+  onOpenDetails,
   onRetryScore,
   state,
 }: {
   candidate: WriterCandidate;
   onFocusFollowers: () => void;
+  onOpenDetails: (itemId: string) => void;
   onRetryScore: (itemId: string) => void;
   state: CandidateAnalysisState;
 }): ReactElement | null {
   if (state.status === "ready" || state.status === "failed" || state.status === "stale") {
     return (
-      <DraftDeterministicEvaluation
-        item={state.item}
-        onAddFollowers={onFocusFollowers}
-        onRetryScore={onRetryScore}
-      />
+      <div className="xb-draft-analysis">
+        <div className="xb-writer-candidate__header">
+          <Badge variant="info">Draft</Badge>
+          <Button
+            data-focus-target={`candidate-details:${candidate.id}`}
+            onClick={() => onOpenDetails(candidate.id)}
+            type="button"
+            variant="secondary"
+          >
+            Details
+          </Button>
+        </div>
+        <DraftDeterministicEvaluation
+          item={state.item}
+          onAddFollowers={onFocusFollowers}
+          onRetryScore={onRetryScore}
+        />
+      </div>
     );
   }
 
@@ -694,6 +709,7 @@ function WriterPageView({
                       candidate={candidate}
                       key={candidate.id}
                       onFocusFollowers={onFocusFollowers}
+                      onOpenDetails={onOpenDetails}
                       onRetryScore={onRetryScore}
                       state={analysisByCandidateId[candidate.id] ?? { status: "idle" }}
                     />

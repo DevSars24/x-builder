@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 ---
 
 # FSR-002: Founder-story classifier, label, and weights
@@ -137,3 +137,9 @@ without hard proof are generic stories. Private named examples from research
 context must not appear in tests or fixtures.
 
 ## Pipeline Log
+
+- 2026-06-15 — Done. Red tests added for positive founder-story classification,
+  negative missing-ingredient cases, story-like reach output, and no
+  founder-story amplifier signals; Green added the predicate before milestone and
+  generic story, plus story-like `// CALIBRATE` reach/reply entries and calibration
+  seed mirrors.

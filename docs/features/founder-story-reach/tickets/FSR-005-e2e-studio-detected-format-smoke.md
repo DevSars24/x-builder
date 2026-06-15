@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 ---
 
 # FSR-005: [E2E] Studio detected-format smoke
@@ -30,3 +30,8 @@ Studio writer route, deterministic details surface, API client/request builder,
 and judge refine flow with the existing mocked judge boundary.
 
 ## Pipeline Log
+
+- 2026-06-15 — Done. Added a Studio Playwright smoke for a pasted founder-story
+  draft: score, open deterministic details, see `Detected format: Founder story`,
+  run Judge draft, assert the refine request carries only `{ impressions, replies }`,
+  and verify no amplifier/emotional-growth UI copy appears.

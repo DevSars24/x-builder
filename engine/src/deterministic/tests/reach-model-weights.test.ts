@@ -24,6 +24,7 @@ const allFormats: readonly PostFormat[] = [
   "hot_take",
   "audience_question",
   "story",
+  "founder_story",
   "insight_share",
   "ab_choice",
   "connect",
@@ -58,6 +59,7 @@ describe("formatReachTable", () => {
     milestone: { p50Multiplier: 1.0, escapeProbability: 0.05 },
     ab_choice: { p50Multiplier: 1.2, escapeProbability: 0.1 },
     story: { p50Multiplier: 0.8, escapeProbability: 0.04 },
+    founder_story: { p50Multiplier: 0.8, escapeProbability: 0.04 },
     nuanced_question: { p50Multiplier: 0.5, escapeProbability: 0.03 },
     wisdom_one_liner: { p50Multiplier: 1.0, escapeProbability: 0.03 },
     insight_share: { p50Multiplier: 0.3, escapeProbability: 0.02 },
@@ -97,6 +99,7 @@ describe("replyRateTable", () => {
     // everything else falls to the 0.005 floor
     other: 0.005,
     story: 0.005,
+    founder_story: 0.005,
     nuanced_question: 0.005,
     ab_choice: 0.005,
     wisdom_one_liner: 0.005,
@@ -111,6 +114,7 @@ describe("replyRateTable", () => {
     for (const format of [
       "other",
       "story",
+      "founder_story",
       "nuanced_question",
       "ab_choice",
       "wisdom_one_liner",

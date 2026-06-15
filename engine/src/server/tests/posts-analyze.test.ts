@@ -326,6 +326,59 @@ describe("posts analyze API", () => {
     }
   });
 
+  it("detects founder_story through the real analyze route without amplifier-shaped response fields", async () => {
+    const app = buildServer();
+    const founderStoryDraft = [
+      "I almost shut the product down last winter.",
+      "We had two customers, no runway, and every investor said no.",
+      "Then we shipped the workflow rewrite and signed our first paid customer.",
+    ].join("\n");
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/posts/analyze",
+        payload: analyzeRequest({
+          items: [
+            {
+              id: "founder-story",
+              text: founderStoryDraft,
+            },
+          ],
+          scoringContext: {
+            followers: 3600,
+            judgeSignals: { impressions: 65, replies: 80 },
+          },
+        }),
+      });
+
+      expect(response.statusCode).toBe(200);
+
+      const rawBody = parseJsonPayload(response.body);
+      const result = parseAnalyzeResponse(rawBody);
+      const item = expectScoredItem(result.items[0]);
+
+      expect(item.detectedFormat).toBe("founder_story");
+      expect(item.prediction.status).toBe("available");
+
+      if (item.prediction.status !== "available") {
+        throw new Error("Expected available founder-story prediction.");
+      }
+
+      expect(item.prediction.qualityBasis).toBe("judge");
+      expect(item.prediction.signals.some((signal) => signal.signal_key.startsWith("founder_story_"))).toBe(false);
+
+      const wire = JSON.stringify(rawBody);
+      expect(wire).not.toContain("amplifierType");
+      expect(wire).not.toContain("eventContext");
+      expect(wire).not.toContain("founder_story_event");
+      expect(wire).not.toContain("founder_story_personal_stakes");
+      expect(wire).not.toContain("founder_story_reuse_decay");
+    } finally {
+      await app.close();
+    }
+  });
+
   it("rejects invalid analysis requests with the existing validation error shape", async () => {
     const app = buildServer();
 
