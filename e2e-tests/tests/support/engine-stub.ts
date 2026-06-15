@@ -130,8 +130,8 @@ export function statusBody(options: EngineStubOptions = {}) {
 }
 
 // Schema-shaped to the real /settings contract (appSettingsResponseSchema). The
-// model fields always round-trip; the live settings form renders all three
-// model inputs regardless, so their presence is behavior-neutral for the form.
+// model fields always round-trip; the live settings form renders one active
+// model input and keeps the inactive provider values in the settings draft.
 export function settingsBody(options: EngineStubOptions = {}) {
   const resolved = resolveEngineStub(options);
 

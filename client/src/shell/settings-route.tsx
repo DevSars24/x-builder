@@ -35,6 +35,10 @@ type SwitchSettingsFieldName = Extract<
 >;
 
 type SelectSettingsFieldName = Extract<keyof AppSettings, "judgeProvider">;
+type ModelSettingsFieldName = Extract<
+  keyof AppSettings,
+  "codexModel" | "claudeModel" | "cursorModel"
+>;
 
 export type SettingsRouteApiClient = {
   getSettings: () => Promise<AppSettingsResponse>;
@@ -110,9 +114,14 @@ const localEngineUrlError = "Enter a valid local engine URL.";
 const dirtyReadinessHelper = "Save settings before testing readiness.";
 const judgeProviderHelper =
   "Save, then run Test readiness to verify the provider.";
-const modelFieldHelper = "Leave empty to use the provider's default.";
 const accountProfileHelper =
   "Describe your audience and niche. The judge uses this to score audience match.";
+
+const modelFieldByProvider = {
+  "codex-cli": "codexModel",
+  "claude-cli": "claudeModel",
+  "cursor-cli": "cursorModel",
+} as const satisfies Record<AppSettings["judgeProvider"], ModelSettingsFieldName>;
 
 function createInitialModel(): SettingsRouteModel {
   return {
@@ -149,13 +158,16 @@ function modelFromDefaults(): SettingsRouteModel {
 }
 
 function settingsEqual(left: AppSettings, right: AppSettings): boolean {
+  const optionalTextEqual = (leftValue?: string, rightValue?: string) =>
+    (leftValue ?? "") === (rightValue ?? "");
+
   return (
     left.engineBaseUrl === right.engineBaseUrl &&
     left.judgeProvider === right.judgeProvider &&
-    left.codexModel === right.codexModel &&
-    left.claudeModel === right.claudeModel &&
-    left.cursorModel === right.cursorModel &&
-    left.accountProfile === right.accountProfile &&
+    optionalTextEqual(left.codexModel, right.codexModel) &&
+    optionalTextEqual(left.claudeModel, right.claudeModel) &&
+    optionalTextEqual(left.cursorModel, right.cursorModel) &&
+    optionalTextEqual(left.accountProfile, right.accountProfile) &&
     left.showDeterministicDetails === right.showDeterministicDetails &&
     left.storagePath === right.storagePath
   );
@@ -310,12 +322,14 @@ function fieldId(field: keyof AppSettings): string {
 }
 
 function renderTextField({
+  disabled = false,
   error,
   label,
   name,
   onChange,
   value,
 }: {
+  disabled?: boolean;
   error?: string | null;
   label: string;
   name: TextSettingsFieldName;
@@ -331,6 +345,7 @@ function renderTextField({
       <input
         aria-describedby={error ? errorId : undefined}
         aria-invalid={error ? true : undefined}
+        disabled={disabled}
         id={id}
         name={name}
         onChange={(event: ChangeEvent<HTMLInputElement>) => {
@@ -349,12 +364,14 @@ function renderTextField({
 }
 
 function renderTextAreaField({
+  disabled = false,
   helper,
   label,
   name,
   onChange,
   value,
 }: {
+  disabled?: boolean;
   helper: string;
   label: string;
   name: TextSettingsFieldName;
@@ -369,6 +386,7 @@ function renderTextAreaField({
       <span className="xb-settings-route__label">{label}</span>
       <textarea
         aria-describedby={helperId}
+        disabled={disabled}
         id={id}
         name={name}
         onChange={(event: ChangeEvent<HTMLTextAreaElement>) => {
@@ -386,11 +404,13 @@ function renderTextAreaField({
 
 function renderSwitch({
   checked,
+  disabled = false,
   label,
   name,
   onChange,
 }: {
   checked: boolean;
+  disabled?: boolean;
   label: string;
   name: SwitchSettingsFieldName;
   onChange: (field: SwitchSettingsFieldName, value: boolean) => void;
@@ -398,6 +418,7 @@ function renderSwitch({
   return (
     <Switch
       checked={checked}
+      disabled={disabled}
       id={fieldId(name)}
       label={label}
       name={name}
@@ -413,12 +434,14 @@ function renderFieldHelper(text: string): ReactElement {
 }
 
 function renderSelectField({
+  disabled = false,
   helper,
   label,
   name,
   onChange,
   value,
 }: {
+  disabled?: boolean;
   helper: string;
   label: string;
   name: SelectSettingsFieldName;
@@ -439,6 +462,7 @@ function renderSelectField({
     <label className="xb-settings-route__field" htmlFor={id}>
       <span className="xb-settings-route__label">{label}</span>
       <select
+        disabled={disabled}
         id={id}
         name={name}
         onChange={(event: ChangeEvent<HTMLSelectElement>) => {
@@ -465,6 +489,18 @@ function orderedSwitches(settings: AppSettings) {
       name: "showDeterministicDetails" as const,
     },
   ];
+}
+
+function modelFieldForProvider(
+  provider: AppSettings["judgeProvider"],
+): ModelSettingsFieldName {
+  return modelFieldByProvider[provider] ?? "codexModel";
+}
+
+function modelHelperForProvider(provider: AppSettings["judgeProvider"]): string {
+  const providerLabel = judgeProviderLabels[provider] ?? "selected provider";
+
+  return `Leave empty to use ${providerLabel}'s default.`;
 }
 
 function readinessItems(status: AppStatus): SubsystemStatus[] {
@@ -497,8 +533,11 @@ function SettingsRouteView({
   onUseDefaults: () => void;
 }): ReactElement {
   const dirty = isDirty(model);
-  const canSave = dirty && model.engineUrlError === null && !model.isSaving;
+  const controlsDisabled = model.isLoading || model.isSaving;
+  const canSave =
+    dirty && model.engineUrlError === null && !model.isLoading && !model.isSaving;
   const canTestReadiness = !dirty && !model.isTesting && !model.isLoading;
+  const activeModelField = modelFieldForProvider(model.draft.judgeProvider);
   const errorRecovery = model.error?.retryable ? (
     model.errorKind === "load" ? (
       <>
@@ -599,6 +638,7 @@ function SettingsRouteView({
 
       <div className="xb-settings-route__form" aria-busy={model.isLoading}>
         {renderTextField({
+          disabled: controlsDisabled,
           error: model.engineUrlError,
           label: "Engine URL",
           name: "engineBaseUrl",
@@ -606,12 +646,14 @@ function SettingsRouteView({
           value: model.draft.engineBaseUrl,
         })}
         {renderTextField({
+          disabled: controlsDisabled,
           label: "Storage path",
           name: "storagePath",
           onChange: onUpdateField,
           value: model.draft.storagePath,
         })}
         {renderSelectField({
+          disabled: controlsDisabled,
           helper: judgeProviderHelper,
           label: "Judge provider",
           name: "judgeProvider",
@@ -619,6 +661,7 @@ function SettingsRouteView({
           value: model.draft.judgeProvider,
         })}
         {renderTextAreaField({
+          disabled: controlsDisabled,
           helper: accountProfileHelper,
           label: "Account profile",
           name: "accountProfile",
@@ -626,33 +669,21 @@ function SettingsRouteView({
           value: model.draft.accountProfile ?? "",
         })}
 
-        <div className="xb-settings-route__models">
-          {renderTextField({
-            label: "Codex model",
-            name: "codexModel",
-            onChange: onUpdateField,
-            value: model.draft.codexModel ?? "",
-          })}
-          {renderTextField({
-            label: "Claude model",
-            name: "claudeModel",
-            onChange: onUpdateField,
-            value: model.draft.claudeModel ?? "",
-          })}
-          {renderTextField({
-            label: "Cursor model",
-            name: "cursorModel",
-            onChange: onUpdateField,
-            value: model.draft.cursorModel ?? "",
-          })}
-          {renderFieldHelper(modelFieldHelper)}
-        </div>
+        {renderTextField({
+          disabled: controlsDisabled,
+          label: "Model",
+          name: activeModelField,
+          onChange: onUpdateField,
+          value: model.draft[activeModelField] ?? "",
+        })}
+        {renderFieldHelper(modelHelperForProvider(model.draft.judgeProvider))}
 
         <div className="xb-settings-route__switches">
           {orderedSwitches(model.draft).map((switchConfig) =>
             <div key={switchConfig.name}>
               {renderSwitch({
                 ...switchConfig,
+                disabled: controlsDisabled,
                 onChange: onUpdateSwitch,
               })}
             </div>,
@@ -826,13 +857,25 @@ export function SettingsRoute({
 
     try {
       const response = await apiClient.saveSettings(model.draft);
-      const status = await apiClient.getStatus();
-      onStatusRefresh?.(status);
-      setModel({
+      const savedModel = {
         ...modelFromResponse(response),
-        lastReadiness: status,
         successMessage: "Settings saved",
-      });
+      };
+
+      try {
+        const status = await apiClient.getStatus();
+        onStatusRefresh?.(status);
+        setModel({
+          ...savedModel,
+          lastReadiness: status,
+        });
+      } catch (error) {
+        setModel({
+          ...savedModel,
+          error: normalizeSettingsError(error, statusError()),
+          errorKind: "status",
+        });
+      }
     } catch (error) {
       setModel((current) => ({
         ...current,
@@ -1018,13 +1061,25 @@ export function createSettingsRoutePublicDriver(
 
       try {
         const response = await options.apiClient.saveSettings(model.draft);
-        const status = await options.apiClient.getStatus();
-        options.onStatusRefresh?.(status);
         model = {
           ...modelFromResponse(response),
-          lastReadiness: status,
           successMessage: "Settings saved",
         };
+
+        try {
+          const status = await options.apiClient.getStatus();
+          options.onStatusRefresh?.(status);
+          model = {
+            ...model,
+            lastReadiness: status,
+          };
+        } catch (error) {
+          model = {
+            ...model,
+            error: normalizeSettingsError(error, statusError()),
+            errorKind: "status",
+          };
+        }
       } catch (error) {
         model = {
           ...model,

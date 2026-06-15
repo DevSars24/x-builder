@@ -305,6 +305,35 @@ test("settings page exposes no judge-internals jargon", async ({ page }) => {
   expect(settingsText).not.toMatch(/codex exec|raw llm|llm judge|judge retry|retry judge/i);
 });
 
+test("settings model input follows the selected provider and remembers each draft value", async ({
+  page,
+}) => {
+  await stubEngine(page, { selectedProvider: "codex-cli", slotState: "ready" });
+
+  await page.goto("/settings");
+  await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
+
+  const modelInput = page.getByLabel("Model");
+  await expect(modelInput).toBeVisible();
+  await expect(modelInput).toHaveValue("");
+
+  await modelInput.fill("gpt-5-codex");
+  await expect(modelInput).toHaveValue("gpt-5-codex");
+
+  await page
+    .getByLabel("Judge provider")
+    .selectOption({ label: expectCatalogLabel("claude-cli") });
+  await expect(modelInput).toHaveValue("");
+
+  await modelInput.fill("claude-sonnet");
+  await expect(modelInput).toHaveValue("claude-sonnet");
+
+  await page
+    .getByLabel("Judge provider")
+    .selectOption({ label: expectCatalogLabel("codex-cli") });
+  await expect(modelInput).toHaveValue("gpt-5-codex");
+});
+
 // ---------------------------------------------------------------------------
 // Architectural invariant 1 — exactly four status badges (by COUNT)
 // Falsifiable: a 5th or 3rd badge fails this count.

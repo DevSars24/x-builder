@@ -150,7 +150,17 @@ const structuredLlmExecutionOptionsSchema = z
       .positive()
       .max(structuredLlmOptionLimits.attempts)
       .default(defaultStructuredLlmOptions.attempts),
-    model: z.string().min(1).optional(),
+    model: z.preprocess(
+      (value) => {
+        if (typeof value !== "string") {
+          return value;
+        }
+
+        const trimmed = value.trim();
+        return trimmed.length === 0 ? undefined : trimmed;
+      },
+      z.string().min(1).optional(),
+    ),
   })
   .default(defaultStructuredLlmOptions);
 

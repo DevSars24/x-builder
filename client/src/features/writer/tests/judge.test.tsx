@@ -187,7 +187,39 @@ describe("runJudgeDraft", () => {
       expect(next.judge.error.message).toBe(SERVER_JUDGE_FAILED_MESSAGE);
     }
   });
+
+  it("drops a late judge response when the draft changed while it was in flight", async () => {
+    const pending = createDeferred<JudgeDraftResponse>();
+    const judgeDraft = vi.fn(async () => pending.promise);
+    const apiClient = buildApiClient(judgeDraft);
+    let current = draftModel("Original draft awaiting a slow judge.");
+    const publish = (
+      update: WriterPageModel | ((value: WriterPageModel) => WriterPageModel),
+    ): void => {
+      current = typeof update === "function" ? update(current) : update;
+    };
+
+    const judging = runJudgeDraft(apiClient, current, publish);
+
+    current = { ...current, idea: "Edited draft that has not been judged." };
+    pending.resolve(judgedResponse);
+    await judging;
+
+    expect(current.idea).toBe("Edited draft that has not been judged.");
+    expect(current.judge.status).not.toBe("ready");
+  });
 });
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+
+  return { promise, reject, resolve };
+}
 
 describe("JudgePanel", () => {
   it("renders the verdict band, confidence, dimension scores, and critique", () => {

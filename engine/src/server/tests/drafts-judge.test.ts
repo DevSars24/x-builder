@@ -128,6 +128,49 @@ describe("POST /drafts/judge", () => {
     }
   });
 
+  it("surfaces a sanitized provider message for judge failures when one is available", async () => {
+    const providerMessage =
+      "The 'gpt-5.5' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.";
+    const judge = vi.fn(async () => ({
+      status: "failed" as const,
+      retryable: false,
+      code: "nonzero_exit",
+      message: "Codex CLI exited with a non-zero status.",
+      details: {
+        providerMessage,
+        stderr: "raw stderr must not leak",
+        path: "/Users/secret/path",
+      },
+    }));
+    const app = buildServer({ judgeDraftService: { judge } });
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/drafts/judge",
+        payload: { text: "draft" },
+      });
+
+      expect(response.statusCode).toBe(500);
+
+      const error = apiErrorSchema.parse(parseJson(response.body));
+      expect(error).toMatchObject({
+        code: "judge_failed",
+        scope: "judge",
+        retryable: false,
+        message: `The judge provider failed: ${providerMessage}`,
+        details: {
+          providerCode: "nonzero_exit",
+          providerMessage,
+        },
+      });
+      expect(response.body).not.toContain("raw stderr");
+      expect(response.body).not.toContain("/Users/secret/path");
+    } finally {
+      await app.close();
+    }
+  });
+
   it("maps a non-retryable failure to a 500 judge_failed error", async () => {
     const judge = vi.fn(async () => ({
       status: "failed" as const,
@@ -426,6 +469,32 @@ describe("POST /drafts/judge account profile fallback", () => {
           method: "POST",
           url: "/drafts/judge",
           payload: { text: "A draft judged without any account profile." },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(received).toEqual([undefined]);
+        const body = judgeDraftResponseSchema.parse(parseJson(response.body));
+        expect(body.verdict.scores.audienceMatch).toBeNull();
+      } finally {
+        await app.close();
+      }
+    });
+  });
+
+  it("treats a blank persisted account profile as absent", async () => {
+    await withSettingsRoot(async (settingsRepository) => {
+      await settingsRepository.save(
+        persistedSettings(settingsRepository.defaults().storagePath, "   \n\t  "),
+      );
+
+      const { judge, received } = profileCapturingJudge();
+      const app = buildServer({ judgeDraftService: { judge }, settingsRepository });
+
+      try {
+        const response = await app.inject({
+          method: "POST",
+          url: "/drafts/judge",
+          payload: { text: "A draft judged without a real persisted profile." },
         });
 
         expect(response.statusCode).toBe(200);

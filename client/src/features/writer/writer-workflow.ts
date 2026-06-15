@@ -585,6 +585,15 @@ function applyGenerationResult(
     return model;
   }
 
+  if (model.idea.trim() !== payload.idea) {
+    return {
+      ...model,
+      activeGenerationRequestId: null,
+      isGenerating: false,
+      isScoring: false,
+    };
+  }
+
   if (result.type === "success") {
     const candidates = result.candidates.map(generatedCandidateFromApi);
 
@@ -905,13 +914,16 @@ export function applyAdvancedContextChange(
 export function applyIdeaChange(model: WriterPageModel, idea: string): WriterPageModel {
   return {
     ...model,
+    activeGenerationRequestId: null,
     analysisByCandidateId: markAnalysisStale(model.analysisByCandidateId),
     detail: {
       status: "closed",
     },
     fieldError: null,
     idea,
+    isGenerating: false,
     isScoring: false,
+    judge: { status: "idle" },
     refinement: { status: "skipped" },
   };
 }
@@ -1335,19 +1347,43 @@ export async function runJudgeDraft(
   try {
     const response = await apiClient.judgeDraft({ text });
 
-    nextModel = publishLatest(publish, nextModel, (current) => ({
-      ...current,
-      judge: { status: "ready", verdict: response.verdict, model: response.model },
-    }));
+    let judgeApplied = false;
+    nextModel = publishLatest(publish, nextModel, (current) => {
+      if (current.idea.trim() !== text) {
+        return {
+          ...current,
+          judge: { status: "idle" },
+        };
+      }
+
+      judgeApplied = true;
+      return {
+        ...current,
+        judge: { status: "ready", verdict: response.verdict, model: response.model },
+      };
+    });
+
+    if (!judgeApplied) {
+      return nextModel;
+    }
 
     // The verdict is published before the refine pass so the JudgePanel renders
     // ahead of the second analyze call upgrading the deterministic prediction.
     nextModel = await runTwoPassRefine(apiClient, nextModel, publish);
   } catch (error) {
-    nextModel = publishLatest(publish, nextModel, (current) => ({
-      ...current,
-      judge: { status: "failed", error: normalizeJudgeError(error) },
-    }));
+    nextModel = publishLatest(publish, nextModel, (current) => {
+      if (current.idea.trim() !== text) {
+        return {
+          ...current,
+          judge: { status: "idle" },
+        };
+      }
+
+      return {
+        ...current,
+        judge: { status: "failed", error: normalizeJudgeError(error) },
+      };
+    });
   }
 
   return nextModel;

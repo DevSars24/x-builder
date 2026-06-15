@@ -225,6 +225,50 @@ describe("structured LLM service", () => {
     );
   });
 
+  it("trims model options and treats whitespace-only model values as absent", async () => {
+    const provider = fakeProvider();
+    const service = await createService(provider);
+
+    await service.generateStructured(
+      request({
+        options: {
+          model: "   \n\t   ",
+        },
+      }),
+    );
+
+    expect(provider.generateStructured).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: {
+          timeoutMs: 60_000,
+          outputByteLimit: 500_000,
+          attempts: 1,
+        },
+      }),
+    );
+  });
+
+  it("passes trimmed non-empty model options to the provider", async () => {
+    const provider = fakeProvider();
+    const service = await createService(provider);
+
+    await service.generateStructured(
+      request({
+        options: {
+          model: "  gpt-5.2-codex  ",
+        },
+      }),
+    );
+
+    expect(provider.generateStructured).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          model: "gpt-5.2-codex",
+        }),
+      }),
+    );
+  });
+
   it("retries a retryable provider failure at most once when two attempts are requested", async () => {
     const generateStructured = vi
       .fn()
@@ -397,7 +441,7 @@ describe("structured LLM service", () => {
     expect(normalized.options.model).toBe("gpt-5.2-codex");
   });
 
-  it("rejects an empty-string model option as an unsafe request before calling a provider", async () => {
+  it("treats an empty-string model option as absent before calling a provider", async () => {
     const provider = fakeProvider();
     const service = await createService(provider);
 
@@ -409,12 +453,9 @@ describe("structured LLM service", () => {
       }),
     );
 
-    expect(result).toMatchObject({
-      status: "failed",
-      code: "unsafe_request",
-      retryable: false,
-    });
-    expect(provider.generateStructured).not.toHaveBeenCalled();
+    expect(result.status).toBe("success");
+    const normalized = provider.generateStructured.mock.calls[0]![0];
+    expect(normalized.options.model).toBeUndefined();
   });
 
   it("does not log prompts or raw provider output details", async () => {

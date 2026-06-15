@@ -32,7 +32,7 @@ type RequestOptions = {
 
 // The Codex judge runs a slow CLI; it must not be cut off by the short default
 // request timeout used for the rest of the (local, fast) engine API.
-const judgeTimeoutMs = 65_000;
+const judgeTimeoutMs = 185_000;
 
 export class ApiClientError extends Error {
   public readonly apiError: ApiError;

@@ -28,7 +28,11 @@ import {
 import { z } from "zod";
 
 import { DeterministicAnalysisService } from "../deterministic/deterministic-analysis-service.js";
-import { JudgeDraftService, type JudgeDraft } from "../llm/judge-draft-service.js";
+import {
+  JudgeDraftService,
+  type JudgeDraft,
+  type JudgeDraftOutcome,
+} from "../llm/judge-draft-service.js";
 import { judgeProviderRegistry } from "../llm/judge-provider-registry.js";
 import { createSettingsJudgeProviderResolver } from "../llm/judge-provider-resolver.js";
 import { NodeProcessRunner, type ProcessRunner } from "../llm/process-runner.js";
@@ -137,14 +141,37 @@ const deterministicAnalysisError = (): ApiError =>
     status: 500,
   });
 
-const judgeFailedError = (retryable: boolean): ApiError =>
-  normalize({
+const publicProviderMessage = (details: Record<string, unknown> | undefined): string | undefined => {
+  const value = details?.providerMessage;
+
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+
+  return trimmed.length > 0 ? trimmed.slice(0, 180) : undefined;
+};
+
+const judgeFailedError = (
+  outcome: Extract<JudgeDraftOutcome, { status: "failed" }>,
+): ApiError => {
+  const providerMessage = publicProviderMessage(outcome.details);
+
+  return normalize({
     code: "judge_failed",
-    message: "The judge could not score this draft. Try again.",
+    message: providerMessage
+      ? `The judge provider failed: ${providerMessage}`
+      : "The judge could not score this draft. Try again.",
     scope: "judge",
-    retryable,
-    status: retryable ? 503 : 500,
+    retryable: outcome.retryable,
+    status: outcome.retryable ? 503 : 500,
+    details: {
+      providerCode: outcome.code,
+      ...(providerMessage ? { providerMessage } : {}),
+    },
   });
+};
 
 const statusUnavailableError = (): ApiError =>
   normalize({
@@ -485,8 +512,9 @@ export const createDefaultJudgeDraftService = (
     try {
       const { settings } = await settingsRepository.load();
       const provider = await resolveProvider();
+      const model = settings[judgeProviderModelKeys[provider]]?.trim();
 
-      return settings[judgeProviderModelKeys[provider]];
+      return model === undefined || model.length === 0 ? undefined : model;
     } catch {
       return undefined;
     }
@@ -526,8 +554,9 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   const resolveSettingsAccountProfile = async (): Promise<string | undefined> => {
     try {
       const { settings } = await settingsRepository.load();
+      const profile = settings.accountProfile?.trim();
 
-      return settings.accountProfile;
+      return profile === undefined || profile.length === 0 ? undefined : profile;
     } catch {
       return undefined;
     }
@@ -626,7 +655,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
         : await judgeDraftService.judge(input.text);
 
     if (outcome.status === "failed") {
-      throw new NormalizedApiError(judgeFailedError(outcome.retryable));
+      throw new NormalizedApiError(judgeFailedError(outcome));
     }
 
     return reply.send(parseResponseContract(judgeDraftResponseSchema, outcome.response));

@@ -18,14 +18,13 @@ const providerId = "codex-cli";
 const maxSchemaFileNameLength = 80;
 
 // The codex CLI run inherits the provider-agnostic base allowlist plus the
-// codex-specific environment variables it needs at exec time. Composing from
-// the base keeps the shared names in one place so they cannot drift.
+// codex-specific non-secret environment variables it needs at exec time.
+// Secret-bearing token env vars are intentionally not forwarded because the
+// judge prompt is user-controlled draft text.
 export const codexCliProcessEnvAllowlist = [
   ...baseProcessEnvAllowlist,
   "CODEX_HOME",
   "CODEX_SQLITE_HOME",
-  "CODEX_API_KEY",
-  "CODEX_ACCESS_TOKEN",
   "CODEX_CA_CERTIFICATE",
   "RUST_LOG",
 ] as const;
@@ -276,6 +275,7 @@ const processFailure = <TProviderOutput>(
   startedAt: number,
 ): StructuredLlmProviderResult<TProviderOutput> => {
   const code = toProviderFailureCode(result.code);
+  const providerMessage = extractCodexProviderMessage(result);
 
   return failure(
     code,
@@ -288,10 +288,46 @@ const processFailure = <TProviderOutput>(
       signal: result.signal,
       stdoutBytes: result.stdoutBytes,
       stderrBytes: result.stderrBytes,
+      ...(providerMessage ? { providerMessage } : {}),
       ...(result.timedOut ? { timedOut: true } : {}),
       ...(result.stream ? { stream: result.stream } : {}),
     },
   );
+};
+
+const extractCodexProviderMessage = (result: ProcessRunResult): string | undefined => {
+  const output = `${result.stderr}\n${result.stdout}`;
+  const jsonMessages = [...output.matchAll(/"message"\s*:\s*"((?:\\.|[^"\\])*)"/g)];
+  const rawMessage =
+    jsonMessages
+      .map((match) => {
+        const encodedMessage = match[1];
+
+        if (encodedMessage === undefined) {
+          return undefined;
+        }
+
+        try {
+          return JSON.parse(`"${encodedMessage}"`) as string;
+        } catch {
+          return encodedMessage;
+        }
+      })
+      .find((message): message is string => message !== undefined && message.trim().length > 0) ??
+    result.message;
+
+  if (rawMessage === undefined) {
+    return undefined;
+  }
+
+  const sanitized = rawMessage
+    .replace(/\x1b\[[0-9;]*m/g, "")
+    .replace(/\/Users\/[^\s"']+/g, "[path]")
+    .replace(/sk-[A-Za-z0-9_-]+/g, "[redacted-token]")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return sanitized.length > 240 ? `${sanitized.slice(0, 237)}...` : sanitized;
 };
 
 const toProviderFailureCode = (code: ProcessRunResult["code"]): KnownLlmProviderErrorCode => {

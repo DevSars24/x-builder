@@ -840,6 +840,7 @@ describe("WriterPage generation behavior", () => {
       idea: originalIdea,
     });
     expectIdeaPreserved(html, editedIdea);
+    expect(textContent(html)).not.toContain("Local-first writing tools need boring edges.");
   });
 
   it("ignores older generation responses after a newer run succeeds", async () => {

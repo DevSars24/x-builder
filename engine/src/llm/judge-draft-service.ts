@@ -11,6 +11,7 @@ import type {
 } from "./structured-llm-service.js";
 
 const judgeProviderId = "codex-cli";
+const judgeTimeoutMs = 180_000;
 
 // The verdict label is derived from scores.overall, so the model produces every
 // field except the verdict.
@@ -144,7 +145,13 @@ export interface JudgeLlmGateway {
 
 export type JudgeDraftOutcome =
   | { status: "judged"; response: JudgeDraftResponse }
-  | { status: "failed"; retryable: boolean; code: string; message: string };
+  | {
+      status: "failed";
+      retryable: boolean;
+      code: string;
+      message: string;
+      details?: Record<string, unknown>;
+    };
 
 export interface JudgeDraft {
   judge(text: string, accountProfile?: string): Promise<JudgeDraftOutcome>;
@@ -186,7 +193,10 @@ export class JudgeDraftService implements JudgeDraft {
         schema: verdictOutputSchema,
         parser: toVerdict,
       },
-      ...(model !== undefined && model.length > 0 ? { options: { model } } : {}),
+      options: {
+        timeoutMs: judgeTimeoutMs,
+        ...(model !== undefined && model.length > 0 ? { model } : {}),
+      },
     });
 
     if (result.status === "success") {
@@ -206,6 +216,7 @@ export class JudgeDraftService implements JudgeDraft {
       retryable: result.retryable,
       code: result.code,
       message: result.message,
+      ...(result.details ? { details: result.details } : {}),
     };
   }
 }

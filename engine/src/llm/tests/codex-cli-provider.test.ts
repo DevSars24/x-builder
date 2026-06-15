@@ -21,8 +21,6 @@ const expectedCodexRunEnvAllowlist = [
   "HOME",
   "CODEX_HOME",
   "CODEX_SQLITE_HOME",
-  "CODEX_API_KEY",
-  "CODEX_ACCESS_TOKEN",
   "CODEX_CA_CERTIFICATE",
   "SSL_CERT_FILE",
   "RUST_LOG",
@@ -300,7 +298,7 @@ describe("codex cli provider", () => {
     // than relying on the runner's fallback.
     expect(call.options.envAllowlist).toBeDefined();
     expect(Array.isArray(call.options.envAllowlist)).toBe(true);
-    // Invariant 1: the effective child-env variable SET is exactly these 12
+    // Invariant 1: the effective child-env variable SET is exactly these
     // concrete names. The runner copies the allowlisted names that exist in
     // process.env into a name->value map, so membership — not iteration order —
     // is the observed behavior; a correct reordering of the allowlist must stay
@@ -308,6 +306,8 @@ describe("codex cli provider", () => {
     // concrete literals (not the source constant) also keeps a rename/relocation
     // of the underlying allowlist green.
     expect(new Set(call.options.envAllowlist)).toEqual(new Set(expectedCodexRunEnvAllowlist));
+    expect(call.options.envAllowlist).not.toContain("CODEX_API_KEY");
+    expect(call.options.envAllowlist).not.toContain("CODEX_ACCESS_TOKEN");
     // No duplicates: the allowlist carries each name once, so the set size equals
     // the captured array length (a duplicate would inflate the array without
     // changing the set).
@@ -329,6 +329,21 @@ describe("codex cli provider", () => {
     expect(call.options.cwd).toBe(workspaceRoot);
     expect(valueAfter(call.args, "--cd")).toBe(workspaceRoot);
     expect(call.args).not.toContain(requestSuppliedCwd);
+  });
+
+  it("keeps the schema in a temporary directory while running codex from the trusted workspace", async () => {
+    const runner = fakeRunner(successProcessResult(await readFixture("final-stdout.json")));
+    const provider = await createProvider(runner);
+
+    await provider.generateStructured(structuredRequest());
+
+    const call = runner.calls[0] as CapturedRun;
+    const schemaFile = valueAfter(call.args, "--output-schema");
+    const executionRoot = valueAfter(call.args, "--cd");
+
+    expect(executionRoot).toBe(workspaceRoot);
+    expect(call.options.cwd).toBe(executionRoot);
+    expect(schemaFile.startsWith(workspaceRoot)).toBe(false);
   });
 
   it("passes shell metacharacters through stdin prompt text without building a shell command string", async () => {
@@ -544,6 +559,34 @@ describe("codex cli provider", () => {
       }),
     });
     expectSafeFailure(result, [promptSentinel, stderrSentinel, authPath, "sensitive stack"]);
+  });
+
+  it("extracts a sanitized Codex API error message from non-zero exit output", async () => {
+    const stderr = [
+      `ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The 'gpt-5.5' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again."}}`,
+      "auth file: /Users/nataly/.codex/auth.json",
+    ].join("\n");
+    const runner = fakeRunner(
+      failedProcessResult("nonzero_exit", {
+        stderr,
+        stderrBytes: byteLength(stderr),
+        exitCode: 1,
+      }),
+    );
+    const provider = await createProvider(runner);
+
+    const result = await provider.generateStructured(structuredRequest());
+
+    expect(result).toMatchObject({
+      status: "failed",
+      provider: "codex-cli",
+      code: "nonzero_exit",
+      details: expect.objectContaining({
+        providerMessage:
+          "The 'gpt-5.5' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.",
+      }),
+    });
+    expectSafeFailure(result, ["/Users/nataly/.codex/auth.json"]);
   });
 
   it("builds codex argv with no -m flag when the request carries no model", async () => {

@@ -81,6 +81,7 @@ describe("JudgeDraftService", () => {
     expect(request.turns.find((turn) => turn.role === "user")?.content).toContain(
       "My draft worth judging.",
     );
+    expect(request.options?.timeoutMs).toBe(180_000);
   });
 
   it("requires additionalProperties false on every object in the judge output schema for strict structured-output providers", async () => {

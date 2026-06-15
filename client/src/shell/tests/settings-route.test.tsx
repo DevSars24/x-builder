@@ -640,6 +640,41 @@ describe("SettingsRoute public behavior", () => {
     expect(onNavigateToWriter).toHaveBeenCalledOnce();
   });
 
+  it("keeps the saved state when post-save readiness refresh fails", async () => {
+    const { SettingsRoute, createSettingsRoutePublicDriver } =
+      await loadSettingsRoute();
+    const statusError = createApiError({
+      code: "status_unavailable",
+      message: "Readiness could not be checked. Try again.",
+      retryable: true,
+      scope: "status",
+      status: 503,
+    });
+    const apiClient = createApiClient({
+      getStatus: vi.fn(async () => {
+        throw Object.assign(new Error(statusError.message), {
+          apiError: statusError,
+        });
+      }),
+    });
+    const driver = createDriver(createSettingsRoutePublicDriver, {
+      apiClient,
+      renderRoute: SettingsRoute,
+    });
+
+    await driver.load();
+    driver.updateField("storagePath", "/tmp/x-builder-saved-before-status-failed");
+    const savedHtml = await driver.save();
+    const savedText = textContent(savedHtml);
+
+    expect(apiClient.saveSettings).toHaveBeenCalledOnce();
+    expect(savedText).toContain("Settings saved");
+    expect(savedText).toContain("Readiness could not be checked. Try again.");
+    expect(savedText).not.toContain("Settings could not be saved");
+    expect(savedText).not.toContain("Unsaved changes");
+    expect(savedHtml).toMatch(/<button\b[^>]*disabled=""[^>]*>Save settings/);
+  });
+
   it("warns before discarding dirty settings during route navigation", async () => {
     const { SettingsRoute, createSettingsRoutePublicDriver } =
       await loadSettingsRoute();
@@ -914,7 +949,7 @@ describe("SettingsRoute judge provider selection", () => {
     expect(onNavigateToWriter).toHaveBeenCalledOnce();
   });
 
-  it("renders the provider select and model fields without banned judge jargon", async () => {
+  it("renders the provider select and active model field without banned judge jargon", async () => {
     const { SettingsRoute, createSettingsRoutePublicDriver } =
       await loadSettingsRoute();
     const readyStatus = createReadyStatus();
@@ -934,15 +969,70 @@ describe("SettingsRoute judge provider selection", () => {
     const text = textContent(html);
 
     expect(text).toContain("Judge provider");
-    expect(text).toContain("Codex model");
-    expect(text).toContain("Claude model");
-    expect(text).toContain("Cursor model");
-    expect(text).toContain("Leave empty to use the provider's default.");
+    expect(text).toContain("Model");
+    expect(text).toContain("Leave empty to use Codex judge's default.");
+    expect(text).not.toContain("Codex model");
+    expect(text).not.toContain("Claude model");
+    expect(text).not.toContain("Cursor model");
+    expect(html).toContain('name="codexModel"');
+    expect(html).not.toContain('name="claudeModel"');
+    expect(html).not.toContain('name="cursorModel"');
     for (const id of judgeProviderIdSchema.options) {
       expect(text).toContain(judgeProviderLabels[id]);
     }
     expect(text).not.toMatch(bannedJudgeJargon);
     expect(html).not.toMatch(bannedJudgeJargon);
+  });
+
+  it("shows one model field and restores the remembered model per selected provider", async () => {
+    const { SettingsRoute, createSettingsRoutePublicDriver } =
+      await loadSettingsRoute();
+    const savedSettings = {
+      ...createSavedSettings(),
+      claudeModel: "claude-sonnet-last",
+      codexModel: "gpt-5-codex-last",
+      cursorModel: "",
+    };
+    const apiClient = createApiClient({
+      getSettings: vi.fn(async () =>
+        settingsResponse(savedSettings, "persisted"),
+      ),
+    });
+    const driver = createDriver(createSettingsRoutePublicDriver, {
+      apiClient,
+      renderRoute: SettingsRoute,
+    });
+
+    const loadedHtml = await driver.load();
+
+    expectInputValue(loadedHtml, "Model", "gpt-5-codex-last");
+    expect(loadedHtml).toContain('name="codexModel"');
+    expect(loadedHtml).not.toContain('name="claudeModel"');
+
+    const claudeHtml = driver.updateSelect("judgeProvider", "claude-cli");
+
+    expectInputValue(claudeHtml, "Model", "claude-sonnet-last");
+    expect(claudeHtml).toContain('name="claudeModel"');
+    expect(claudeHtml).not.toContain('name="codexModel"');
+
+    const updatedClaudeHtml = driver.updateField(
+      "claudeModel",
+      "claude-opus-last",
+    );
+
+    expectInputValue(updatedClaudeHtml, "Model", "claude-opus-last");
+
+    const cursorHtml = driver.updateSelect("judgeProvider", "cursor-cli");
+
+    expectInputValue(cursorHtml, "Model", "");
+    expect(cursorHtml).toContain('name="cursorModel"');
+
+    const restoredClaudeHtml = driver.updateSelect(
+      "judgeProvider",
+      "claude-cli",
+    );
+
+    expectInputValue(restoredClaudeHtml, "Model", "claude-opus-last");
   });
 
   it("clears dirty when a model field is reverted and rides the saved value through the PATCH", async () => {
@@ -963,7 +1053,7 @@ describe("SettingsRoute judge provider selection", () => {
     const dirtyHtml = driver.updateField("codexModel", "gpt-5.2-codex");
 
     expect(textContent(dirtyHtml)).toContain("Unsaved changes");
-    expectInputValue(dirtyHtml, "Codex model", "gpt-5.2-codex");
+    expectInputValue(dirtyHtml, "Model", "gpt-5.2-codex");
 
     const revertedHtml = driver.updateField(
       "codexModel",
@@ -998,7 +1088,7 @@ describe("SettingsRoute judge provider selection", () => {
     driver.updateField("codexModel", "gpt-5.2-codex");
     const clearedHtml = driver.updateField("codexModel", "");
 
-    expectInputValue(clearedHtml, "Codex model", "");
+    expectInputValue(clearedHtml, "Model", "");
 
     driver.updateField("storagePath", "/tmp/x-builder-empty-model");
     await driver.save();
@@ -1007,6 +1097,34 @@ describe("SettingsRoute judge provider selection", () => {
 
     expect(savedDraft).toBeDefined();
     expect(savedDraft?.codexModel ?? "").toBe("");
+  });
+
+  it("treats a cleared model field as clean when the loaded value is absent", async () => {
+    const { SettingsRoute, createSettingsRoutePublicDriver } =
+      await loadSettingsRoute();
+    const defaultSettings = {
+      ...createDefaultSettings(),
+      codexModel: undefined,
+    };
+    const apiClient = createApiClient({
+      getSettings: vi.fn(async () =>
+        settingsResponse(defaultSettings, "defaults"),
+      ),
+    });
+    const driver = createDriver(createSettingsRoutePublicDriver, {
+      apiClient,
+      renderRoute: SettingsRoute,
+    });
+
+    await driver.load();
+    const dirtyHtml = driver.updateField("codexModel", "gpt-5-codex");
+
+    expect(textContent(dirtyHtml)).toContain("Unsaved changes");
+
+    const clearedHtml = driver.updateField("codexModel", "");
+
+    expect(textContent(clearedHtml)).not.toContain("Unsaved changes");
+    expectInputValue(clearedHtml, "Model", "");
   });
 
   it("renders an out-of-catalog persisted provider as a raw option without crashing", async () => {
