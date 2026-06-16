@@ -39,6 +39,8 @@ arch-recon
 - `writer-logic`
 - `llm-judge`
 - `my-x-data-import`
+- `my-x-archive-import`
+- `my-x-api-sync`
 - `my-feedback-loop`
 - `external-x-import-signals`
 - `external-feedback-loop`

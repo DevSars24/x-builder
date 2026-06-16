@@ -1,6 +1,13 @@
 # My X Data Import
 
-Purpose: import and persist the user's own X posts and metrics through X API.
+Purpose: historical umbrella notes for importing and persisting the user's own X data.
+
+Status: superseded as an implementation boundary by:
+
+- `my-x-archive-import` for local X archive ingestion.
+- `my-x-api-sync` for authenticated X API connection and ongoing metric sync.
+
+Keep this file only as prior research context until its useful notes are migrated into the split feature folders.
 
 ## Research Notes: Profile Connection And Deterministic Scoring
 
