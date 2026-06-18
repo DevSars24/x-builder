@@ -7,6 +7,7 @@ import {
 } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { judgeProviderLabels } from "@x-builder/shared";
+import type { ActiveArchiveContext } from "@x-builder/shared";
 import type { JudgeScores, JudgeVerdictLabel } from "@x-builder/shared";
 
 import { RouteErrorBanner } from "../../shell/route-error-banner";
@@ -84,6 +85,11 @@ export type WriterPagePublicDriver = {
   updateIdea: (idea: string) => string;
 };
 
+export type ArchiveContextIndicatorState =
+  | ActiveArchiveContext
+  | { status: "loading" }
+  | { status: "unavailable" };
+
 function candidateLabel(candidate: WriterCandidate): string {
   if (candidate.source === "draft") {
     return "Current draft";
@@ -105,6 +111,7 @@ function candidateLabel(candidate: WriterCandidate): string {
 }
 
 type WriterPageViewProps = WriterPageModel & {
+  activeArchiveContext: ArchiveContextIndicatorState;
   judgeReady: boolean;
   onAdvancedContextChange: (patch: AdvancedContext) => void;
   onApplyFollowers: () => void;
@@ -120,6 +127,65 @@ type WriterPageViewProps = WriterPageModel & {
   onRetryDetails: () => void;
   onRetryScore: (itemId: string) => Promise<void>;
 };
+
+export function ArchiveContextIndicator({
+  activeContext,
+}: {
+  activeContext: ArchiveContextIndicatorState;
+}): ReactElement {
+  if (activeContext.status === "loading") {
+    return (
+      <section className="xb-archive-context-indicator" aria-label="Archive context">
+        <div>
+          <Badge variant="neutral">Archive context checking</Badge>
+          <p>Checking imported archive context.</p>
+        </div>
+      </section>
+    );
+  }
+
+  if (activeContext.status === "unavailable") {
+    return (
+      <section className="xb-archive-context-indicator" aria-label="Archive context">
+        <div>
+          <Badge variant="warning">Archive context unavailable</Badge>
+          <p>Studio could not load archive context.</p>
+        </div>
+      </section>
+    );
+  }
+
+  if (activeContext.status === "empty") {
+    return (
+      <section className="xb-archive-context-indicator" aria-label="Archive context">
+        <div>
+          <Badge variant="neutral">Archive context off</Badge>
+          <p>No imported archive context is active.</p>
+        </div>
+      </section>
+    );
+  }
+
+  const includedFields = [
+    activeContext.scoringContextPatch.repeatHistory ? "repeat history" : null,
+    activeContext.judgeHints.length > 0 ? "judge hints" : null,
+  ].filter(Boolean);
+
+  return (
+    <section className="xb-archive-context-indicator" aria-label="Archive context">
+      <div>
+        <Badge variant="success">Archive context active</Badge>
+        <p>
+          {activeContext.provenance}, {activeContext.confidence} confidence,
+          {" "}{activeContext.counts.posts} posts.
+        </p>
+        {includedFields.length > 0 ? (
+          <p>Included: {includedFields.join(", ")}.</p>
+        ) : null}
+      </div>
+    </section>
+  );
+}
 
 function CandidateAnalysis({
   candidate,
@@ -587,6 +653,7 @@ function AdvancedContextPanel({
 }
 
 function WriterPageView({
+  activeArchiveContext,
   advancedContext,
   analysisByCandidateId,
   appliedFollowers,
@@ -686,6 +753,7 @@ function WriterPageView({
             disabled={isGenerating || isScoring}
             onAdvancedContextChange={onAdvancedContextChange}
           />
+          <ArchiveContextIndicator activeContext={activeArchiveContext} />
           <section
             aria-label="Studio evaluation"
             aria-live="polite"
@@ -802,6 +870,9 @@ export function WriterPage({
   onOpenSettings,
 }: WriterPageProps): ReactElement {
   const [model, setModel] = useState(createInitialModel);
+  const [activeArchiveContext, setActiveArchiveContext] = useState<ArchiveContextIndicatorState>(() =>
+    apiClient.getActiveArchiveContext === undefined ? { status: "empty" } : { status: "loading" },
+  );
   const modelRef = useRef(model);
   const mountedRef = useRef(true);
   useEffect(
@@ -819,6 +890,37 @@ export function WriterPage({
     modelRef.current = nextModel;
     setModel(nextModel);
   };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (apiClient.getActiveArchiveContext === undefined) {
+      setActiveArchiveContext({ status: "empty" });
+
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setActiveArchiveContext({ status: "loading" });
+
+    apiClient
+      .getActiveArchiveContext()
+      .then((context) => {
+        if (!cancelled) {
+          setActiveArchiveContext(context);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setActiveArchiveContext({ status: "unavailable" });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiClient]);
 
   const applyFollowers = () => {
     void runApplyFollowers(apiClient, modelRef.current, publishModel);
@@ -960,6 +1062,7 @@ export function WriterPage({
   return (
     <WriterPageView
       {...model}
+      activeArchiveContext={activeArchiveContext}
       judgeReady={judgeReady}
       onAdvancedContextChange={updateAdvancedContext}
       onApplyFollowers={applyFollowers}
@@ -985,6 +1088,7 @@ function renderDriverPage(
   return renderToStaticMarkup(
     <WriterPageView
       {...model}
+      activeArchiveContext={{ status: "empty" }}
       judgeReady
       onAdvancedContextChange={() => undefined}
       onApplyFollowers={() => undefined}

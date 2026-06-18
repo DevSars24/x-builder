@@ -1,6 +1,8 @@
 import type { ReactElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type {
+  ActiveArchiveContext,
   AnalyzedPostItem,
   AnalyzePostsRequest,
   AnalyzePostsResponse,
@@ -66,6 +68,9 @@ type WriterPagePublicDriver = {
 };
 
 type WriterPageModule = {
+  ArchiveContextIndicator: (props: {
+    activeContext: ActiveArchiveContext | { status: "unavailable" };
+  }) => ReactElement;
   WriterPage: (props: WriterPageProps) => ReactElement;
   createWriterPagePublicDriver: (
     options: WriterPagePublicDriverOptions,
@@ -610,6 +615,19 @@ describe("WriterPage manual follower prediction context", () => {
     expect(freshHtml).toContain('id="deterministic-followers"');
     expect(freshHtml).not.toContain('value="2400"');
     expect(freshText).not.toContain("manual");
+  });
+});
+
+describe("WriterPage archive context indicator", () => {
+  it("does not show archive context off when the active context lookup fails", async () => {
+    const { ArchiveContextIndicator } = await loadWriterPage();
+    const html = renderToStaticMarkup(
+      <ArchiveContextIndicator activeContext={{ status: "unavailable" }} />,
+    );
+    const text = textContent(html);
+
+    expect(text).toContain("Archive context unavailable");
+    expect(text).not.toContain("Archive context off");
   });
 });
 

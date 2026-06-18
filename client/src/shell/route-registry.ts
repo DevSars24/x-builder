@@ -33,8 +33,8 @@ export const appRoutes = validateRouteConfigs([
     label: "Post Library",
     navOrder: 2,
     path: "/library",
-    placeholder: true,
-    requiresBackend: false,
+    placeholder: false,
+    requiresBackend: true,
     title: "Post Library",
   },
   {

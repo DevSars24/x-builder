@@ -13,6 +13,21 @@ export {
   scoringContextSchema,
 } from "./schemas/deterministic-analysis.js";
 export {
+  activeArchiveContextSchema,
+  archiveDerivedInsightsSchema,
+  archiveContextActivationEligibilitySchema,
+  archiveContextActivationResponseSchema,
+  archiveImportOverviewSchema,
+  archiveInsightsLatestResponseSchema,
+  archiveImportRunSchema,
+  archivePostsPageSchema,
+  archivePostPreviewSchema,
+  archiveTweetsImportResponseSchema,
+  archiveTweetsImportRequestSchema,
+  archiveTweetsValidateRequestSchema,
+  archiveTweetsValidateResponseSchema,
+} from "./schemas/archive-import.js";
+export {
   deriveJudgeVerdict,
   judgeConfidenceSchema,
   judgeDraftRequestSchema,
@@ -48,6 +63,21 @@ export type {
   RepeatHistoryEntry,
   ScoringContext,
 } from "./schemas/deterministic-analysis.js";
+export type {
+  ActiveArchiveContext,
+  ArchiveContextActivationEligibility,
+  ArchiveContextActivationResponse,
+  ArchiveDerivedInsights,
+  ArchiveInsightsLatestResponse,
+  ArchiveImportOverview,
+  ArchiveImportRun,
+  ArchivePostsPage,
+  ArchivePostPreview,
+  ArchiveTweetsImportResponse,
+  ArchiveTweetsImportRequest,
+  ArchiveTweetsValidateRequest,
+  ArchiveTweetsValidateResponse,
+} from "./schemas/archive-import.js";
 export type {
   JudgeConfidence,
   JudgeDraftRequest,

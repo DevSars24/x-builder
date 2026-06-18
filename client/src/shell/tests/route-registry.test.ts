@@ -32,7 +32,7 @@ describe("route registry", () => {
     expect(resolution.shouldReplace).toBe(true);
   });
 
-  it("loads Voice and Post Library as enabled placeholder routes", () => {
+  it("loads Voice as a placeholder and Post Library as a backend route", () => {
     const routes: RouteConfig[] = validateRouteConfigs(appRoutes);
     const voiceRoute = routeById(routes, "voice");
     const libraryRoute = routeById(routes, "library");
@@ -47,7 +47,8 @@ describe("route registry", () => {
       enabled: true,
       id: "library",
       path: "/library",
-      placeholder: true,
+      placeholder: false,
+      requiresBackend: true,
     });
   });
 

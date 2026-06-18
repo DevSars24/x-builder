@@ -491,7 +491,7 @@ describe("AppShell route frame", () => {
     expect(apiClient.saveSettings).not.toHaveBeenCalled();
   });
 
-  it("renders the Post Library placeholder as normal shell content with active navigation", async () => {
+  it("renders the Post Library import workspace with active navigation", async () => {
     const { AppShell, createMemoryShellHistory } = await loadAppShell();
     const history = createMemoryShellHistory({ initialPath: "/library" });
     const preferencesStore = createPreferencesStore();
@@ -507,8 +507,8 @@ describe("AppShell route frame", () => {
     expect(history.location.pathname).toBe("/library");
     expect(html).toContain(">Post Library</h1>");
     expect(html).toMatch(/<a\b[^>]*href="\/library"[^>]*aria-current="page"/);
-    expect(text).toContain("Post memory is reserved for the library feature pass.");
-    expect(text).toContain("Back to Studio");
+    expect(text).toContain("Archive import workspace");
+    expect(text).toContain("Loading local archive state.");
     expect(html).not.toContain('role="alert"');
     expect(text).not.toContain("Route unavailable");
     expect(text).not.toContain("This route could not render.");
@@ -540,7 +540,7 @@ describe("AppShell route frame", () => {
     expect(html).toMatch(/<a\b[^>]*href="\/writer"[^>]*aria-current="page"/);
   });
 
-  it("navigates from the Post Library placeholder primary action back to Studio", async () => {
+  it("does not treat Post Library as a placeholder primary action", async () => {
     const {
       AppShell,
       createAppShellPublicDriver,
@@ -557,9 +557,9 @@ describe("AppShell route frame", () => {
 
     const html = driver.activatePlaceholderPrimaryAction();
 
-    expect(history.location.pathname).toBe("/writer");
+    expect(history.location.pathname).toBe("/library");
     expect(preferencesStore.get().lastRoutePath).toBe("/writer");
-    expect(html).toContain(">Studio</h1>");
-    expect(html).toMatch(/<a\b[^>]*href="\/writer"[^>]*aria-current="page"/);
+    expect(html).toContain(">Post Library</h1>");
+    expect(html).toMatch(/<a\b[^>]*href="\/library"[^>]*aria-current="page"/);
   });
 });

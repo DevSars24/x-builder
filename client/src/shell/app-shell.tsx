@@ -14,6 +14,10 @@ import type { ApiError, AppStatus, RouteConfig } from "@x-builder/shared";
 
 import { EngineApiClient } from "../api/engine-api-client";
 import {
+  LibraryRoute,
+  type LibraryRouteApiClient,
+} from "../features/library/library-route";
+import {
   WriterPage,
   createWriterPagePublicDriver,
   type WriterApiClient,
@@ -62,6 +66,7 @@ export type ShellRouteComponents = Partial<
 export type AppShellProps = {
   apiClient?: EngineStatusClient &
     Partial<SettingsRouteApiClient> &
+    Partial<LibraryRouteApiClient> &
     Partial<WriterApiClient>;
   history: ShellHistory;
   preferencesStore: ShellPreferencesStore;
@@ -442,9 +447,25 @@ function hasWriterApiClient(
   );
 }
 
+function hasLibraryApiClient(
+  apiClient: EngineStatusClient & Partial<LibraryRouteApiClient>,
+): apiClient is EngineStatusClient & LibraryRouteApiClient {
+  return (
+    typeof apiClient.activateArchiveContext === "function" &&
+    typeof apiClient.deactivateArchiveContext === "function" &&
+    typeof apiClient.getActiveArchiveContext === "function" &&
+    typeof apiClient.getArchivePosts === "function" &&
+    typeof apiClient.getLatestArchiveImport === "function" &&
+    typeof apiClient.getLatestArchiveInsights === "function" &&
+    typeof apiClient.importTweetsArchive === "function" &&
+    typeof apiClient.validateTweetsArchive === "function"
+  );
+}
+
 function DefaultRouteBody({
   judgeReady = true,
   onOpenSettings,
+  libraryApiClient,
   settingsApiClient,
   writerApiClient,
   onDirtySettingsChange,
@@ -458,6 +479,7 @@ function DefaultRouteBody({
 }: ShellRouteComponentProps & {
   judgeReady?: boolean;
   onOpenSettings: () => void;
+  libraryApiClient: LibraryRouteApiClient;
   settingsApiClient: SettingsRouteApiClient;
   writerApiClient: WriterApiClient;
   onDirtySettingsChange: (dirty: boolean) => void;
@@ -490,6 +512,15 @@ function DefaultRouteBody({
         onStatusRefresh={onStatusRefresh}
         openedFrom="writer"
         pendingNavigationPath={pendingSettingsNavigationPath}
+      />
+    );
+  }
+
+  if (route.id === "library") {
+    return (
+      <LibraryRoute
+        apiClient={libraryApiClient}
+        onNavigateToWriter={onNavigateToWriter}
       />
     );
   }
@@ -629,6 +660,7 @@ function routeComponentFor(
 
 function renderStaticRouteBody(
   settingsApiClient: SettingsRouteApiClient,
+  libraryApiClient: LibraryRouteApiClient,
   writerApiClient: WriterApiClient,
   onDirtySettingsChange: (dirty: boolean) => void,
   onDiscardSettingsNavigation: (to: RouteConfig["path"]) => void,
@@ -649,6 +681,7 @@ function renderStaticRouteBody(
         <DefaultRouteBody
           judgeReady={judgeReady}
           onOpenSettings={onOpenSettings}
+          libraryApiClient={libraryApiClient}
           settingsApiClient={settingsApiClient}
           writerApiClient={writerApiClient}
           onDirtySettingsChange={onDirtySettingsChange}
@@ -677,6 +710,7 @@ function renderStaticRouteBody(
 
 function RouteBody({
   judgeReady = true,
+  libraryApiClient,
   settingsApiClient,
   writerApiClient,
   onDirtySettingsChange,
@@ -691,6 +725,7 @@ function RouteBody({
   routeComponents,
 }: {
   judgeReady?: boolean;
+  libraryApiClient: LibraryRouteApiClient;
   settingsApiClient: SettingsRouteApiClient;
   writerApiClient: WriterApiClient;
   onDirtySettingsChange: (dirty: boolean) => void;
@@ -709,6 +744,7 @@ function RouteBody({
   if (typeof window === "undefined") {
     return renderStaticRouteBody(
       settingsApiClient,
+      libraryApiClient,
       writerApiClient,
       onDirtySettingsChange,
       onDiscardSettingsNavigation,
@@ -729,6 +765,7 @@ function RouteBody({
       <DefaultRouteBody
         judgeReady={judgeReady}
         onOpenSettings={onOpenSettings}
+        libraryApiClient={libraryApiClient}
         settingsApiClient={settingsApiClient}
         writerApiClient={writerApiClient}
         onDirtySettingsChange={onDirtySettingsChange}
@@ -779,6 +816,9 @@ export function AppShell({
     ? shellApiClient
     : defaultApiClient;
   const writerApiClient = hasWriterApiClient(shellApiClient)
+    ? shellApiClient
+    : defaultApiClient;
+  const libraryApiClient = hasLibraryApiClient(shellApiClient)
     ? shellApiClient
     : defaultApiClient;
   const appStatus = useAppStatus({ apiClient: shellApiClient });
@@ -915,6 +955,7 @@ export function AppShell({
         <section aria-labelledby={headingTarget.headingId} className="xb-shell__route-outlet">
           <RouteBody
             judgeReady={appStatus.status?.llm.state === "ready"}
+            libraryApiClient={libraryApiClient}
             settingsApiClient={settingsApiClient}
             writerApiClient={writerApiClient}
             onDirtySettingsChange={setIsSettingsDirty}
@@ -973,7 +1014,7 @@ export function createAppShellPublicDriver(
     activatePlaceholderPrimaryAction: () => {
       const route = resolveRoutePath(options.history.location.pathname).route;
 
-      if (route.id === "voice" || route.id === "library") {
+      if (route.id === "voice") {
         navigateShellRoute({
           focusRouteHeading: options.onRouteHeadingFocus ?? (() => undefined),
           history: options.history,

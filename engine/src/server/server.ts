@@ -12,6 +12,15 @@ import {
   appSettingsResponseSchema,
   appSettingsSchema,
   appStatusSchema,
+  activeArchiveContextSchema,
+  archiveContextActivationResponseSchema,
+  archiveImportOverviewSchema,
+  archiveInsightsLatestResponseSchema,
+  archivePostsPageSchema,
+  archiveTweetsImportRequestSchema,
+  archiveTweetsImportResponseSchema,
+  archiveTweetsValidateRequestSchema,
+  archiveTweetsValidateResponseSchema,
   generateIdeaRequestSchema,
   generateIdeaResponseSchema,
   judgeDraftRequestSchema,
@@ -29,6 +38,12 @@ import { z } from "zod";
 
 import { DeterministicAnalysisService } from "../deterministic/deterministic-analysis-service.js";
 import {
+  ArchiveImportService,
+  ArchiveValidationError,
+} from "../archive/archive-import-service.js";
+import { ArchiveDerivedContextService } from "../archive/archive-derived-context-service.js";
+import { ArchiveStudioContextResolver } from "../archive/archive-studio-context-resolver.js";
+import {
   JudgeDraftService,
   type JudgeDraft,
   type JudgeDraftOutcome,
@@ -42,6 +57,11 @@ import {
   JsonFileAppSettingsRepository,
   type AppSettingsRepository,
 } from "./settings-repository.js";
+import {
+  JsonFilePostLibraryRepository,
+  PostLibraryStorageError,
+  type PostLibraryRepository,
+} from "./post-library-repository.js";
 import { resolveWorkspaceRoot } from "./workspace-root.js";
 
 export type AnalyzePosts = (request: AnalyzePostsRequest) => Promise<AnalyzePostsResponse> | AnalyzePostsResponse;
@@ -76,6 +96,7 @@ export interface BuildServerOptions {
   readinessService?: ReadinessService;
   readinessTimeoutMs?: number;
   settingsRepository?: AppSettingsRepository;
+  postLibraryRepository?: PostLibraryRepository;
   judgeDraftService?: JudgeDraft;
 }
 
@@ -137,6 +158,24 @@ const deterministicAnalysisError = (): ApiError =>
     code: "deterministic_analysis_failed",
     message: "Deterministic analysis failed. Try again.",
     scope: "deterministic",
+    retryable: true,
+    status: 500,
+  });
+
+const archiveValidationFailedError = (): ApiError =>
+  normalize({
+    code: "archive_validation_failed",
+    message: "The selected file is not a supported tweets.js archive file.",
+    scope: "archive",
+    retryable: false,
+    status: 400,
+  });
+
+const archiveStorageFailedError = (): ApiError =>
+  normalize({
+    code: "archive_storage_failed",
+    message: "The local archive library could not be saved. Try again.",
+    scope: "archive",
     retryable: true,
     status: 500,
   });
@@ -528,7 +567,7 @@ export const createDefaultJudgeDraftService = (
 };
 
 export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
-  const app = Fastify({ logger: false });
+  const app = Fastify({ logger: false, bodyLimit: 26_000_000 });
   configureCors(app, options.allowedCorsOrigins ?? defaultCorsAllowedOrigins);
 
   const deterministicAnalysisService = new DeterministicAnalysisService();
@@ -537,6 +576,14 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   const generateCandidates = options.generateCandidates ?? defaultGenerateCandidates;
   const settingsRepository =
     options.settingsRepository ?? new JsonFileAppSettingsRepository({ root: defaultSettingsRoot });
+  const postLibraryRepository =
+    options.postLibraryRepository ??
+    new JsonFilePostLibraryRepository({ root: join(defaultSettingsRoot, "storage") });
+  const archiveImportService = new ArchiveImportService({ repository: postLibraryRepository });
+  const archiveDerivedContextService = new ArchiveDerivedContextService({
+    repository: postLibraryRepository,
+  });
+  const archiveStudioContextResolver = new ArchiveStudioContextResolver(postLibraryRepository);
   const readinessService =
     options.readinessService ??
     new DefaultReadinessService(
@@ -559,6 +606,18 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
       return profile === undefined || profile.length === 0 ? undefined : profile;
     } catch {
       return undefined;
+    }
+  };
+
+  const resolveJudgeAccountProfile = async (
+    explicitProfile: string | undefined,
+  ): Promise<string | undefined> => {
+    const accountProfile = explicitProfile ?? (await resolveSettingsAccountProfile());
+
+    try {
+      return await archiveStudioContextResolver.composeJudgeProfile(accountProfile);
+    } catch {
+      return accountProfile;
     }
   };
 
@@ -629,12 +688,135 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     return reply.send(parseResponseContract(generateIdeaResponseSchema, result));
   });
 
+  app.post("/archive/tweets/validate", async (request, reply) => {
+    const input = archiveTweetsValidateRequestSchema.parse(request.body);
+    const result = archiveImportService.validate(input);
+
+    return reply.send(parseResponseContract(archiveTweetsValidateResponseSchema, result));
+  });
+
+  app.post("/archive/tweets/import", async (request, reply) => {
+    const input = archiveTweetsImportRequestSchema.parse(request.body);
+    let result: Awaited<ReturnType<typeof archiveImportService.importTweets>>;
+
+    try {
+      result = await archiveImportService.importTweets(input);
+    } catch (error) {
+      if (error instanceof ArchiveValidationError) {
+        throw new NormalizedApiError(archiveValidationFailedError());
+      }
+
+      if (error instanceof PostLibraryStorageError) {
+        throw new NormalizedApiError(archiveStorageFailedError());
+      }
+
+      throw error;
+    }
+
+    return reply.send(parseResponseContract(archiveTweetsImportResponseSchema, result));
+  });
+
+  app.get("/archive/imports/latest", async (_request, reply) => {
+    try {
+      const result = await archiveImportService.latestOverview();
+
+      return reply.send(parseResponseContract(archiveImportOverviewSchema, result));
+    } catch (error) {
+      if (error instanceof PostLibraryStorageError) {
+        throw new NormalizedApiError(archiveStorageFailedError());
+      }
+
+      throw error;
+    }
+  });
+
+  app.get("/archive/posts", async (request, reply) => {
+    const query = z
+      .object({
+        cursor: z.string().min(1).max(400).regex(/^offset:\d+$/, "Cursor is invalid.").optional(),
+        limit: z.coerce.number().int().min(1).max(100).optional(),
+      })
+      .parse(request.query);
+
+    try {
+      const result = await archiveImportService.postsPage(query);
+
+      return reply.send(parseResponseContract(archivePostsPageSchema, result));
+    } catch (error) {
+      if (error instanceof ArchiveValidationError) {
+        throw new NormalizedApiError(archiveValidationFailedError());
+      }
+
+      if (error instanceof PostLibraryStorageError) {
+        throw new NormalizedApiError(archiveStorageFailedError());
+      }
+
+      throw error;
+    }
+  });
+
+  app.get("/archive/insights/latest", async (_request, reply) => {
+    try {
+      const result = await archiveDerivedContextService.latestInsights();
+
+      return reply.send(parseResponseContract(archiveInsightsLatestResponseSchema, result));
+    } catch (error) {
+      if (error instanceof PostLibraryStorageError) {
+        throw new NormalizedApiError(archiveStorageFailedError());
+      }
+
+      throw error;
+    }
+  });
+
+  app.post("/archive/context/activate", async (_request, reply) => {
+    try {
+      const result = await archiveDerivedContextService.activateLatest();
+
+      return reply.send(parseResponseContract(archiveContextActivationResponseSchema, result));
+    } catch (error) {
+      if (error instanceof PostLibraryStorageError) {
+        throw new NormalizedApiError(archiveStorageFailedError());
+      }
+
+      throw error;
+    }
+  });
+
+  app.post("/archive/context/deactivate", async (_request, reply) => {
+    try {
+      const result = await archiveDerivedContextService.deactivate();
+
+      return reply.send(parseResponseContract(archiveContextActivationResponseSchema, result));
+    } catch (error) {
+      if (error instanceof PostLibraryStorageError) {
+        throw new NormalizedApiError(archiveStorageFailedError());
+      }
+
+      throw error;
+    }
+  });
+
+  app.get("/archive/context/active", async (_request, reply) => {
+    try {
+      const result = await archiveDerivedContextService.activeContext();
+
+      return reply.send(parseResponseContract(activeArchiveContextSchema, result));
+    } catch (error) {
+      if (error instanceof PostLibraryStorageError) {
+        throw new NormalizedApiError(archiveStorageFailedError());
+      }
+
+      throw error;
+    }
+  });
+
   app.post("/posts/analyze", async (request, reply) => {
     const input = analyzePostsRequestSchema.parse(request.body);
     let result: Awaited<ReturnType<typeof analyzePosts>>;
 
     try {
-      result = await analyzePosts(input);
+      result = await analyzePosts(await archiveStudioContextResolver.mergeAnalysisRequest(input));
     } catch {
       throw new NormalizedApiError(deterministicAnalysisError());
     }
@@ -648,7 +830,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     // persisted settings.accountProfile so the judge's audienceMatch is anchored
     // to the user's configured account. When neither is present, no profile is
     // passed and the model returns a null audienceMatch.
-    const accountProfile = input.accountProfile ?? (await resolveSettingsAccountProfile());
+    const accountProfile = await resolveJudgeAccountProfile(input.accountProfile);
     const outcome =
       accountProfile !== undefined
         ? await judgeDraftService.judge(input.text, accountProfile)

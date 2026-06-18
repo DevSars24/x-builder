@@ -1,5 +1,5 @@
 ---
-status: todo
+status: implemented
 ---
 
 # My X Archive Import
@@ -23,14 +23,27 @@ It should stay account-generic and open-source friendly. The engine must not ass
 - Voice corpus split by post type, with replies/comments prioritized for voice because standalone posts may include generated or polished content.
 - Weak historical engagement metrics from archive fields such as favorites/likes received and reposts/retweets.
 - Cadence and rotation signals: posting frequency, reply/original ratio, repeated topics, repeated structures, and likely cooldown windows.
-- Active Studio context snapshot after user confirmation: recent history, weak metric baseline, voice hints, niche/profile hints, and rotation memory.
-- Import quality report: files found, files missing, records imported, records skipped, private/sensitive categories detected, and confidence level for derived outputs.
+- Active Studio context snapshot after user confirmation: compact repeat-history scoring patch, generic judge hints, provenance, confidence, and counts.
+- Import quality report: selected file facts, records imported, records skipped, duplicate preview, unavailable metrics, and confidence level for derived outputs.
 
 ## Metrics Boundary
 
 The archive may include `favorite_count` and `retweet_count` on archived tweets. In the inspected archive, normal post impressions, profile clicks, link clicks, bookmarks, quote counts, and received reply counts were not present in `tweets.js`.
 
-Archive metrics should be treated as partial historical signal. They are useful for ranking relative post history, but not enough for full reach prediction calibration.
+Archive metrics are treated as partial historical signal. They are useful for reviewing relative post history, but they are not enough for reach prediction calibration and are never mapped into `trailingMedianImpressions`.
+
+## User Import Steps
+
+1. Export and download the X archive from X.
+2. Extract the archive locally.
+3. Open `/library` in X Builder.
+4. Select the extracted `data/tweets.js` file with the native file input.
+5. Validate the file and review counts, skipped records, duplicate preview, and unavailable metrics.
+6. Import with the v1 merge policy.
+7. Review derived insights and activate Studio context when eligible.
+8. Open `/writer`; Studio shows whether compact archive context is active.
+
+The selected file contents are sent to the local engine as a JSON request body for validation/import. Raw `tweets.js` contents are not persisted.
 
 ## Consumers
 
@@ -76,16 +89,16 @@ V1 imports one extracted X archive file, `data/tweets.js`, through the local Lib
 
 Storage is local JSON under the configured engine storage path, behind a repository interface with atomic writes and an import-level serialization guard. Do not introduce SQLite or another database in this epic. The repository model must be canonical, not archive-specific: future X API sync will upsert into the same own-post records and metric snapshot structures.
 
-Studio consumes only a compact activated archive context. Raw archive content and raw post history must never be sent into Studio analysis or LLM judge calls. The engine merges active archive context server-side for `/posts/analyze`; explicit user-provided scoring fields win over archive-derived fields. Archive `favorite_count` and `retweet_count` are weak historical signals only and must not be mapped into `trailingMedianImpressions`.
+Studio consumes only a compact activated archive context. Raw archive content and raw post history are not sent by the client into Studio analysis or judge calls. The engine merges active archive context server-side for `/posts/analyze`; explicit user-provided scoring fields win over archive-derived fields. Archive `favorite_count` and `retweet_count` are weak historical signals only and must not be mapped into `trailingMedianImpressions`.
 
 The feature must stay faceless and open-source friendly. No creator handle, personal niche, private strategy, or account-specific assumption belongs in code, schemas, prompts, fixtures, labels, or defaults.
 
 ## API Endpoints
 
 - `POST /archive/tweets/validate` - validate a JSON payload containing selected `tweets.js` file metadata and contents; return safe counts, warnings, duplicate preview, and invalid/partial status without persisting posts.
-- `POST /archive/tweets/import` - re-parse the supplied `tweets.js` contents, normalize records, upsert canonical own-post history, persist an import run, and return summary plus derived context preview.
+- `POST /archive/tweets/import` - re-parse the supplied `tweets.js` contents, normalize records, upsert canonical own-post history, persist an import run, and return summary plus initial post previews.
 - `GET /archive/imports/latest` - return latest import summary, active context status, and route overview data.
-- `GET /archive/posts?cursor=&limit=&kind=` - return paginated imported canonical posts for Library preview.
+- `GET /archive/posts?cursor=&limit=` - return paginated imported canonical posts for Library preview.
 - `GET /archive/insights/latest` - return latest deterministic derived insights for review.
 - `POST /archive/context/activate` - activate a compact Studio context for a completed import.
 - `POST /archive/context/deactivate` - deactivate the current archive-derived Studio context.
@@ -97,9 +110,9 @@ The feature must stay faceless and open-source friendly. No creator handle, pers
 - `ArchiveTweetNormalizer` - maps raw archive tweet entries into canonical own-post upsert inputs and skip reasons.
 - `PostLibraryRepository` - owns local JSON persistence, schema validation, atomic writes, duplicate upserts, and future sync migration boundary.
 - `ArchiveImportService` - coordinates validation, import, duplicate handling, persistence, and import summaries.
-- `ArchiveDerivedInsightsService` - derives cadence, reply/original mix, repeat structures, emotional angle rotation, weak favorite/retweet history, and activation eligibility.
-- `ArchiveStudioContextService` - activates, deactivates, and loads compact archive context for Studio and judge consumers.
-- `LibraryRoute` - owns the `/library` import workflow with route-local reducer state.
+- `ArchiveDerivedContextService` - derives cadence, reply/original mix, repeat structures, emotional angle rotation, weak favorite/retweet history, activation eligibility, and active context.
+- `ArchiveStudioContextResolver` - loads compact active context, merges scoring patches server-side, and composes generic judge hints.
+- `LibraryRoute` - owns the `/library` import workflow with route-local state.
 - `ArchiveContextIndicator` - shows active historical context in Studio without exposing raw history.
 
 ## Dependencies

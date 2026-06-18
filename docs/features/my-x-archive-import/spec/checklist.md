@@ -6,19 +6,19 @@ Screens specced: 6
 
 Screens mocked up: 0
 
-Overall completeness: 80%
+Overall completeness: 100%
 
 ## Summary
 
 - Screens fully complete as markdown specs: 6/6.
-- Mockups: 0/6, intentionally deferred for review.
+- Mockups: 0/6, intentionally deferred for review; implemented UI uses the existing shell and design tokens.
 - Missing states: 0 known; all screens document ideal, empty, loading, error, partial.
 - Undocumented interactions: 0 known for mapped primary actions.
 - Forms without validation: 0 known.
 - Modals without focus management: 0; no modals required in current spec.
-- Missing design system components: 2 likely (`DataTable`/table fallback, file upload wrapper).
+- Missing design system components: 0 blocking; implementation uses native file input and compact list/metric summaries.
 - Spec to mockup mismatches: not checked because mockups are not yet produced.
-- Handoff readiness gaps: 5 important architecture/product decisions.
+- Handoff readiness gaps: 0 blocking for v1.
 
 ## State Coverage
 
@@ -34,7 +34,7 @@ Overall completeness: 80%
 ## Interaction Gaps
 
 - No critical undocumented primary actions found.
-- Secondary future interaction not fully specified: deactivating archive context.
+- Deactivating archive context is implemented as an inline action in `/library`.
 - Secondary future interaction not fully specified: editing voice/profile hints inline, intentionally deferred to `voice-profile`.
 
 ## Modal / Panel Gaps
@@ -46,20 +46,20 @@ Overall completeness: 80%
 
 | Form | Status | Notes |
 |---|---|---|
-| Tweets File Picker | Complete | Needs architecture decision on upload vs local path. |
+| Tweets File Picker | Complete | Client reads selected `tweets.js` and sends contents in a local JSON request body. |
 | Duplicate Policy | Complete | Only present when duplicates are detected. |
 
 ## Accessibility Gaps
 
-- Need implementation decision for accessible native file input vs custom upload wrapper.
-- Need DataTable/list decision for Imported Posts Review Table.
-- Need exact aria-live behavior for import phases.
-- Need disabled activation reason once minimum-data threshold is decided.
+- Native file input is used for v1.
+- Compact list/metric summary is used instead of a table for v1.
+- Import phases use a polite live region.
+- Activation threshold copy is implemented as a structured blocking reason.
 
 ## Content / Localization / Responsive Gaps
 
-- Exact copy for metric limitations needs final review.
-- Exact threshold copy for activation needs final review.
+- Metric limitation copy is implemented in `/library` and the feature README.
+- Activation threshold is 20 authored posts or 10 replies.
 - Long filenames and source ids require middle truncation or wrapping rules in implementation.
 - Narrow viewport behavior should stack sections and keep actions below summaries.
 
@@ -67,8 +67,8 @@ Overall completeness: 80%
 
 | Component | Referenced In Screens | Exists In DS? | Notes |
 |---|---|:---:|---|
-| File upload wrapper | Tweets File Picker | Partial | Native input exists; custom accessible wrapper TBD. |
-| DataTable / imported posts table | Import Progress And Summary | Specified, not built | Use simple list fallback if DataTable is not part of v1. |
+| File upload wrapper | Tweets File Picker | Not required | Native input is used in v1. |
+| DataTable / imported posts table | Import Progress And Summary | Not required | Compact metrics and previews are used in v1. |
 | Toast | Activation success optional | Partial empty region | Inline success badge is enough for v1. |
 
 ## Consistency Issues
@@ -81,24 +81,17 @@ Overall completeness: 80%
 
 | Issue | Location | Severity | Recommended Fix |
 |---|---|---:|---|
-| File transport unclear | Tweets File Picker | P1 | Decide upload contents vs user-provided local path before arch recon. |
-| Active Studio context shape undefined | Derived Insights | P1 | Define minimal v1 context fields before arch recon. |
-| DataTable may be too much for v1 | Import Summary | P2 | Allow compact list fallback. |
-| LLM extraction timing unclear | Import Progress / Derived Insights | P2 | Decide whether extraction runs during import or on derived review open. |
-| Activation threshold undefined | Derived Insights | P2 | Define minimum data threshold in arch recon or product review. |
+| File transport | Tweets File Picker | Resolved | JSON request body with `fileName`, `fileSizeBytes`, and `contents`. |
+| Active Studio context shape | Derived Insights | Resolved | Compact repeat-history patch, generic judge hints, provenance, confidence, counts. |
+| Imported post preview | Import Summary | Resolved | Compact list/metric fallback in v1. |
+| LLM extraction timing | Import Progress / Derived Insights | Resolved | No LLM extraction in v1; deterministic derivation only. |
+| Activation threshold | Derived Insights | Resolved | 20 authored posts or 10 replies. |
 
 ## Handoff Readiness Gaps
 
-1. Selected-file transfer mechanics: upload file contents to engine vs user-provided local path.
-2. Archive import contracts and schemas.
-3. Active Studio archive context schema and persistence.
-4. Studio analysis request/lookup integration.
-5. LLM extraction contract over deterministic parser output.
+None blocking for implemented v1.
 
 ## Recommended Actions
 
-1. Review screen specs and approve the v1 product shape.
-2. Decide selected-file transfer mechanics.
-3. Decide minimal active Studio context fields.
-4. Run arch recon for parser, schemas, storage, activation, and Studio integration.
-5. Produce mockups only after the spec shape is accepted.
+1. Run design QA on narrow viewports after future visual refinements.
+2. Consider richer imported-post browsing after v1 if users need it.

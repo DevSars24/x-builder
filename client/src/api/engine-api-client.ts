@@ -3,14 +3,30 @@ import {
   apiErrorSchema,
   appSettingsResponseSchema,
   appStatusSchema,
+  activeArchiveContextSchema,
+  archiveContextActivationResponseSchema,
+  archiveImportOverviewSchema,
+  archiveInsightsLatestResponseSchema,
+  archivePostsPageSchema,
+  archiveTweetsImportResponseSchema,
+  archiveTweetsValidateResponseSchema,
   generateIdeaResponseSchema,
   judgeDraftResponseSchema,
   type AnalyzePostsRequest,
   type AnalyzePostsResponse,
+  type ActiveArchiveContext,
   type ApiError,
   type AppSettings,
   type AppSettingsResponse,
   type AppStatus,
+  type ArchiveContextActivationResponse,
+  type ArchiveImportOverview,
+  type ArchiveInsightsLatestResponse,
+  type ArchivePostsPage,
+  type ArchiveTweetsImportRequest,
+  type ArchiveTweetsImportResponse,
+  type ArchiveTweetsValidateRequest,
+  type ArchiveTweetsValidateResponse,
   type GenerateIdeaRequest,
   type GenerateIdeaResponse,
   type JudgeDraftRequest,
@@ -137,6 +153,92 @@ export class EngineApiClient {
         },
         judgeDraftResponseSchema,
       ),
+    );
+  }
+
+  validateTweetsArchive(input: ArchiveTweetsValidateRequest): Promise<ArchiveTweetsValidateResponse> {
+    return this.observe(
+      this.request(
+        "/archive/tweets/validate",
+        {
+          body: input,
+          method: "POST",
+        },
+        archiveTweetsValidateResponseSchema,
+      ),
+    );
+  }
+
+  importTweetsArchive(input: ArchiveTweetsImportRequest): Promise<ArchiveTweetsImportResponse> {
+    return this.observe(
+      this.request(
+        "/archive/tweets/import",
+        {
+          body: input,
+          method: "POST",
+        },
+        archiveTweetsImportResponseSchema,
+      ),
+    );
+  }
+
+  getLatestArchiveImport(): Promise<ArchiveImportOverview> {
+    return this.observe(
+      this.request("/archive/imports/latest", { method: "GET" }, archiveImportOverviewSchema),
+    );
+  }
+
+  getArchivePosts(input: { cursor?: string; limit?: number } = {}): Promise<ArchivePostsPage> {
+    const params = new URLSearchParams();
+
+    if (input.limit !== undefined) {
+      params.set("limit", String(input.limit));
+    }
+
+    if (input.cursor !== undefined) {
+      params.set("cursor", input.cursor);
+    }
+
+    const query = params.toString();
+
+    return this.observe(
+      this.request(
+        `/archive/posts${query.length > 0 ? `?${query}` : ""}`,
+        { method: "GET" },
+        archivePostsPageSchema,
+      ),
+    );
+  }
+
+  getLatestArchiveInsights(): Promise<ArchiveInsightsLatestResponse> {
+    return this.observe(
+      this.request("/archive/insights/latest", { method: "GET" }, archiveInsightsLatestResponseSchema),
+    );
+  }
+
+  activateArchiveContext(): Promise<ArchiveContextActivationResponse> {
+    return this.observe(
+      this.request(
+        "/archive/context/activate",
+        { method: "POST" },
+        archiveContextActivationResponseSchema,
+      ),
+    );
+  }
+
+  deactivateArchiveContext(): Promise<ArchiveContextActivationResponse> {
+    return this.observe(
+      this.request(
+        "/archive/context/deactivate",
+        { method: "POST" },
+        archiveContextActivationResponseSchema,
+      ),
+    );
+  }
+
+  getActiveArchiveContext(): Promise<ActiveArchiveContext> {
+    return this.observe(
+      this.request("/archive/context/active", { method: "GET" }, activeArchiveContextSchema),
     );
   }
 

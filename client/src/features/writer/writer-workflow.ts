@@ -2,6 +2,7 @@ import {
   apiErrorSchema,
   generateIdeaRequestSchema,
   scoringContextSchema,
+  type ActiveArchiveContext,
   type AnalyzedPostItem,
   type AnalyzePostsRequest,
   type AnalyzePostsResponse,
@@ -20,6 +21,7 @@ import {
 export type WriterApiClient = {
   analyzePosts: (input: AnalyzePostsRequest) => Promise<AnalyzePostsResponse>;
   generateIdea: (input: GenerateIdeaRequest) => Promise<GenerateIdeaResponse>;
+  getActiveArchiveContext?: () => Promise<ActiveArchiveContext>;
   judgeDraft: (input: JudgeDraftRequest) => Promise<JudgeDraftResponse>;
 };
 
