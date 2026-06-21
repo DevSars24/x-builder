@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@x-builder/runner':
+        specifier: workspace:*
+        version: link:runner
       turbo:
         specifier: ^2.4.0
         version: 2.9.16
@@ -79,6 +82,44 @@ importers:
       '@types/better-sqlite3':
         specifier: ^7.6.12
         version: 7.6.13
+      tsx:
+        specifier: ^4.19.0
+        version: 4.22.4
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.6(@types/node@25.9.1)(tsx@4.22.4)
+
+  overlay:
+    dependencies:
+      '@x-builder/shared':
+        specifier: workspace:*
+        version: link:../shared
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vite:
+        specifier: ^6.0.0
+        version: 6.4.3(@types/node@25.9.1)(tsx@4.22.4)
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.6(@types/node@25.9.1)(tsx@4.22.4)
+
+  runner:
+    dependencies:
+      '@x-builder/engine':
+        specifier: workspace:*
+        version: link:../engine
+      '@x-builder/shared':
+        specifier: workspace:*
+        version: link:../shared
+      playwright:
+        specifier: ^1.50
+        version: 1.60.0
+    devDependencies:
       tsx:
         specifier: ^4.19.0
         version: 4.22.4
