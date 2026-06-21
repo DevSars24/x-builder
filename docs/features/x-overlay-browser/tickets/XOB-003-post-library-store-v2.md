@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # XOB-003: [FND] [RFR] Post-library store **v2** — widen source unions, `profileSnapshots`, forward migration
@@ -202,3 +202,21 @@ Required cases:
 - Concurrency: migration runs inside `loadStore`, which `upsertPosts` calls under
   `withSerializedWrite`; ensure the in-memory migration does not double-apply across the
   serialized queue (idempotent guard on `schemaVersion === 2`).
+
+## Pipeline Log
+
+Lean lane; hybrid [FND] additive-evolution + [RFR] behavior-preservation (routed to standard lean Red-first, not pure-RFR, because the ticket introduces new behavior — v2/migration/guard/live — that pure-RFR cannot host).
+
+- **Red** (`b2bfd0c`): extended `post-library-repository.test.ts` — 12 characterization/preserved tests (pass now & after: archive snapshot/sourceRef dedup-key semantics, saveStore ordering, re-upsert idempotence + the 6 unchanged existing) + 6 failing new-behavior tests (v1→v2 migration, idempotent re-save, `>2` guard, live-capture round-trip, mixed-source post, live-ref dedup). Updated the ONE sanctioned assertion (empty-store `schemaVersion` 1→2). Flagged quirk: `unchangedCount` is millisecond-timing-dependent (mergePost stamps fresh `updatedAt`) — pinned timing-independent facts instead; preserved behavior, Green must not "fix" it. Self-validated 12 pass / 6 fail deterministic ×8.
+- **Gates** (post-Red, base `317b170`): `[scope]` + `[ticket-ids]` CLEAN.
+- **Pre-Green pinning gate**: 12 pass / 6 fail confirmed independently; preserved-behavior baseline green before Green starts.
+- **Green** (`3f8d4a0`): single file. `metricSnapshots`/`sourceRefs` → `z.discriminatedUnion("source", …)` admitting `x_live_capture`; `schemaVersion: literal(2)`; `profileSnapshots`; in-memory idempotent v1→v2 migration + numeric-`>2` guard in `loadStore`; `emptyStore` v2; `sourceRefSchema`→`archiveSourceRefSchema` rename. 18/18 store tests, 589/589 engine, typecheck 9/9. Archive key strings byte-identical; `unchangedCount` quirk untouched.
+- **Gates** (post-Green, base `b2bfd0c`): all CLEAN; Green touched zero test files.
+- **Blue (Validate Green)**: APPROVE_WITH_CONCERNS — all mechanical green, behavior preserved (no change beyond sanctioned `schemaVersion` bump); compiled an isolated probe proving the loose exported union is **sound** (never types an omittable field as required-present).
+- **Yellow (intent, facade emphasis)**: APPROVE_WITH_CONCERNS — real restructuring (genuine discriminated unions, real migration, no orphans/shims, all importers resolve), extension-ready for XOB-004/008. Ruled the loose-union acceptable-with-concern (not an intent defect): XOB-004 writer zero degradation, XOB-008 mild, XOB-007 loses a forced-narrow seatbelt.
+- **[FND] Architectural checkpoint (Blue)**: APPROVE — v2 store conforms to the epic's corpus-accumulation architecture (live metrics complete; `captureSessionId`+`rawId` dedup keeps re-captures additive; `profileSnapshots` single auto-followers source; migration non-destructive). XOB-004 cleared.
+
+### Concerns Ledger (carried — triaged with user)
+
+1. **Loose exported union type** (`MetricSnapshot`/`SourceRef`/`CanonicalOwnPost`/`PostLibraryStore` use `Variant & Partial<Omit<Other,"source">>` instead of true `z.infer` discriminated unions). Untouched AC/DoD: none — DoD "exported types reflect the unions" is met and typecheck is green; this is type-precision, not correctness. Evidence of no-behavior-change: runtime schemas are genuine `z.discriminatedUnion`; Blue's compile probe proved soundness; 589/589 engine tests green. Impact: XOB-007 `LiveContextResolver` loses compile-time forced-narrowing on `.source`. Fix (low-effort, post-hoc, no contract change): true `z.infer` union exports + Red narrows the characterization reads on `.source`.
+2. **Stored `liveProfileSnapshotSchema` is tighter than the shared wire `liveCapturedProfileSchema`** (adds `min(1)`/`max` bounds). Non-blocking; flagged for **XOB-004** so `pushProfileSnapshot` handles a parse rejection (route to `library_storage_failed`) rather than assuming the shared value always fits.
