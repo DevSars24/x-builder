@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # XOB-002: [FND] Shared contracts — `EngineTransport` (17) + all v1 delta schemas + `deriveApproved`
@@ -279,3 +279,17 @@ Required cases:
 - The internal `scoredPostItemSchema` edit must not perturb the `analyzedPostItemSchema`
   discriminated union (`status` discriminant unchanged); a `score_failed` item never
   carries `cooldown`.
+
+## Pipeline Log
+
+Lean Red-first lane.
+
+- **Red** (`3e46d53` + rename `aa65a82`): 93 failing contract tests across `overlay-seam-schemas.test.ts` (60) + `judge-and-transport-contracts.test.ts` (33) — Zod round-trip/reject, legacy-parse-unchanged, `deriveApproved` boundary (70→true/69→false), binding-count=17, locked names, frozen `ENGINE_TRANSPORT_BINDINGS`. Self-validated, behavior-named files (no ticket-IDs).
+- **Green** (`1cc60e2`): 7 new `schemas/*.ts` (incl. `post-formats.ts` extracted to break the `cooldown ↔ deterministic-analysis` import cycle — enums re-exported verbatim, public barrel byte-identical), three additive edits (`judge.ts` `judgeAnnotationSchema`/`annotations.max(12).default([])`/`deriveApproved`; `shell.ts`; `deterministic-analysis.ts` optional `cooldown`), full barrel exports. 207/207 shared tests.
+- **Red cycle 2** (`e1e30b0`): guarded indexed access in own test file for `noUncheckedIndexedAccess` (TS18048); surfaced that `.default([])` makes `annotations` required on the inferred *output* type, breaking 10 pre-existing client/engine verdict fixtures.
+- **Green fix** (`c785898`): added `annotations: []` to the 10 pre-existing fixtures (justified ripple from the changed shared contract; core rule "update old code, no shims"). Zero `shared/` test files touched. Workspace typecheck green; 207 shared / 268 client / 577 engine.
+- **Gates** (`all --base aa65a82`): `[suppressions]`/`[ticket-ids]`/`[stubs]`/`[slop]`/`[ui-tokens]` all CLEAN.
+- **Blue (Validate Green)**: APPROVE — typecheck honest (`--force`, no stale cache; `noUncheckedIndexedAccess` still true), 17 methods/bindings/registry with locked spellings, reuse-not-redefine, focused diff. `post-formats.ts` ruled justified circular-dep break, not scope creep.
+- **Yellow (intent)**: APPROVE — all deliverables real, zero-trace holds (no service/route/runner/overlay impl; `EngineTransport` interface-only), no orphans, 5-segment traces verified for `analyzePosts`/`applyJudgeSuggestions`/`getCaptureSummary`/`suggestPost`. snug skipped (no UI).
+- **[FND] Architectural checkpoint (Blue)**: APPROVE — seam covers every epic affordance; canonical cross-consumer shapes (`cooldownSignalSchema` one-shape-two-consumers, `captureSummarySchema` single auto-followers source, `deriveApproved` single ≥70 threshold) hold; extension points for XOB-003/010/011 correctly shaped; no structure-vs-intent drift.
+- Concerns ledger: none. Status → **done**.
