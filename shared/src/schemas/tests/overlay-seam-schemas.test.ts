@@ -1,5 +1,5 @@
 /**
- * Failing tests for XOB-002 new schema modules.
+ * Failing tests for the new overlay-seam schema modules.
  *
  * These schemas do not exist yet; every import below will produce a
  * ModuleNotFoundError / unresolved-export until the implementation lands.

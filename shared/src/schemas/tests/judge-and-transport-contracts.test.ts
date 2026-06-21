@@ -1,5 +1,6 @@
 /**
- * Failing tests for XOB-002 additive schema edits.
+ * Failing tests for the additive judge/shell/analysis schema edits and the
+ * EngineTransport binding registry.
  *
  * Covers:
  *   - judgeAnnotationSchema (new field on judgeVerdictSchema)
