@@ -400,7 +400,11 @@ describe("analyzePostsResponseSchema legacy item without cooldown", () => {
       throw new Error("Expected legacy analyzePostsResponse without cooldown to parse.");
     }
 
+    expect(result.data.items).toHaveLength(1);
     const item = result.data.items[0];
+    if (!item) {
+      throw new Error("Expected the parsed response to carry exactly one scored item.");
+    }
 
     expect(item.status).toBe("scored");
     // cooldown must not have been added by parsing
