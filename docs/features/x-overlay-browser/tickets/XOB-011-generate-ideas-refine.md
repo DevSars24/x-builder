@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # XOB-011: GenerateIdeasService — By-Format LLM Generation + Generate→Judge Refine
@@ -180,3 +180,19 @@ candidates: Array<{
 - `resolveJudgeAccountProfile` throws: catch → pass `undefined` to judge (profile-less), do not fail the candidate.
 - Per-chain timeout reached mid-judge: outstanding `Promise.allSettled` legs return rejected; affected candidates drop `verdict`/`approved`. Generation already succeeded.
 - `deriveApproved` agreement: verify the computed `approved` on each candidate is consistent with the candidate's `verdict.verdict` band (`post_now`/`slight_rework` → true; others → false).
+
+## Pipeline Log
+
+Lean Red-first lane.
+
+- **Red** (`a175868`): `generate-ideas-service.test.ts` (7 service cases incl. all-judges-succeed, one-judge-fails graceful omission, generate-fails throw, idea-only no-LLM via call-count spy, all-judges-fail, profile-resolver-throws, deriveApproved-agreement) + `ideas-generate.test.ts` (2 route guardrails: 200/3-candidates, 500/`generation_failed`). Judge fake keyed on text for deterministic parallel `allSettled`; verdicts built via `overall` band so `approved` assertions are honest. RED via missing module (route guardrails pass — the route's `generationError()` path pre-exists). `rg "XOB-"` clean (no scrub needed).
+- **Gates** (post-Red, base `1fc1a4d`): `[scope]` + `[ticket-ids]` CLEAN.
+- **Green** (`1764085`): `GenerateIdeasService` (format path: `generateStructured` `writer_variants` with `timeoutMs: chainTimeoutMs/4`, throws `IdeaGenerationError` on `failed`/wrong-count; parallel `Promise.allSettled` judge fan-out; per-candidate `verdict`+`approved=deriveApproved` or genuine omission; idea-only deterministic stub, no LLM/judge) + wiring as default `generateCandidates` (correct binding) + removed the now-dead `defaultGenerateCandidates` const (logic folded into the service). 7/2/691 tests, typecheck 9/9, build 7/7.
+- **Gates** (post-Green, base `a175868`): all CLEAN; no test files touched; no dangling `defaultGenerateCandidates` source ref.
+- **Blue (Validate Green)**: APPROVE — format/idea paths correct, `allSettled` + genuine omission, `generation_failed` only from generate step, typecheck/build honest; both decisions mechanically sound (stub removal preserves byte-identical output; generate-budgeted/judges-best-effort respects the no-signature-change scope boundary).
+- **Yellow (intent)**: APPROVE_WITH_CONCERNS — real generate→judge refine with the SAME judge instance (loop-prevention/green-provenance intent realized), single-source `deriveApproved`, graceful degradation (never dead-ends), one-path consolidation acceptable. Verified judges are NOT a hang risk (bounded by `JudgeDraftService`'s internal 180s → process-runner SIGKILL).
+
+### Concerns Ledger
+- **Per-judge chain budget not enforced by `GenerateIdeasService`.** The chain budget (`chainTimeoutMs/4` ≈ 60s) governs only the generate call; the 3 parallel judge legs are bounded only by `JudgeDraftService`'s own internal 180s cap (no per-judge `timeoutMs` because `JudgeDraft.judge(text, accountProfile?)` takes no options and the Scope Boundaries forbid changing that signature). Benign (no unbounded hang — judges are process-level capped), but worst-case format-path wall-clock ≈ 60s + 180s ≈ 240s is governed by the judge's internal cap, not `chainTimeoutMs`. Untouched AC/DoD: the DoD's literal "each judge gets chainTimeoutMs/4" is unachievable without the out-of-scope signature change; evidence of no-behavior-issue: judge calls are hard-capped at 180s (`judge-draft-service.ts:14,215` → `process-runner.ts:316`). Revisit if chain-level cancellation is needed (would add a signal/options param to `JudgeDraft.judge`) — relevant to XOB-026/XOB-027 (edit-while-applying cancellation, already a carried P2).
+- **Doc note (no action):** the ticket's `deriveApproved = overall>=70` prose differs from the shared band-based impl (`post_now`/`slight_rework`) — equivalent; `deriveApproved` is XOB-002-owned, consumed-only here.
+- Status → **done**.
