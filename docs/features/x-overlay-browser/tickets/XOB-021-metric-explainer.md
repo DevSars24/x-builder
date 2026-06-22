@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # XOB-021: Metric explainer
@@ -163,3 +163,16 @@ The exact copy text for each entry is authored as part of this ticket. Placehold
 - Multiple `MetricExplainer` instances open simultaneously (e.g. user Tab-walks through all triggers): each is independent (separate `expanded` state per instance); closing one does not affect others. Hosts that want one-at-a-time behavior must implement it at the metric host level (out of scope for this component).
 - Very long `whatItMeans` copy: popover scrolls internally (`max-height: 60vh; overflow-y: auto`) rather than growing off-screen.
 - `aria-controls` pointing to an id that hasn't rendered yet (popover conditionally rendered): use `aria-expanded` as the primary SR signal; the `aria-controls` is best-effort and may be absent when closed (acceptable per ARIA spec for conditional rendering).
+
+## Pipeline Log
+
+Lean Red-first lane. (Costly dispatch: one Green returned a malformed/injected 0-tool-use blob — disregarded; a second Green's socket closed mid-run leaving partial `copy.ts`/`types.ts` untracked; a third Green completed from that partial state. No bad state reached the repo.)
+
+- **Reconciliation:** `MetricKey` realigned to the real `judgeScoresSchema` (13 dims) + deterministic (`repetition`/`postCoach`) + real reach fields (`stallRange`/`escapeRange`/`escapeProbability`) — the ticket body's fictional dims (`opinionClarity`/`hookStrength`/`cta`/`reachRange`/...) were dropped. (The reconciliation banner prose itself slipped one stray `opinionClarity`; the delivered code correctly excludes it.) Second systematic ticket-vs-XOB-002 drift (after XOB-020) — flagged wave-wide for XOB-025/026.
+- **Red** (`bbae276`): `copy.test.tsx`/`metric-explainer.test.tsx`/`explainer-popover.test.tsx` (25 cases, browser mode) — enforces the 18-key set (rejects drifted keys), the 3 direction rules, trigger/popover a11y, Esc/click-outside, source override, null audienceMatch, unknown-key fallback, token references. RED feature-missing; 117 prior pass; clean.
+- **Gates** (post-Red, base `2799924`): `[scope]` + `[ticket-ids]` CLEAN.
+- **Green** (`fb2374f`): `types.ts` (18-key MetricKey) + `copy.ts` (18 real entries; fixed an `answerEffort` "lower"→"higher" direction bug) + `metric-explainer.tsx`/`explainer-trigger.tsx`/`explainer-popover.tsx` (reuse v2 `IconButton`/`Badge`; ghost trigger; non-modal popover; Esc/composedPath close; null/unknown fallbacks; token-only inline styles). 159 tests, typecheck 10/10, build self-contained.
+- **Gates** (post-Green, base `bbae276`): `[suppressions]`/`[ticket-ids]`/`[stubs]`/`[slop]` CLEAN; `[ui-tokens] 1` = the ticket-mandated `maxWidth:"min(320px, 90vw)"` responsive cap (layout constraint, not a design-token) → justified.
+- **Blue (Validate Green)**: APPROVE — 18 real keys (no fictional), direction rules + answerEffort fix verified, a11y/fallbacks correct, token discipline clean (the one literal justified), v2 reuse confirmed, 159 pass + typecheck/build green (cache-bypassed).
+- **Yellow (intent/UI)**: APPROVE — explains the REAL metrics users see (verified against `judgeScoresSchema` + `availableEngagementPredictionSchema`), direction legends honest/non-misleading (the high-risk ones), non-modal (compose stays reachable), ZERO-TRACE, token discipline + Aurora Glass.
+- Concerns ledger: none (the MetricKey drift is RESOLVED here; downstream-dim note carried wave-wide). Status → **done**.
