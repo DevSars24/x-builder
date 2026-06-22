@@ -1,5 +1,5 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # XOB-006: GenerateCategoryService + GET /generate/categories — dynamic categories from the corpus
