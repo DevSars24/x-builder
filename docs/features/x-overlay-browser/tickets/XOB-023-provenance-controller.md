@@ -36,7 +36,8 @@ These are the only callers of `setAnchor`. Neither `judgeDraft` nor any user edi
 ```ts
 interface ProvenanceControllerProps {
   composerEl: HTMLElement | null;
-  annotations: AnnotationEntry[];       // from latest judgeDraft verdict; default []
+  annotations: JudgeAnnotation[];       // from latest judgeDraft verdict; default [] (shared JudgeAnnotation)
+  latestVerdict: JudgeVerdict | null;   // L1 — passed from parent compose machine; source of `approved` via deriveApproved. null ⇒ approved=false
   onProvenanceChange?(state: ProvenanceState): void; // optional callback for parent state machines
   children: (ctx: ProvenanceRenderContext) => ReactNode; // render prop pattern
 }
