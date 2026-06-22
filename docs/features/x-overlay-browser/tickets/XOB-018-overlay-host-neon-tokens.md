@@ -1,8 +1,10 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # XOB-018: [FND] Overlay shadow-DOM injection host + Aurora Glass neon tokens
+
+> **Test-harness decision (supersedes the "JSDOM" wording in Test Strategy below):** the overlay package uses **Vitest browser mode → Playwright Chromium (headless)** with `vitest-browser-react`, NOT jsdom. Rationale: this ticket's ACs require `getComputedStyle` to resolve the `--xb-*` custom properties from `adoptedStyleSheets`, and XOB-022 needs real `Range.getClientRects()` — neither jsdom nor happy-dom has a layout engine or faithful constructed-stylesheet resolution. Browser mode also matches production (the overlay runs in real Chromium via Playwright). This [FND] ticket establishes that harness for all of XOB-019–029.
 
 ## Implementation Details
 
