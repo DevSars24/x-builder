@@ -1,8 +1,10 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # XOB-019: [FND] Transport-consuming client seam (`useTransport`) + `XSelectors` + `AnchorLayer` skeleton
+
+> **Folded-in scope (carried from the XOB-018 [FND] checkpoint):** XOB-019 also **seeds the design-system primitive tokens** (`--space-*`, `--type-*`, `--radius-*`, `--score-*`, sourced from `docs/design-system/product-tokens.css`) onto the shadow `:host`, via a new overlay token sheet (`overlay/src/design-tokens.ts`) adopted alongside the neon sheet in `bootstrap()`. The overlay is shadow-isolated and x.com has no `:root` design tokens, so these would not otherwise resolve — and XOB-021 (`--type-caption`/`--radius-md`), XOB-024 (`--space-2`), XOB-025 (`--score-*`), XOB-026/029 consume them. `EngineTransport` + `FakeEngineTransport` use the REAL shared `EngineTransport` interface (XOB-002), NOT the slightly-illustrative inline copy in the Data Models section below.
 
 ## Implementation Details
 
