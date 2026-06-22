@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # XOB-028: SuggestAffordance + SuggestCard — cooldown-aware suggest-post on home/profile
@@ -190,3 +190,23 @@ export const errorState: SuggestState = { status: "error", error: "generation_fa
 - **`cooldown.signals` empty in `ready` response:** no badge rendered; clean render without errors.
 
 **Cross-deps:** XOB-019 (transport seam + `AnchorLayer`), XOB-021 (MetricExplainer — not used in this card in v1, but the dep is declared for when explainers are added to suggest card in future).
+
+## Pipeline Log
+
+Lane: rgb-tdd lean Red-first (Red self-validates → Green → combined Blue+Yellow). Not `[FND]`.
+
+| Station | Commit | Result |
+|---|---|---|
+| pre-Red SHA | `7f10e85` | base (after reconciliations: build fresh v2 `EmptyState` (first consumer), `open` is a controlled prop, browser-mode harness) |
+| Red (failing tests, self-validated) | `893e115` | EmptyState contract block (in `ui-v2.test.tsx`) + 13 SuggestAffordance cases + fixtures; scope CLEAN; ticket-ids 2 benign comment matches; 2 import-resolution failures (right reason). |
+| pre-Green SHA | `893e115` | base |
+| Green (impl) | `e3852bb` | 3 files (`client/src/ui/v2/empty-state.tsx` + barrel, `overlay/src/suggest/suggest-affordance.tsx`); 291/291 overlay tests pass; overlay+client typecheck green; `gates.py all` CLEAN. |
+| Blue (validate Green) | — | **APPROVE** — no test modification; EmptyState contract met (title/body/action-when-present; not foundation-imported); all 6 SuggestState cases; controlled `open`; "Use this"→`onUse(exact text)` once; cooldown_blocked=warning; empty=EmptyState; both typechecks honest; focused 3-file diff. |
+| Yellow (intent/wiring) | — | **APPROVE** — **X-policy never-auto-post contract holds rigorously** (no transport/`useEffect`; `onUse` only on explicit click; label "Use this"); presentational/controlled-open seam; cooldown awareness (warning info, not error); fresh v2 EmptyState (not legacy reuse); zero-trace (no routing/auto-open/carousel/MetricExplainer); accent-edge ghost (not primary/judge). |
+
+### Concerns Ledger
+
+| # | Concern | Owner | Resolution |
+|---|---|---|---|
+| H1 | **Ticket Visual AC referenced `--type-title-small`, an UNDEFINED token.** Green correctly substituted the real `--type-panel-title` (defined in `product-tokens.css`). No test asserts the specific font token; cosmetic. | resolved (this ticket) | None needed — substitution is the right call. Flag: avoid phantom token names in future Visual ACs. |
+| H2 (= G1/D1 recurrence) | The "Use this" `--xb-accent` edge again used the **accent-bordered-span-wrapping-a-ghost-Button** workaround (v2 `Button` has no `style`/border prop). Fourth occurrence of the D1 limitation. | v2 `Button` enhancement (already rule-of-three-triggered in XOB-027 ledger G1) | Covered by the existing README D1 note + XOB-027 G1 — add a `borderColor`/edge-token prop to v2 `Button` to retire all wrapper spans. Non-blocking. |
