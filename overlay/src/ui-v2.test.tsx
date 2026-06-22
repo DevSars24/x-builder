@@ -19,6 +19,9 @@ import { cleanup, render } from "vitest-browser-react";
 import { Alert } from "../../client/src/ui/v2/alert";
 import { Badge } from "../../client/src/ui/v2/badge";
 import { Button } from "../../client/src/ui/v2/button";
+// XOB-028: the FRESH v2 `EmptyState` primitive — this file does not exist yet,
+// so importing it is what drives the RED state for the contract block below.
+import { EmptyState } from "../../client/src/ui/v2/empty-state";
 import { IconButton } from "../../client/src/ui/v2/icon-button";
 import { Input } from "../../client/src/ui/v2/input";
 import { KeyValueList } from "../../client/src/ui/v2/key-value-list";
@@ -369,5 +372,69 @@ describe("v2 ScoreBar", () => {
     expect(fillEl.closest("[role='progressbar']")?.outerHTML ?? "").not.toContain(
       "--xb-judge",
     );
+  });
+});
+
+describe("v2 EmptyState", () => {
+  // XOB-028 is the FIRST consumer of the fresh v2 `EmptyState` primitive. It
+  // mirrors the legacy `client/src/ui/foundation.tsx` `EmptyState` prop shape —
+  // `{ title: string; children: ReactNode; action?: ReactNode }` — but renders
+  // with inline `var(--…)` token styles (no global classnames) so it travels
+  // into the shadow root. We assert on stable structural signals only: the
+  // title text, the body (children), the optional action region's presence /
+  // absence, and that it mounts without crashing inside the seeded shadow host.
+
+  it("renders the title text", () => {
+    const root = mount(
+      <EmptyState title="No post history yet">Capture some posts first.</EmptyState>,
+    );
+    expect(root.textContent).toContain("No post history yet");
+  });
+
+  it("renders the children as the body", () => {
+    const root = mount(
+      <EmptyState title="No post history yet">
+        <span>Capture some posts first.</span>
+      </EmptyState>,
+    );
+    expect(root.textContent).toContain("Capture some posts first.");
+  });
+
+  it("renders the action region when an action is provided", () => {
+    const root = mount(
+      <EmptyState
+        title="No post history yet"
+        action={<Button onClick={() => {}}>Import archive</Button>}
+      >
+        Capture some posts first.
+      </EmptyState>,
+    );
+    // The action surfaces as its own rendered control.
+    const actionButton = Array.from(root.querySelectorAll("button")).find((b) =>
+      /import archive/i.test(b.textContent ?? ""),
+    );
+    expect(actionButton).toBeDefined();
+  });
+
+  it("omits the action region entirely when no action is provided", () => {
+    const root = mount(
+      <EmptyState title="No post history yet">Capture some posts first.</EmptyState>,
+    );
+    // No action → no rendered control. The title + body still render, but the
+    // empty state holds no button when `action` is absent (not an empty wrapper
+    // masquerading as one): there is simply no button in the subtree.
+    expect(root.querySelector("button")).toBeNull();
+    // …yet the core content is intact, proving the absence is the action only.
+    expect(root.textContent).toContain("No post history yet");
+    expect(root.textContent).toContain("Capture some posts first.");
+  });
+
+  it("mounts inside the seeded shadow host without crashing (token-driven)", () => {
+    // The primitive must resolve its inline `var(--…)` styles against the seeded
+    // token closure — rendering into the real shadow root proves it travels.
+    const root = mount(
+      <EmptyState title="No post history yet">Capture some posts first.</EmptyState>,
+    );
+    expect(root.firstElementChild).not.toBeNull();
   });
 });
