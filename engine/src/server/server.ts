@@ -21,6 +21,8 @@ import {
   archiveTweetsImportResponseSchema,
   archiveTweetsValidateRequestSchema,
   archiveTweetsValidateResponseSchema,
+  type CooldownReport,
+  type CooldownSignal,
   generateCategorySchema,
   generateIdeaRequestSchema,
   generateIdeaResponseSchema,
@@ -39,6 +41,7 @@ import { z } from "zod";
 
 import { DeterministicAnalysisService } from "../deterministic/deterministic-analysis-service.js";
 import { RepetitionWindowService } from "../capture/repetition-window-service.js";
+import { LiveContextResolver } from "../capture/live-context-resolver.js";
 import { GenerateCategoryService } from "../suggest/generate-category-service.js";
 import {
   ArchiveImportService,
@@ -102,6 +105,7 @@ export interface BuildServerOptions {
   postLibraryRepository?: PostLibraryRepository;
   generateCategoryService?: GenerateCategoryService;
   judgeDraftService?: JudgeDraft;
+  liveContextResolver?: LiveContextResolver;
 }
 
 export type EngineRuntimeConfig = {
@@ -276,6 +280,43 @@ const parseResponseContract = <T>(schema: z.ZodType<T>, value: unknown): T => {
     throw error;
   }
 };
+
+// A "clear" cooldown signal for a format that has no in-window posts. Every
+// scored item carries a cooldown key (the field must survive the JSON wire), so
+// a format absent from the report resolves to this zero-count clear signal.
+const clearCooldownSignal = (
+  format: CooldownSignal["format"],
+  windowDays: number,
+): CooldownSignal => ({
+  format,
+  countInWindow: 0,
+  windowDays,
+  status: "clear",
+  message: `0 ${format} posts in the last ${windowDays} days — all clear.`,
+});
+
+// Attach a per-item cooldown signal to each scored item by looking up its
+// detectedFormat in the precomputed window report. A format with no in-window
+// signal resolves to a clear signal so every scored item carries the field.
+// score_failed items are returned unchanged (no cooldown key), keeping the
+// response valid against analyzePostsResponseSchema.
+const attachCooldownSignals = (
+  response: AnalyzePostsResponse,
+  report: CooldownReport,
+): AnalyzePostsResponse => ({
+  ...response,
+  items: response.items.map((item) => {
+    if (item.status !== "scored") {
+      return item;
+    }
+
+    const signal =
+      report.signals.find((candidate) => candidate.format === item.detectedFormat) ??
+      clearCooldownSignal(item.detectedFormat, report.windowDays);
+
+    return { ...item, cooldown: signal };
+  }),
+});
 
 const defaultGenerateCandidates: GenerateCandidates = ({ idea }) => ({
   candidates: [
@@ -597,6 +638,14 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     repository: postLibraryRepository,
   });
   const archiveStudioContextResolver = new ArchiveStudioContextResolver(postLibraryRepository);
+  // One RepetitionWindowService backs both the live-context resolver's
+  // repeatHistory derivation and the per-item cooldown attachment on
+  // /posts/analyze, so the 7-day window is computed against one clock and one
+  // store for a single request.
+  const repetitionWindowService = new RepetitionWindowService(postLibraryRepository);
+  const liveContextResolver =
+    options.liveContextResolver ??
+    new LiveContextResolver(postLibraryRepository, repetitionWindowService);
   const generateCategoryService =
     options.generateCategoryService ??
     new GenerateCategoryService(
@@ -849,8 +898,21 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     let result: Awaited<ReturnType<typeof analyzePosts>>;
 
     try {
-      result = await analyzePosts(await archiveStudioContextResolver.mergeAnalysisRequest(input));
-    } catch {
+      // Resolver ordering is a hard constraint: live context is patched first so
+      // it takes precedence, then the archive resolver fills any still-undefined
+      // fields. Both only patch fields that are === undefined, so neither
+      // overwrites a caller-supplied value.
+      let merged = await liveContextResolver.mergeAnalysisRequest(input);
+      merged = await archiveStudioContextResolver.mergeAnalysisRequest(merged);
+      const analyzed = await analyzePosts(merged);
+      // One compute(7) per request for the per-item cooldown attachment.
+      const report = await repetitionWindowService.compute(7);
+      result = attachCooldownSignals(analyzed, report);
+    } catch (error) {
+      if (error instanceof PostLibraryStorageError) {
+        throw new NormalizedApiError(libraryStorageFailedError());
+      }
+
       throw new NormalizedApiError(deterministicAnalysisError());
     }
 
