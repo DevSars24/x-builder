@@ -16,20 +16,13 @@ status: in-progress
 
 **Component:** `ComposeCockpit`
 
-**Props:**
+**Props (SELF-ORCHESTRATING — per the SCOPE DECISION; supersedes the earlier prop-driven draft):**
 ```ts
 {
-  compose: ComposeMachineState;         // full state machine (§H / §5.1)
-  categories: GenerateCategory[];       // from getGenerateCategories() (L1)
-  provenance: ProvenanceState;          // from ProvenanceController (L5 derived)
-  applyState: ApplyState;               // owned here (L4)
-  onGenerate: (category: GenerateCategory) => void;
-  onApplyAll: () => void;
-  onRetryJudge: () => void;
-  onRetryStatic: () => void;
-  explainer: ExplainerSource;
+  explainer: ExplainerSource;   // MetricExplainer copy source — the ONLY external prop
 }
 ```
+`ComposeCockpit` is self-contained: it reads the engine via `useTransport()`, detects the composer via the DOM / `ComposeContext`, OWNS the `ComposeMachineState` reducer + `applyState` (L4) + `getGenerateCategories()` result (L1) internally, composes `ProvenanceController` (deriving `provenance` L5) and `CompositionHighlightLayer`, and emits no callbacks upward (it handles generate/apply/retry/composer-write itself). It takes only `explainer`. (The previously-drafted `compose`/`categories`/`provenance`/`applyState`/`onGenerate`/`onApplyAll`/`onRetryJudge`/`onRetryStatic` props are NOT the contract — they are internal state/handlers now.)
 
 **`ComposeMachineState`** (complete §H / §5.1 machine, owned in `ComposeCockpit`):
 ```ts
