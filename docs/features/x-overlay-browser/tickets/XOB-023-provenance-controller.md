@@ -37,7 +37,7 @@ These are the only callers of `setAnchor`. Neither `judgeDraft` nor any user edi
 interface ProvenanceControllerProps {
   composerEl: HTMLElement | null;
   annotations: JudgeAnnotation[];       // from latest judgeDraft verdict; default [] (shared JudgeAnnotation)
-  latestVerdict: JudgeVerdict | null;   // L1 — passed from parent compose machine; source of `approved` via deriveApproved. null ⇒ approved=false
+  latestVerdict?: JudgeVerdict | null;  // L1 — passed from parent compose machine; source of `approved` via deriveApproved. null/undefined ⇒ approved=false. Optional so the controller mounts before the first verdict; XOB-029 passes it explicitly.
   onProvenanceChange?(state: ProvenanceState): void; // optional callback for parent state machines
   children: (ctx: ProvenanceRenderContext) => ReactNode; // render prop pattern
 }
