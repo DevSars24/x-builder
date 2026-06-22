@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # XOB-018: [FND] Overlay shadow-DOM injection host + Aurora Glass neon tokens
@@ -140,3 +140,20 @@ export function OverlayThemeBridge(props: OverlayThemeBridgeProps): null;
 - `CSSStyleSheet` constructor / `adoptedStyleSheets` unavailable: warn via `console.warn("[xb] adoptedStyleSheets unavailable — neon sheet skipped")` and continue without the sheet (affordances will be unstyled but the React tree will still mount for later graceful degrade).
 - `attachShadow` already called on an element that was removed from DOM then re-appended: the idempotency check (`document.querySelector("#xb-overlay-root")`) prevents double-mounting regardless of the element lifecycle.
 - X's dark/light theme derived from `body` background color (no `data-theme` attribute on some X layouts): `OverlayThemeBridge` must implement a heuristic fallback (compare `rgb(21, 32, 43)` for Dim, `rgb(0,0,0)` for Lights Out, otherwise Default) if `data-theme` is absent.
+
+## Pipeline Log
+
+Lean Red-first lane. **[FND]** — established the overlay test harness (**Vitest browser mode → Playwright Chromium**, NOT jsdom; see banner) for all of Wave 4.
+
+- **Red** (`266ed7d`): set up the harness — React 19 deps, `@vitest/browser`+`vitest-browser-react@^1` (pinned for vitest 3) + `@vitejs/plugin-react`, JSX tsconfig, `overlay/vitest.config.ts` (browser mode); confirmed Chromium launches. Wrote `bootstrap.test.tsx` + `theme-bridge.test.tsx` (idempotency, open-shadow + adoptedStyleSheets, all-25-tokens via real `getComputedStyle`, display:contents, default-theme override, reduced-motion `0ms`, theme bridge + heuristic, SPA-nav, no-body-mutation). RED via missing modules; `rg "XOB-"` + lockfile clean.
+- **Gates** (post-Red, base `83f1cbf`): `[ticket-ids]` CLEAN; `[scope]` CLEAN with harness files (`package.json`/`tsconfig`/`vitest.config`/lockfile) in `--allowed` (legitimate harness setup for this [FND]).
+- **Green** (`5892d20`, cleanup `3c3d113`): `bootstrap` (idempotent, documentElement-only, adoptedStyleSheets-guard, `requestIdleCallback`-gated render) + `neon-sheet` (25 tokens, `:host{display:contents}`, `:host([data-xtheme="default"])` override, reduced-motion stub) + `theme-bridge` (data-theme + heuristic + observer-disconnect) + `OverlayRuntime` (empty root) + IIFE `window.__xbBootstrap`. **Browser mode caught a real bug** (`:host[data-xtheme]` → `:host([data-xtheme])` shadow-selector syntax) jsdom would have missed. 42 tests in real Chromium, typecheck 10/10, build 7/7, IIFE self-contained. Cleanup removed an inert eslint-disable (repo has no eslint).
+- **Gates** (post-Green, base `266ed7d`): `[suppressions]`/`[ticket-ids]`/`[stubs]`/`[slop]` CLEAN; `[ui-tokens] 33` all confined to `neon-sheet.ts` (the token-definition source) — ruled justified; zero leaks into components.
+- **Blue (Validate Green)**: APPROVE — substrate/tokens/theme/IIFE correct, 42 browser-mode tests pass, token discipline holds (components clean), typecheck+build honest (cache-bypassed).
+- **Yellow (intent/UI)**: APPROVE — real shadow host, ZERO-TRACE (no later-affordance code, no body mutation, no position:fixed, idle-gated), Aurora Glass 25/25 fidelity, foundation seams at the right altitude.
+- **[FND] Architectural checkpoint (Blue)**: APPROVE — substrate complete for XOB-019–029 mounts, 25-`--xb-*` contract covers every downstream consumer, shadow-isolation + theme-pairing + reduced-motion-stub sound, no drift. XOB-019 cleared.
+
+### Concerns Ledger — CARRIED TO XOB-019 (resolve before visible components)
+- **Design-system primitive tokens not seeded in the shadow root.** Downstream overlay components consume a SECOND token family — `--space-*`/`--type-*`/`--radius-*`/`--score-*` — defined `:root`-scoped in `docs/design-system/product-tokens.css`. The overlay is shadow-isolated (`:host{display:contents}`) and x.com defines no `:root` design tokens, so these **won't resolve inside the shadow root** unless seeded. XOB-018 correctly delivered only its specified `--xb-*` contract (per arch-report line 126). **XOB-019 must seed the consumed `--space/--type/--radius/--score` primitives onto the shadow `:host`** (extend the neon sheet or add a base-tokens sheet) so XOB-021 (`--type-caption`/`--radius-md`), XOB-024 (`--space-2`), XOB-025 (`--score-*`), XOB-026/029 resolve. First bites at XOB-021/025.
+- **Bundle size:** the overlay IIFE is ~583 KB (React bundled). Acceptable for v1 (injected once via `addInitScript`); candidate post-v1 optimization (externalize React / preact-compat). Non-blocking.
+- Status → **done**.
