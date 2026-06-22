@@ -22,6 +22,7 @@ import {
   archiveTweetsValidateRequestSchema,
   archiveTweetsValidateResponseSchema,
   captureSummarySchema,
+  cooldownReportSchema,
   type CooldownReport,
   generateCategorySchema,
   generateIdeaRequestSchema,
@@ -104,6 +105,7 @@ export interface BuildServerOptions {
   readinessTimeoutMs?: number;
   settingsRepository?: AppSettingsRepository;
   postLibraryRepository?: PostLibraryRepository;
+  repetitionWindowService?: RepetitionWindowService;
   generateCategoryService?: GenerateCategoryService;
   judgeDraftService?: JudgeDraft;
   liveContextResolver?: LiveContextResolver;
@@ -631,7 +633,8 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   // repeatHistory derivation and the per-item cooldown attachment on
   // /posts/analyze, so the 7-day window is computed against one clock and one
   // store for a single request.
-  const repetitionWindowService = new RepetitionWindowService(postLibraryRepository);
+  const repetitionWindowService =
+    options.repetitionWindowService ?? new RepetitionWindowService(postLibraryRepository);
   const liveContextResolver =
     options.liveContextResolver ??
     new LiveContextResolver(postLibraryRepository, repetitionWindowService);
@@ -889,6 +892,26 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
       const result = await liveCaptureService.summary();
 
       return reply.send(parseResponseContract(captureSummarySchema, result));
+    } catch (error) {
+      if (error instanceof PostLibraryStorageError) {
+        throw new NormalizedApiError(libraryStorageFailedError());
+      }
+
+      throw error;
+    }
+  });
+
+  app.get("/capture/cooldown", async (request, reply) => {
+    const { windowDays } = z
+      .object({
+        windowDays: z.coerce.number().int().min(1).max(90).default(7),
+      })
+      .parse(request.query);
+
+    try {
+      const report = await repetitionWindowService.compute(windowDays);
+
+      return reply.send(parseResponseContract(cooldownReportSchema, report));
     } catch (error) {
       if (error instanceof PostLibraryStorageError) {
         throw new NormalizedApiError(libraryStorageFailedError());
