@@ -1,8 +1,10 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # XOB-021: Metric explainer
+
+> **Reconciliation (MetricKey → real `judgeScoresSchema`):** the ticket's `MetricKey` list below drifted from the finalized XOB-002 contract (it lists `opinionClarity`/`noveltySignal`/`cta`/`brevityFit`/`hookStrength`/`contentDepth`, none of which the engine emits). The judge actually produces these 13 dims (`shared/src/schemas/judge.ts` `judgeScoresSchema`): **overall, replies, profileClicks, impressions, bookmarkValue, dwellProxy, voiceMatch, negativeRisk, answerEffort, strangerAnswerability, statusDependency, replyVsQuoteOrientation, audienceMatch** (audienceMatch nullable). `MetricKey` = these 13 + deterministic checks (`repetition`, `postCoach`) + the REAL reach fields (`stallRange`, `escapeRange`, `escapeProbability` — not the ticket's fictional `reachRange`/`reachMidpoint`). The explainer explains the metrics users actually SEE; friendly/understandable framing lives in the COPY prose, not in invented keys. The 3 non-negotiable direction rules map onto the real dims: `negativeRisk` + `statusDependency` = "lower is better"; `replyVsQuoteOrientation` = "poled"; all others default "higher" (author sensible copy/direction for `answerEffort`/`repetition`/`stallRange` etc.). Downstream metric hosts (XOB-025/026) MUST render these real dims — carried wave-wide.
 
 ## Implementation Details
 
