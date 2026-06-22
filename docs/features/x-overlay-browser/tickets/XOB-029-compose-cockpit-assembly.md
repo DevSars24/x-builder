@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # XOB-029: ComposeCockpit — orchestrator assembly + responsive collapse
@@ -34,6 +34,7 @@ type ComposeMachineState =
   | { phase: "judged"; analyzeResult: ScoredPostItem; verdict: JudgeVerdict }
   | { phase: "judge_failed"; analyzeResult: ScoredPostItem; error: string }
   | { phase: "generating"; categoryId: string }
+  | { phase: "static_failed"; error: string }   // deterministic-analyze failure (distinct from judge_failed); drives StaticEngineColumn's own `failed` retry
   | { phase: "apply_failed"; analyzeResult?: ScoredPostItem; verdict?: JudgeVerdict; error: string };
 ```
 
@@ -226,3 +227,27 @@ export const xComposerFixture = `
 - **AnchorLayer rect tracker paused** (tab hidden, `visibilitychange`): pins freeze in place; resume on tab focus.
 
 **Cross-deps:** XOB-024 (ComposeGenerateRail), XOB-025 (StaticEngineColumn), XOB-026 (JudgeStrip — base), XOB-027 (JudgeStrip — apply-improve).
+
+## Pipeline Log
+
+Lane: rgb-tdd lean Red-first (Red self-validates → Green → combined Blue+Yellow). Not `[FND]`. The integration keystone — full overlay-side build per the user-directed SCOPE DECISION.
+
+| Station | Commit | Result |
+|---|---|---|
+| pre-Red SHA | `dd0593c` | base (after the SCOPE DECISION reconciliation) |
+| Red (failing tests, self-validated) | `587b3fe` | 14 integration cases (X-shaped fixture DOM + FakeEngineTransport); module-not-found failure; scope CLEAN. Surfaced the self-orchestrating `{explainer}`-only contract (vs the stale prop-driven Props block) → reconciled. |
+| pre-Green SHA | `3d15396` | base (after Props reconciliation) |
+| Green (impl) | `8e2e53c` | 8 files: `compose/{compose-cockpit,compose-machine,use-compose-snapshot,channel-divider,types}` (new) + `anchor-layer.tsx` (additive `ComposeContext` + register/reconcile) + `runtime.tsx` (mount) + `highlight/composition-highlight-layer.tsx` (1-line latent-loop fix, ratified). Full machine + auto-apply-best + composer-write + abort-token + single rAF snapshot. |
+| Red test-fix (no-h-scroll) | `4c39b0e` | Fixed a fixture/viewport defect — measure the cockpit's scrollWidth DELTA vs the fixture baseline (414px viewport vs 720px fixture made the original assertion unpassable by any impl). |
+| Red test-fix (flake) | `0b6135b` | `clickWhenPresent` drain-until-present on all 6 rail/apply click sites — removed a ~33% mount-timing flake. **20 consecutive green full-suite runs (Red) + 5 independent (orchestrator) = deterministic 307/307.** |
+| Blue (validate Green) | — | **REJECT→RESOLVED** (the sole finding was the test flake, now fixed + proven deterministic). All other axes **APPROVE**: no test modification (`3d15396...8e2e53c` test-diff empty); typecheck honest; abort-token race-free + leak-free; auto-apply-best/readiness-gate/composer-write correct; highlight edit **RATIFY**; `480px` acceptable (measure-fallback only). |
+| Yellow (intent/wiring) | — | **APPROVE_WITH_CONCERNS** — X-policy composer-write is gesture-only, never auto-posts (PASS); transport binding correctly deferred to XOB-030 (only `useTransport`); auto-apply-best + loop-prevention via shared `deriveApproved` (PASS); rAF single-source resolves L2/C1 (PASS); static⟂judge firewall + additive AnchorLayer extension + zero-trace (PASS); highlight edit **RATIFY HERE**. Concerns I1/I2. |
+
+### Concerns Ledger
+
+| # | Concern | Owner | Resolution |
+|---|---|---|---|
+| I1 | **Redundant green-state double-gating** — the cockpit passes `annotations={showGreen ? NO_ANNOTATIONS : annotations}` AND `showGreen` to `CompositionHighlightLayer`, which already substitutes `EMPTY_ANNOTATIONS` internally. The cockpit-side substitution is dead w.r.t. the layer's locate effect. Harmless defensive duplication; no AC/DoD touched; behavior identical either way. | optional tidy-up (XOB-030/31 or follow-up) | Drop the cockpit-side `NO_ANNOTATIONS` substitution (rely on the layer's internal frozen singleton). Non-blocking. |
+| I2 | **`static_failed` phase added beyond the ticket's typed `ComposeMachineState` union** — Green added it to distinguish a deterministic-analyze failure (→ StaticEngineColumn `failed` retry) from a judge failure. Reasonable, intent-consistent extension. | RECONCILED (this ticket) | Added `static_failed` to the §H union in Implementation Details. No code change. |
+
+(The XOB-022 green-state infinite-loop fix shipped in this ticket's Green commit is ledgered as **XOB-022 L3** (resolved); the XOB-022 L2 multi-source skew is also **resolved here** via `useComposeSnapshot`.)
