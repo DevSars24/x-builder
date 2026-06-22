@@ -1,5 +1,5 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # XOB-028: SuggestAffordance + SuggestCard — cooldown-aware suggest-post on home/profile
@@ -53,11 +53,13 @@ type SuggestState =
 
 **State levels:**
 - `suggestion` = L1 (transport `suggestPost`, owned by parent/`AnchorLayer` affordance holder; passed down).
-- `open` = L4 (owned locally in `SuggestAffordance`).
+- `open` = **controlled prop** (parent owns the boolean; `SuggestAffordance` renders per `open` and calls `onToggle` to request a change). The component holds no internal open state of its own.
 
 **Route gate:** mounted only on home/profile routes (X URL matches `/home` or `/:username`); owned by `AnchorLayer` route detection; `SuggestAffordance` does not implement routing logic itself.
 
-**Primitives used:** `Button` ("Use this" — accent edge; `EmptyState` action), `Alert` (cooldown blocked + error), `Badge` (cooldown count, variant `"warning"`), `Skeleton` (loading), `EmptyState` (no history).
+**Primitives used:** `Button` ("Use this" — accent edge; `EmptyState` action), `Alert` (cooldown blocked + error), `Badge` (cooldown count, variant `"warning"`), `Skeleton` (loading), `IconButton` (launcher), `EmptyState` (no history).
+
+**`EmptyState` is NOT yet in the v2 library — XOB-028 is its first consumer, so build a FRESH v2 `EmptyState` in `client/src/ui/v2/empty-state.tsx`** (token-driven, inline `var(--…)` styles, shadow-portable; export from the v2 barrel). Mirror the legacy `client/src/ui/foundation.tsx` `EmptyState` prop shape — `{ title: string; children: ReactNode; action?: ReactNode }` — but do NOT import the legacy one (it renders via global classnames, not shadow-portable), per the locked v2-primitive convention.
 
 ## Data Models
 
@@ -93,11 +95,11 @@ The parent affordance holder maps `SuggestPostResponse` → `SuggestState` befor
 
 ## Test Strategy & Fixture Ownership
 
-**Framework:** Vitest + RTL, shadow-DOM-aware.
+**Framework:** Vitest **browser mode → Playwright Chromium** via `vitest-browser-react` — the established overlay harness (XOB-018/020–027), shadow-DOM-aware. NOT jsdom/RTL.
 
-**Fixtures (owned by overlay package):**
+**Fixtures (owned by overlay package):** `overlay/src/testing/suggest-state.ts` (the `cooldown`/`signal` sub-objects must be valid `CooldownSignal` shapes from `@x-builder/shared`).
 ```ts
-// fixtures/suggest-state.ts
+// overlay/src/testing/suggest-state.ts
 export const loadingState: SuggestState = "loading";
 export const readyState: SuggestState = {
   status: "ready",
