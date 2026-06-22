@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # XOB-017: GraphQlCaptureObserver wiring + `getOverlayReadiness` composition (runner-side)
@@ -252,3 +252,18 @@ This ticket does not own GraphQL fixtures (those are XOB-014's). The runner E2E 
 - After `context.close()` (during `RunnerApp.stop()`), no new response events fire; Playwright unregisters handlers on context close.
 
 **Depends on:** XOB-004, XOB-014, XOB-015
+
+## Pipeline Log
+
+Lean Red-first lane. Building-block scope (consistent with XOB-016): observer + readiness composer delivered as structurally-typed, mocked-unit-tested modules; the RunnerApp wiring (attachObserver→`GraphQlCaptureObserver.attach`, register `getOverlayReadiness` into the bundle, wrap engine readiness into `getSubsystems`) defers to XOB-030 [INT].
+
+- **Red** (`649c5cf`): `graphql-capture-observer.test.ts` (10) + `overlay-readiness.test.ts` (4). Drives non-empty vs empty tweets through the REAL `XGraphQlNormalizer` (XOB-014 fixtures + `{}`). Specified structural seams `ContextLike`/`ResponseLike`/`ReadinessLike`/`ObserverLike`. Flagged that engine `ReadinessService` exposes `getStatus()` not `getSubsystems()` (composer types it structurally; real wrap is XOB-030). RED via 2 missing modules; prior 61 pass; `rg "XOB-"` clean.
+- **Gates** (post-Red, base `dd9eb57`): `[scope]` + `[ticket-ids]` CLEAN.
+- **Green** (`fe95d79`): `GraphQlCaptureObserver` (op-name substring filter; state machine paused→ok/layout_changed; `capturedAt` before json; never-block defense-in-depth (json/onBatch/catch-all → `console.debug`, never propagate); profile-only batch; AC#4 state-before-onBatch) + `getOverlayReadiness` composer (subsystem passthrough + exact label/message map + checkedAt + `overlayReadinessSchema.parse`). Structural types only (no Playwright/engine class imports). RunnerApp untouched. 75 tests, typecheck 10/10, build green.
+- **Gates** (post-Green, base `649c5cf`): `[suppressions]`/`[ticket-ids]`/`[stubs]`/`[ui-tokens]` CLEAN; `[slop] console.debug ×3` ruled justified (spec-mandated never-block tolerate logging; generic messages, no tweet-content leak).
+- **Blue (Validate Green)**: APPROVE — op-filter/state-machine/never-block/composer/structural-types all correct, typecheck+build honest (cache-bypassed), RunnerApp no-op default intact.
+- **Yellow (intent)**: APPROVE_WITH_CONCERNS — deliverable real, **ZERO-TRACE rigorously verified** (no crafted GraphQL/auth-headers/DOM/pagination/query-id — only `context.on("response")` + `response.json()` on already-fetched responses; the X-policy passive-observation boundary holds), never-block isolation, wiring shapes line up for XOB-030.
+
+### Concerns Ledger — CARRIED TO XOB-030 [INT]
+- **Capture is inert end-to-end until XOB-030 wires it:** RunnerApp's `attachObserver` is still XOB-015's no-op default. XOB-030 MUST wire `attachObserver` default → `GraphQlCaptureObserver.attach(context, batch => liveCaptureService.ingest(batch))` AND register `getOverlayReadiness(<engine readiness wrapped to getSubsystems>, observer)` into `BoundEngineServices.getOverlayReadiness`, then prove capture→corpus + readiness round-trip in-process. (Added to the same XOB-016→XOB-030 carried note in `tickets/README.md`.)
+- Status → **done**.
