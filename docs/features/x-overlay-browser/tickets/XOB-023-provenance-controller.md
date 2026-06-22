@@ -1,5 +1,5 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # XOB-023: `ProvenanceController` — two-state derived model + green anchor store
@@ -65,8 +65,14 @@ interface ProvenanceRenderContext {
 type ProvenanceState = "generated" | "user_written";
 
 // deriveApproved (from shared — overlay imports, never re-implements):
-// deriveApproved(verdict) = verdict.overall >= 70
-// overlay must import and call this function; it must not write `overall >= 70` anywhere in overlay source.
+// deriveApproved(verdict) === (verdict.verdict === "post_now" || verdict.verdict === "slight_rework")
+//   i.e. it reads the verdict LABEL, not the raw score. Because deriveJudgeVerdict(overall)
+//   maps overall>=85 → "post_now", 70..84 → "slight_rework", <70 → "major_rework"/"do_not_post",
+//   the approved boundary still lands at overall 70 (true) / 69 (false) — but ONLY when the
+//   verdict label is consistent with scores.overall. Test fixtures MUST set the label via
+//   deriveJudgeVerdict(scores.overall) so the boundary tests are meaningful.
+// overlay must import and call deriveApproved; it must NOT write any approval threshold of its
+// own (no `>= 70`, no `verdict === "post_now"` label-literal comparisons) anywhere in overlay source.
 
 // AnnotationEntry (from judgeVerdictSchema via XOB-010):
 interface AnnotationEntry {
@@ -113,7 +119,11 @@ interface AnnotationEntry {
 - `approved` parity: `latestVerdict = { overall: 69, ... }` → `approved === false`.
 - `approved` is computed by calling `deriveApproved` from `@x-builder/shared`; confirm the overlay source contains no literal threshold comparison (`>= 70` must not appear in overlay source — enforced by a lint rule or code-review gate, documented here as a requirement).
 
-**Fixture strategy:** `buildComposerFixture(text: string): HTMLDivElement` (reused from XOB-022 fixture helpers). `makeJudgeVerdict(overrides?)` factory in `overlay/src/testing/`, mirroring `judgeVerdictSchema` from shared — no Zod dup.
+**Fixture strategy:** `buildComposerFixture(text: string): HTMLDivElement` — XOB-022 kept this inline in its test file (`n(text, widthPx)`); promote a real shared builder into `overlay/src/testing/` (ticket-owned) so both suites use one helper. `makeJudgeVerdict(overrides?)` factory in `overlay/src/testing/`, producing a REAL `JudgeVerdict` (all 13 score dims, headline, strengths, improvements, annotations) — no Zod dup. **The factory MUST set `verdict` (label) from `deriveJudgeVerdict(scores.overall)`** unless explicitly overridden, so `deriveApproved` (which reads the label) agrees with the boundary the AC asserts. The `approved`-parity tests assert `approved === deriveApproved(latestVerdict)` — they must NOT re-derive a threshold.
+
+**Annotation type:** the controller's `annotations` prop is `JudgeAnnotation[]` from `@x-builder/shared` (the ticket's `AnnotationEntry` IS `JudgeAnnotation` — `{ quote, severity: "suggestion"|"warning", recommendation }`). It must pass through to `CompositionHighlightLayer` unchanged (XOB-022's prop is already typed `JudgeAnnotation[]`). Do not declare a new local `AnnotationEntry`.
+
+**Harness:** Vitest **browser mode (Playwright Chromium)** — the established overlay harness (XOB-018/020/021/022) via `vitest-browser-react`. NOT jsdom (the "RTL shadow-aware" phrasing predates that decision). Real `textContent`, real timers (`vi.useFakeTimers()` for the debounce flip).
 
 ## Definition of Done
 
