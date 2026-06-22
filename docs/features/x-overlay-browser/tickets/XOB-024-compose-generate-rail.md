@@ -1,5 +1,5 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # XOB-024: ComposeGenerateRail — dynamic category buttons (LEFT cockpit zone)
@@ -31,12 +31,12 @@ status: todo
 
 **Per-button rendering rules:**
 - Button label = `category.label` exactly (no hardcoded label→format map; that map is DELETED).
-- `cooldownStatus !== "clear"` → render an amber `Badge` (variant `"warning"`) appended inline, e.g. `"cool 4×/7d"` built from `category.sampleCount` + `windowDays` from the `cooldownSignal` (or a condensed label supplied by the server message field); button remains enabled (user can override).
-- `pending === category.id` → show `Spinner` inside button, button disabled during that generation.
+- `cooldownStatus !== "clear"` → render an amber `Badge` (variant `"warning"`) appended inline. **Label built ONLY from fields present on `GenerateCategory`** — `cooldownStatus` + `sampleCount` (e.g. `"cooldown · 4×"` for `cooldownStatus:"cooldown", sampleCount:4`, or `"warming · 2×"`). **There is NO `windowDays` or server message field on `GenerateCategory`** (the schema is `id,label,format,basis,cooldownStatus,sampleCount`), so do not attempt to read one. Button remains enabled (user can override).
+- `pending === category.id` → render the button in its `loading` state (`<Button loading disabled>`), which shows the built-in spinner + sets `aria-busy` while keeping the label visible; button disabled during that generation.
 - Cold-start (basis `"default"`, `sampleCount: 0`) → renders identically to corpus-backed buttons; no visual distinction.
 - Click → `onGenerate(category)` → caller invokes `generateIdeas({ format: category.format })` (no `idea` field).
 
-**Primitives used:** `Button` (variant `"ghost"`, accent-edge via `--xb-border-edge`), `Badge` (variant `"warning"` for cooldown), `Spinner`.
+**Primitives used:** `Button` (variant `"ghost"`, accent-edge via `--xb-border-edge`; its built-in `loading` state IS the pending spinner — no separate `Spinner` primitive), `Badge` (variant `"warning"` for cooldown). **No `Tooltip` primitive is built here** — see the long-label edge case.
 
 **State levels:**
 - `categories` = L1 (fetched via `getGenerateCategories()` on `ComposeContext` open, owned by `ComposeCockpit`).
@@ -75,7 +75,7 @@ No local data models; component is purely presentational over the `categories` p
 
 ## Test Strategy & Fixture Ownership
 
-**Framework:** Vitest + RTL, shadow-DOM-aware (queries inside shadow root).
+**Framework:** Vitest **browser mode → Playwright Chromium** via `vitest-browser-react` — the established overlay harness (XOB-018/020/021/022/023), shadow-DOM-aware. NOT jsdom (the "RTL" phrasing predates that decision).
 
 **Fixtures (owned by overlay package):**
 ```ts
@@ -139,7 +139,7 @@ export const cooldownCategory: GenerateCategory = {
 - Container: `--xb-surface-panel` background, `--xb-border-edge` outer edge, `--xb-glow-sm` on focus/hover.
 - Buttons: ghost variant with teal accent edge (`--xb-accent` / `--xb-border-edge`); **never** X's primary CTA hue (`#1d9bf0`); border-radius full (pill shape).
 - Cooldown badge: `--xb-band-major` amber (`hsl(42 92% 60%)`); `Badge` variant `"warning"`.
-- Pending spinner: `--xb-accent` teal; button opacity 0.6 while pending.
+- Pending state: comes from the `Button` primitive's `loading`+`disabled` styling (built-in teal spinner, `aria-busy`, the primitive's own disabled opacity ≈0.55). Do NOT fork the primitive's token values to hit an exact 0.6 — reuse the primitive as-is.
 - Layout: vertical stack, `--space-2` gap between pills.
 - Hover: `--xb-glow-sm` box-shadow on button; no fill flood.
 - Active (pressed): slight inward shadow; accent edge brightens.
@@ -151,7 +151,7 @@ export const cooldownCategory: GenerateCategory = {
 
 - **Empty `categories` array:** render nothing (no error state; `ComposeCockpit` shows nothing in LEFT zone).
 - **Single category:** renders as a single pill; still vertical layout.
-- **Long `category.label`:** truncate with ellipsis at container width; tooltip shows full label via `Tooltip`.
+- **Long `category.label`:** truncate with CSS ellipsis at container width; the full label is exposed via the native `title` attribute (shows on hover) AND is the button's full accessible name (so AT/focus users get it). Labels are schema-capped at ≤40 chars, so this is bounded. A full v2 `Tooltip` primitive (text-only, hover+focus, per `product-components.md`) is **deferred to its genuine first consumer** (icon-only buttons) — not built for this single truncation case (rule of three).
 - **Multiple cooldown categories simultaneously:** each shows its own badge independently.
 - **`pending` references an `id` not in `categories`:** no spinner shown (silently ignored).
 - **Rapid clicks:** second click while `pending` is set is blocked (button disabled); no double-generation.
