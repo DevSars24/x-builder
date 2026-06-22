@@ -13,6 +13,7 @@
 import { createElement, Fragment } from "react";
 import { createRoot } from "react-dom/client";
 
+import { buildDesignTokenSheet } from "./design-tokens";
 import { buildNeonSheet } from "./neon-sheet";
 import { OverlayRuntime } from "./runtime";
 import { OverlayThemeBridge } from "./theme-bridge";
@@ -32,17 +33,24 @@ function onIdle(fn: () => void): void {
   }
 }
 
-/** Adopt the neon sheet onto the shadow root, degrading gracefully if unsupported. */
-function adoptNeonSheet(shadow: ShadowRoot): void {
+/**
+ * Adopt the design-token sheet and the neon sheet onto the shadow root,
+ * degrading gracefully if `adoptedStyleSheets` is unsupported.
+ *
+ * Order matters: the design-token closure goes FIRST so the neon sheet's
+ * `--xb-*` tokens and `:host([data-xtheme])` override blocks layer on top and
+ * win — the neon sheet's accent/theme variables must not be clobbered.
+ */
+function adoptSheets(shadow: ShadowRoot): void {
   const supportsConstructable =
     typeof CSSStyleSheet === "function" && "adoptedStyleSheets" in shadow;
 
   if (!supportsConstructable) {
-    console.warn("[xb] adoptedStyleSheets unavailable — neon sheet skipped");
+    console.warn("[xb] adoptedStyleSheets unavailable — overlay sheets skipped");
     return;
   }
 
-  shadow.adoptedStyleSheets = [buildNeonSheet()];
+  shadow.adoptedStyleSheets = [buildDesignTokenSheet(), buildNeonSheet()];
 }
 
 /**
@@ -62,7 +70,7 @@ export function bootstrap(): void {
   document.documentElement.appendChild(host);
 
   const shadow = host.attachShadow({ mode: "open" });
-  adoptNeonSheet(shadow);
+  adoptSheets(shadow);
 
   // The React mount node: shadow root's first element child. Created
   // synchronously so the shadow tree is inspectable immediately; the actual
