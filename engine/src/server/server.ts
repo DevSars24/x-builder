@@ -12,6 +12,8 @@ import {
   appSettingsResponseSchema,
   appSettingsSchema,
   appStatusSchema,
+  applyJudgeSuggestionsRequestSchema,
+  applyJudgeSuggestionsResponseSchema,
   activeArchiveContextSchema,
   archiveContextActivationResponseSchema,
   archiveImportOverviewSchema,
@@ -57,6 +59,7 @@ import {
   type JudgeDraftOutcome,
 } from "../llm/judge-draft-service.js";
 import { GenerateIdeasService } from "../llm/generate-ideas-service.js";
+import { ApplyJudgeSuggestionsService } from "../llm/apply-judge-suggestions-service.js";
 import { judgeProviderRegistry } from "../llm/judge-provider-registry.js";
 import { createSettingsJudgeProviderResolver } from "../llm/judge-provider-resolver.js";
 import { NodeProcessRunner, type ProcessRunner } from "../llm/process-runner.js";
@@ -109,6 +112,7 @@ export interface BuildServerOptions {
   repetitionWindowService?: RepetitionWindowService;
   generateCategoryService?: GenerateCategoryService;
   judgeDraftService?: JudgeDraft;
+  applyJudgeSuggestionsService?: ApplyJudgeSuggestionsService;
   liveContextResolver?: LiveContextResolver;
   liveCaptureService?: LiveCaptureService;
 }
@@ -663,6 +667,30 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     }
   };
 
+  // Default apply-suggestions service: judges the original, rewrites it applying
+  // the verdict's annotations and improvements (writer_first_pass), re-judges the
+  // rewrite, and enforces the never-worse guard. It shares the judge providers,
+  // the same JudgeDraftService the /drafts/judge route uses, the settings-backed
+  // provider resolver, and the same profile fallback as the judge route, so a
+  // settings PATCH retargets it on the next call.
+  const applyJudgeSuggestionsService =
+    options.applyJudgeSuggestionsService ??
+    (() => {
+      const workspaceRoot = resolveWorkspaceRoot(process.cwd());
+      const providers = workspaceRoot
+        ? judgeProviderRegistry.map((entry) =>
+            entry.createProvider({ runner: new NodeProcessRunner(), workspaceRoot }),
+          )
+        : [];
+
+      return new ApplyJudgeSuggestionsService(
+        judgeDraftService,
+        new StructuredLlmService({ providers }),
+        createSettingsJudgeProviderResolver(settingsRepository),
+        () => resolveJudgeAccountProfile(undefined),
+      );
+    })();
+
   // Default idea generation: the format path is LLM-driven (writer_variants) and
   // judged via the same JudgeDraftService the /drafts/judge route uses; the
   // idea-only path stays the deterministic stub. The generate step shares the
@@ -977,6 +1005,20 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     }
 
     return reply.send(parseResponseContract(judgeDraftResponseSchema, outcome.response));
+  });
+
+  app.post("/drafts/apply-suggestions", async (request, reply) => {
+    const input = applyJudgeSuggestionsRequestSchema.parse(request.body);
+
+    try {
+      const result = await applyJudgeSuggestionsService.apply(input);
+
+      return reply.send(
+        parseResponseContract(applyJudgeSuggestionsResponseSchema, result),
+      );
+    } catch {
+      throw new NormalizedApiError(generationError());
+    }
   });
 
   return app;
