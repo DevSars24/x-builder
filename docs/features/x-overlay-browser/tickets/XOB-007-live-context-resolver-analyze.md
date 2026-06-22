@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # XOB-007: LiveContextResolver + /posts/analyze wiring — auto followers/median/repeatHistory + per-item cooldown
@@ -156,3 +156,18 @@ Existing types:
 - `ArchiveStudioContextResolver` already set `repeatHistory` (from archive context patch) → `LiveContextResolver` runs first and sets it only if absent; archive resolver runs second and respects the already-set value.
 - `score_failed` items in the response → no `cooldown` field attached; response still valid.
 - `PostLibraryStorageError` from either resolver → route handler catches it and returns `library_storage_failed`.
+
+## Pipeline Log
+
+Lean Red-first lane (1 intent REJECT → Red+Green re-spin).
+
+- **Red** (`d47e0d7`): Suite 1 `live-context-resolver.test.ts` (13 unit) + extended Suite 2 `posts-analyze.test.ts` (6 new route, 8 pre-existing preserved). Ordering asserted via an injected `analyzePosts` spy (observable effect — no invented seam). Fixtures classification-locked. RED via missing module + missing `liveContextResolver` option.
+- **Gates** (post-Red, base `adf9ccb`): `[scope]` + `[ticket-ids]` CLEAN.
+- **Green** (`906d59d`): `LiveContextResolver.mergeAnalysisRequest` (followers/trailing-median/repeatHistory, patch-only-if-undefined, narrowed on `.source`) + route wiring (Live→Archive→analyze→cooldown, single per-request `compute(7)`, `liveContextResolver?` option) + barrel export. 13/14/651 tests, typecheck 9/9.
+- **Gates** (post-Green, base `d47e0d7`): all CLEAN; no test files touched by Green.
+- **Blue (Validate Green)**: APPROVE — all mechanical green, ordering/median/narrowing correct, typecheck honest. Noted the cooldown synthesis was test-compelled by an over-specified Red assertion (flagged for Yellow).
+- **Yellow (intent)**: REJECT — `attachCooldownSignals` synthesized a count-0 `status:"clear"` signal so `cooldown` was always present, inverting the ticket's "absent if no signal" and contradicting the XOB-005 count-0⇒no-signal invariant + the XOB-002 `not.toHaveProperty("cooldown")` schema contract. Identified the root cause as an over-specified Red assertion, not a Green-only issue.
+- **Red fix** (`e61972a`): flipped the no-signal scored item assertion to `expect(item).not.toHaveProperty("cooldown")` (kept the hot_take real-signal presence test). Correct RED state (1 fail vs current synthesis).
+- **Green fix** (`de92f57`): `attachCooldownSignals` attaches `cooldown` only for a real matching `report.signals` entry (genuinely absent otherwise); `clearCooldownSignal` deleted. 14/13/651 tests, typecheck 9/9, gates clean.
+- **Yellow re-validation**: APPROVE — defect resolved, realigned with all three contracts, rest of ticket undisturbed (27 tests pass).
+- Concerns ledger: none. Status → **done**.
