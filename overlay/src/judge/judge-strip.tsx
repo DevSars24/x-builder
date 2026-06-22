@@ -59,6 +59,7 @@ export interface JudgeStripProps {
   provenance: ProvenanceState;
   applyState: ApplyState;
   onRetryJudge: () => void;
+  onApplyAll: () => void;
   explainer: ExplainerSource;
 }
 
@@ -313,6 +314,136 @@ function JudgedBody({
 }
 
 /**
+ * The Apply-all affordance (XOB-027). The "✦ Apply all suggestions" Button is a
+ * judge-cyan ghost (`--xb-judge` border, judge-cyan label) — NEVER a primary
+ * `--xb-accent` fill — so it stays inside the judge channel and never reads as
+ * the post CTA. Clicking it fires `onApplyAll`, which `ComposeCockpit` (XOB-029)
+ * routes into `applyJudgeSuggestions({ text })`.
+ */
+function ApplyAllButton({ onApplyAll }: { onApplyAll: () => void }): ReactElement {
+  // The ghost Button keeps a transparent fill (never the primary `--xb-accent`
+  // CTA); the judge-cyan edge accent rides on a wrapping span so the affordance
+  // stays inside the judge channel without touching the v2 Button surface.
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        borderRadius: "var(--radius-md)",
+        border: "var(--border-width-thin) solid var(--xb-judge)",
+        color: "var(--xb-judge)",
+        boxShadow: "var(--xb-glow-judge)",
+      }}
+    >
+      <Button variant="ghost" onClick={onApplyAll}>
+        ✦ Apply all suggestions
+      </Button>
+    </span>
+  );
+}
+
+/**
+ * The applying indicator (XOB-027). Reuses the running pulse dot
+ * (`data-judge-pulse="animated"` + the gated `xb-judge-pulse` keyframe) for the
+ * motion, but the load-bearing affordance is the STATIC "Improving…" label plus
+ * the `aria-busy="true"` region — both independent of whether the animation
+ * plays, so the reduced-motion environment still announces the in-flight apply.
+ * No clickable Apply-all exists in this state (it is the loading replacement).
+ */
+function ApplyingIndicator(): ReactElement {
+  return (
+    <div aria-busy="true" style={LABEL_ROW_STYLE}>
+      <style>{PULSE_STYLE_SHEET}</style>
+      <span aria-hidden="true" className={PULSE_CLASS} data-judge-pulse="animated" />
+      <span style={{ font: "var(--type-label)", color: "var(--xb-text)" }}>Improving…</span>
+    </div>
+  );
+}
+
+/**
+ * The AlreadySolid banner (XOB-027): the guard kept the original because no safe
+ * improvement was found. Informational `Alert variant="warning"` (amber) — NOT a
+ * danger/error state. The text was still re-pinned green, so provenance is
+ * `generated`; the "✓ Judge approved" badge is governed independently by
+ * `deriveApproved` in `JudgeVerdictHeader` and is not forced here.
+ */
+function AlreadySolidBanner(): ReactElement {
+  return (
+    <Alert variant="warning">
+      <span>Already solid — no safe improvement found</span>
+    </Alert>
+  );
+}
+
+/**
+ * The apply-failure banner (XOB-027): a danger `Alert` showing the apply error
+ * with a ghost retry Button that drives `onApplyAll` — the APPLY retry, distinct
+ * from the judge-failure retry (`onRetryJudge`). The composer text is untouched
+ * (owned by `ComposeCockpit`); state stays `user_written / judged`.
+ */
+function ApplyFailureBanner({
+  error,
+  onApplyAll,
+}: {
+  error: string;
+  onApplyAll: () => void;
+}): ReactElement {
+  return (
+    <Alert variant="danger">
+      <span>Couldn’t apply suggestions. {error}</span>
+      <div style={{ marginTop: "var(--space-2)" }}>
+        <Button variant="ghost" onClick={onApplyAll}>
+          Retry
+        </Button>
+      </div>
+    </Alert>
+  );
+}
+
+/**
+ * The apply-affordance render for the current `applyState` + `provenance` +
+ * `judge`. This is the loop-prevention guard: the Apply-all button is rendered
+ * ONLY in `user_written` + judged + `idle`, so the system never re-improves its
+ * own (`generated`) output — and no path here fires `onApplyAll` in `generated`.
+ */
+function ApplySection({
+  judge,
+  provenance,
+  applyState,
+  onApplyAll,
+}: {
+  judge: JudgeState;
+  provenance: ProvenanceState;
+  applyState: ApplyState;
+  onApplyAll: () => void;
+}): ReactElement | null {
+  if (applyState === "idle") {
+    // Apply-all is shown (not just enabled) only on a landed verdict in
+    // user-written text; absent from the DOM otherwise (generated / not judged).
+    if (provenance === "user_written" && judge.status === "judged") {
+      return <ApplyAllButton onApplyAll={onApplyAll} />;
+    }
+    return null;
+  }
+
+  if (applyState === "applying") {
+    return <ApplyingIndicator />;
+  }
+
+  if (applyState.status === "failed") {
+    return <ApplyFailureBanner error={applyState.error} onApplyAll={onApplyAll} />;
+  }
+
+  // applied: improvedOverOriginal === false surfaces the AlreadySolid banner;
+  // improvedOverOriginal === true relies on the XOB-026 "✓ Judge approved" badge
+  // already rendered in JudgedBody (gated by provenance + deriveApproved) — no
+  // duplicate banner here.
+  if (!applyState.improvedOverOriginal) {
+    return <AlreadySolidBanner />;
+  }
+  return null;
+}
+
+/**
  * Build the polite-region announcement text for the current judge state. While
  * not yet judged the region is empty (no verdict to announce); once judged it
  * carries the band identity + the overall score, which is what the live region
@@ -333,7 +464,9 @@ function announcement(judge: JudgeState): string {
 export function JudgeStrip({
   judge,
   provenance,
+  applyState,
   onRetryJudge,
+  onApplyAll,
   explainer,
 }: JudgeStripProps): ReactElement {
   return (
@@ -364,6 +497,13 @@ export function JudgeStrip({
       {judge.status === "unavailable" ? (
         <p style={QUIET_TEXT_STYLE}>{judge.hint}</p>
       ) : null}
+
+      <ApplySection
+        judge={judge}
+        provenance={provenance}
+        applyState={applyState}
+        onApplyAll={onApplyAll}
+      />
 
       <div aria-live="polite" style={{ font: "var(--type-caption)", color: "var(--xb-text-muted)" }}>
         {announcement(judge)}
