@@ -1,5 +1,5 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # XOB-012: ApplyJudgeSuggestionsService + POST /drafts/apply-suggestions
