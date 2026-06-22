@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # XOB-010: Judge Span-Annotations
@@ -133,9 +133,24 @@ annotations: judgeAnnotation[] max 12, default []
 
 ## Edge Cases
 
-- Model emits `annotations: null` — `judgeModelOutputSchema.parse` with `.default([])` coerces null to `[]`.
+- Model emits `annotations: null` — **rejected** (`structured_output_invalid`), NOT coerced. Zod's `.default([])` fires only for `undefined`, not `null`, so `judgeModelOutputSchema.parse` raises `invalid_type` on an explicit `null`; the structured-output layer maps it to `structured_output_invalid`. (Corrected from an earlier draft that claimed null→`[]`; coercing null would require `.nullish()`/`.catch([])` on the shared schema, which is XOB-002's territory and out of scope here. Verified empirically + pinned by a test.)
 - Model emits more than 12 annotations — `verdictOutputSchema` `maxItems:12` and `z.array(...).max(12)` both reject/truncate; treat as `structured_output_invalid`, `toVerdict` never sees it.
 - `quote` is longer than 280 chars — rejected at schema level in `verdictOutputSchema`; `structured_output_invalid` failure path.
 - `quote` is an exact substring appearing multiple times in the draft — overlay rule (XOB-027): highlight the first match. Engine does not deduplicate.
 - Same quote appears in multiple annotation entries — overlay consumes them left-to-right. Engine emits them as the model provided; no deduplication here.
 - `accountProfile` present alongside annotations — orthogonal; the `accountProfileInstruction` suffix is appended after `judgeInstructions` as before; annotations instruction is part of the base `judgeInstructions` and always applies.
+
+## Pipeline Log
+
+Lean Red-first lane. Engine-only (shared `judgeVerdictSchema.annotations` + `judgeAnnotationSchema` already shipped in XOB-002 — this ticket's shared-schema step was already satisfied).
+
+- **Red** (`0a7789d`, scrub `74b5040`): extended `judge-draft-service.test.ts` (annotations cases + schema round-trip) + one `drafts-judge.test.ts` route case. Found that XOB-002's `.default([])` already wired the data path, so cases 1-4/6/7/route are green pre-Green; **case 5 (prompt + `verdictOutputSchema` property) is the genuine RED** driving Green. Empirically corrected the ticket's null edge case: `.default([])` fires only on `undefined`, so `annotations: null` is rejected (`structured_output_invalid`), NOT coerced — pinned as `toThrow`.
+- **Gates** (post-Red, base `f3e0773`): `[scope]` CLEAN; `[ticket-ids]` flagged 3 comments → scrubbed → re-checked CLEAN.
+- **Green** (`3a1ad1a`): appended the exact-substring annotations sentence to `judgeInstructions` + added the optional `annotations` property to `verdictOutputSchema` (`maxItems:12`, item `{quote 1..280, severity enum, recommendation 1..240}`, `additionalProperties:false`, NOT in top-level `required`). `toVerdict` unchanged (spread of `judgeModelOutputSchema` already carries the default). Single engine file; `shared/` untouched. 23/21/682 tests, typecheck 9/9, build 7/7.
+- **Gates** (post-Green, base `74b5040`): all CLEAN; no test files touched.
+- **Blue (Validate Green)**: APPROVE — all DoD items met, schema property shape exact + optional, `toVerdict` propagation confirmed, no signature/route/status drift, typecheck+build honest (cache-bypassed).
+- **Yellow (intent)**: APPROVE — verbatim-substring prompt (no offsets, as intended), structured-clone-safe annotations, shape matches `judgeAnnotationSchema` for XOB-022/XOB-012 consumers, zero-trace (engine-only, no shared change), null-rejection sound.
+
+### Concern — RESOLVED (doc fix)
+- **Edge Case "annotations: null → coerces to []" was wrong** — Zod `.default([])` only fires on `undefined`. **Fixed in the Edge Cases section** to state null is rejected as `structured_output_invalid` (verified empirically + test-pinned). No code change needed.
+- Status → **done**.
