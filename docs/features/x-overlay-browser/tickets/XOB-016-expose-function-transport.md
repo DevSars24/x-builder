@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # XOB-016: ExposeFunctionTransport — bind all 17 `__xbuilder_*` to engine services in-process
@@ -185,3 +185,20 @@ This ticket does not own GraphQL fixtures (those are XOB-014's). The runner E2E 
 - `importArchive` receives a file path string (the user selected a file in the overlay settings flow); the handler passes it directly to `ArchiveImportService.import` — no binary blob crosses the boundary.
 
 **Depends on:** XOB-002, XOB-004, XOB-005, XOB-006, XOB-007, XOB-008, XOB-009, XOB-010, XOB-011, XOB-012, XOB-013, XOB-015
+
+## Pipeline Log
+
+Lean Red-first lane. Scope decision: the binder + `BoundEngineServices` interface are **structurally decoupled** (typed against shared request/response types only — no engine class imports), making the binder stateless + fully unit-testable with mocks. `getStatus`/`getOverlayReadiness` are passed-in handlers (resolves the no-`AppStatusService`-class reality + XOB-017-composed readiness). The REAL adapter bundle + RunnerApp `bindTransport`→`bindAll` wiring is deferred to **XOB-030 [INT]** (which round-trips each binding against real engine services in-process).
+
+- **Red** (`602a6d7`): `expose-function-transport.test.ts` — 21 cases (all-17-registered derived from `ENGINE_TRANSPORT_BINDINGS`, sample routing, invalid-input propagation, getCooldown optional/forwarded, no-arg, analyzePosts chain order, per-binding round-trip, output contract-bug propagation). Mock `PageLike` records `[name,handler]`; structural `BoundEngineServices` mock. RED via missing module; prior 40 runner tests pass; `rg "XOB-"` clean.
+- **Gates** (post-Red, base `6fbcef5`): `[scope]` + `[ticket-ids]` CLEAN.
+- **Green** (`c5461e5`): `ExposeFunctionTransport.bindAll` (iterates `ENGINE_TRANSPORT_BINDINGS`, guarded lookups, per-handler request-parse → route → response-parse with Zod propagation, analyzePosts 3-step chain, getCooldown forwarding, no-arg handling, getStatus/getOverlayReadiness handlers) + structural `BoundEngineServices` + `PageLike` + barrel export. Zero engine imports; no RunnerApp/engine-barrel change. 61 tests (21+40), typecheck 10/10, build green.
+- **Gates** (post-Green, base `602a6d7`): all CLEAN; no test files touched.
+- **Blue (Validate Green)**: APPROVE — 17 bindings registry-driven (not hardcoded), I/O validation propagates, structural interface confirmed, RunnerApp no-op default untouched/valid, typecheck+build honest (cache-bypassed). Deferral clean (no half-wired state).
+- **Yellow (intent)**: APPROVE_WITH_CONCERNS — real binder, contract-faithful, zero-trace; structural decoupling sound; deferral to XOB-030 appropriate.
+
+### Concerns Ledger — CARRIED FORWARD TO XOB-030 [INT] (the adapter bundle owner)
+1. **`judgeDraft` arg-shape adapter:** engine `JudgeDraftService.judge(text, accountProfile?) → JudgeDraftOutcome` vs the binder's structural surface `judge(req: JudgeDraftRequest) → JudgeDraftResponse`. XOB-030's real `BoundEngineServices` adapter MUST map `req → (req.text, req.accountProfile)` and `JudgeDraftOutcome → JudgeDraftResponse`.
+2. **`analyzePosts` per-item cooldown attach (do-not-lose):** the structurally-decoupled binder stops at `deterministicAnalysisService.analyzePosts` and CANNOT reach `attachCooldownSignals` (private in `server.ts`) without violating zero-trace. Per-item `cooldown` is schema-OPTIONAL, so it silently vanishes unless re-added. **XOB-030 MUST** bundle the resolver-chain + analysis + `RepetitionWindowService.compute(windowDays)` cooldown-attach behind the `analyzePosts` adapter surface (mirroring the HTTP route's `attachCooldownSignals` at `server.ts:1003-1005`) **and assert per-item cooldown is present** on round-trip — else the overlay's per-item cooldown UX (XOB-025) breaks silently.
+3. **RunnerApp wiring:** set `bindTransport` default → `ExposeFunctionTransport.bindAll` and construct the full real `BoundEngineServices` bundle (incl. getStatus composition from the engine status logic, getOverlayReadiness from XOB-017). Owned by XOB-030.
+- Status → **done**.
