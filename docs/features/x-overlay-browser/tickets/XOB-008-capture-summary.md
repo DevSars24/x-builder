@@ -1,5 +1,5 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # XOB-008: LiveCaptureService.summary + GET /capture/summary — capture summary / auto-followers source
