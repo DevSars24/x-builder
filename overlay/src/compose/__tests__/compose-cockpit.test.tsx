@@ -149,6 +149,33 @@ function cockpitText(): string {
   return cockpitRoot()?.textContent ?? document.body.textContent ?? "";
 }
 
+/** The first button whose accessible text matches, or `undefined`. */
+function findButton(matcher: RegExp): HTMLButtonElement | undefined {
+  return allButtons().find((b) => matcher.test(b.textContent ?? ""));
+}
+
+/**
+ * Drain the cockpit's async mount/commit cycles UNTIL a matching button appears,
+ * then click it. The cockpit's button (rail / Apply-all) lands only after a chain
+ * of async hops (detection → composer commit → `Promise.all` transport microtasks
+ * → categories/judge commit → render), and a single fixed-duration `settle()`
+ * does not deterministically flush all of them under shared-browser-tab
+ * contention. Looping `settle()` until the target is present makes the click
+ * deterministic regardless of contention; the bound prevents an infinite hang and
+ * throws a clear error if the button truly never renders (a real regression).
+ */
+async function clickWhenPresent(matcher: RegExp): Promise<void> {
+  for (let i = 0; i < 25 && findButton(matcher) === undefined; i += 1) {
+    await settle();
+  }
+  const button = findButton(matcher);
+  if (button === undefined) {
+    throw new Error(`button never appeared after draining: ${matcher}`);
+  }
+  button.click();
+  await vi.advanceTimersByTimeAsync(0);
+}
+
 // ===========================================================================
 // 1. Mount on compose detect — fixture in body → cockpit mounts; 3 zones.
 // ===========================================================================
@@ -305,11 +332,9 @@ describe("ComposeCockpit — generate flow", () => {
     mountCockpit(fake);
     await settle();
 
-    // Click the first category button (label "Hot take" → format "hot_take").
-    const railButton = allButtons().find((b) => /hot take/i.test(b.textContent ?? ""));
-    expect(railButton).toBeDefined();
-    railButton!.click();
-    await vi.advanceTimersByTimeAsync(0);
+    // Click the first category button (label "Hot take" → format "hot_take"),
+    // draining the async mount chain until the rail button is present.
+    await clickWhenPresent(/hot take/i);
 
     // generateIdeas was called with the clicked category's FORMAT (not its id).
     expect(generateCalls).toHaveLength(1);
@@ -358,15 +383,10 @@ describe("ComposeCockpit — apply-all flow", () => {
     });
 
     mountCockpit(fake);
-    // Settle the analyze debounce + the auto-kicked judge so we reach judged.
+    // Settle the analyze debounce + the auto-kicked judge so we reach judged,
+    // draining until the Apply-all affordance is present, then click it.
     await settle();
-
-    const applyButton = allButtons().find((b) =>
-      /apply all suggestions/i.test(b.textContent ?? ""),
-    );
-    expect(applyButton).toBeDefined();
-    applyButton!.click();
-    await vi.advanceTimersByTimeAsync(0);
+    await clickWhenPresent(/apply all suggestions/i);
 
     // applyJudgeSuggestions was called with the current composer text.
     expect(applyCalls).toHaveLength(1);
@@ -413,8 +433,7 @@ describe("ComposeCockpit — auto-apply-best candidate selection", () => {
     mountCockpit(fake);
     await settle();
 
-    const railButton = allButtons().find((b) => /hot take/i.test(b.textContent ?? ""));
-    railButton!.click();
+    await clickWhenPresent(/hot take/i);
     await settle();
 
     // The 88-candidate's text — NOT the 60 (candidates[0]) nor the 72 — is written.
@@ -448,7 +467,7 @@ describe("ComposeCockpit — auto-apply-best candidate selection", () => {
     mountCockpit(fake);
     await settle();
 
-    allButtons().find((b) => /hot take/i.test(b.textContent ?? ""))!.click();
+    await clickWhenPresent(/hot take/i);
     await settle();
 
     // Fallback: candidates[0] (overall 35 is higher, but no approval → index 0).
@@ -486,7 +505,7 @@ describe("ComposeCockpit — auto-apply-best candidate selection", () => {
     mountCockpit(fake);
     await settle();
 
-    allButtons().find((b) => /hot take/i.test(b.textContent ?? ""))!.click();
+    await clickWhenPresent(/hot take/i);
     await settle();
 
     // The verdict-less candidate's text was written…
@@ -525,11 +544,7 @@ describe("ComposeCockpit — apply-all writes the improved text", () => {
     mountCockpit(fake);
     await settle();
 
-    const applyButton = allButtons().find((b) =>
-      /apply all suggestions/i.test(b.textContent ?? ""),
-    );
-    expect(applyButton).toBeDefined();
-    applyButton!.click();
+    await clickWhenPresent(/apply all suggestions/i);
     await settle();
 
     // The improved text is written into the composer (real contenteditable write).
