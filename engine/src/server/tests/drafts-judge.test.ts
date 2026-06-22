@@ -101,6 +101,33 @@ describe("POST /drafts/judge", () => {
     }
   });
 
+  it("carries an empty verdict.annotations array through the response body", async () => {
+    // XOB-010: the route is unchanged; the judge service supplies annotations. When
+    // the injected judge returns a verdict with an empty annotations array, the HTTP
+    // body must surface annotations as a present, empty array (not omitted, not null).
+    const judge = vi.fn(async () => judgedOutcome);
+    const app = buildServer({ judgeDraftService: { judge } });
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/drafts/judge",
+        payload: { text: "A draft worth judging." },
+      });
+
+      expect(response.statusCode).toBe(200);
+
+      const raw = parseJson(response.body) as { verdict: { annotations?: unknown } };
+      expect(raw.verdict).toHaveProperty("annotations");
+      expect(raw.verdict.annotations).toEqual([]);
+
+      const body = judgeDraftResponseSchema.parse(raw);
+      expect(body.verdict.annotations).toEqual([]);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("maps a provider failure to a retryable judge_failed error without leaking internals", async () => {
     const judge = vi.fn(async () => ({
       status: "failed" as const,
