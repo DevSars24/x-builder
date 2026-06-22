@@ -1,4 +1,5 @@
 export * from "./server/server.js";
+export * from "./capture/live-capture-service.js";
 export * from "./deterministic/deterministic-analysis-service.js";
 export * from "./deterministic/analyzer.js";
 export * from "./deterministic/format-classifier.js";

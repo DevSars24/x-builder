@@ -8,6 +8,7 @@ import {
   type ActiveArchiveContext,
   type ArchiveDerivedInsights,
   type ArchiveImportRun,
+  type LiveCapturedProfile,
 } from "@x-builder/shared";
 import { z } from "zod";
 
@@ -147,6 +148,9 @@ export interface PostLibraryRepository {
   saveImportRun(importRun: ArchiveImportRun): Promise<void>;
   saveDerivedInsights(snapshot: ArchiveDerivedInsightSnapshot): Promise<void>;
   setActiveContext(context: ActiveArchiveContext): Promise<void>;
+  // Optional so existing repository fakes that predate live capture still satisfy
+  // the interface; JsonFilePostLibraryRepository implements it for real.
+  pushProfileSnapshot?(snapshot: LiveCapturedProfile): Promise<void>;
 }
 
 export class PostLibraryStorageError extends Error {
@@ -354,6 +358,33 @@ export class JsonFilePostLibraryRepository implements PostLibraryRepository {
     await this.withSerializedWrite(async () => {
       const store = await this.loadStore();
       store.activeContext = activeArchiveContextSchema.parse(context);
+
+      await this.saveStore(store);
+    });
+  }
+
+  async pushProfileSnapshot(snapshot: LiveCapturedProfile): Promise<void> {
+    await this.withSerializedWrite(async () => {
+      const store = await this.loadStore();
+
+      // The stored snapshot schema is tighter (min/max bounds) than the shared
+      // wire schema, so a wire-valid value can still violate the stored bounds.
+      // Normalize a ZodError to PostLibraryStorageError, matching loadStore.
+      let parsed: LiveProfileSnapshot;
+      try {
+        parsed = liveProfileSnapshotSchema.parse(snapshot);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          throw new PostLibraryStorageError(
+            "Live profile snapshot does not satisfy the stored bounds.",
+            error,
+          );
+        }
+
+        throw error;
+      }
+
+      store.profileSnapshots.push(parsed);
 
       await this.saveStore(store);
     });
