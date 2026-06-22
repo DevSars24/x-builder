@@ -1,8 +1,10 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # XOB-020: Settings affordance + settings panel
+
+> **Folded-in scope (overlay primitive layer — wave-wide decision):** the overlay has no UI primitive library and no ticket scoped one; per the user's decision, primitives are **built fresh, incrementally, in `overlay/src/ui/`**, implementing `docs/design-system/product-components.md` (the single spec source, to keep tickets consistent), shadow-scoped via the seeded design tokens + Aurora Glass `--xb-*` tokens. XOB-020 builds the primitives it consumes — `Button`, `IconButton`, `Input`, `Alert`, `Badge`, `Switch`, `Skeleton`, `KeyValueList` — and later overlay tickets reuse them + add new ones (e.g. XOB-025 `ScoreBar`). The `Drawer`/`ToastRegion` are explicitly NOT built (per Scope Boundaries). NOTE: `getSettings()` returns the `AppSettingsResponse` envelope `{settings, source, updatedAt?}` — unwrap `.settings` (carried from the XOB-019 checkpoint).
 
 ## Implementation Details
 
