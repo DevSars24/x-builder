@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # XOB-027: JudgeStrip auto-improve (`applyJudgeSuggestions`) + approved state + green/blue provenance render
@@ -200,3 +200,22 @@ Also add `onApplyAll: vi.fn()` to the existing `props()` helper defaults so prio
 - **Multiple rapid clicks on Apply-all before `ComposeCockpit` responds:** the button transitions to `applying` state on first click and is removed from DOM; subsequent clicks impossible.
 
 **Cross-deps:** XOB-022 (CompositionHighlightLayer — green/blue rendering), XOB-023 (ProvenanceController — anchor re-pin + provenance gate), XOB-026 (JudgeStrip base — extends this ticket's component).
+
+## Pipeline Log
+
+Lane: rgb-tdd lean Red-first (Red self-validates → Green → combined Blue+Yellow). Not `[FND]`. Extends the XOB-026 `JudgeStrip`.
+
+| Station | Commit | Result |
+|---|---|---|
+| pre-Red SHA | `d138688` | base (after reconciliations: `ProvenanceState` bare string `provenance==='x'`, extends `judge-strip.tsx`+test, `ApplyJudgeSuggestionsResponse {text,verdict,approved,improvedOverOriginal}` confirmed, browser-mode harness) |
+| Red (failing tests, self-validated) | `6b5316d` | +9 cases + 2 edges in `judge-strip.test.tsx`; added `onApplyAll: vi.fn()` to the `props()` helper (keeps 15 XOB-026 tests typechecking); 6 fail for the right reason (no apply UI / missing prop). scope CLEAN; ticket-ids: describe-label renamed to behavioral (amend) → only 2 benign comment matches remain. |
+| pre-Green SHA | `6b5316d` | base |
+| Green (impl) | `9f4a509` | +140/-0 in `overlay/src/judge/judge-strip.tsx` (additive: `onApplyAll` prop + `ApplySection` machine + 4 sub-components); 273/273 overlay tests pass; typecheck green; `gates.py all` CLEAN. |
+| Blue (validate Green) | — | **APPROVE** — no test modification (`6b5316d...9f4a509` test-diff empty/byte-identical); Apply-all ABSENT (returns null) not CSS-hidden in generated; AlreadySolid=`warning`; apply-retry→`onApplyAll` (not `onRetryJudge`); no bespoke threshold (`deriveApproved` reused); +140/-0 additive, XOB-026 byte-stable. |
+| Yellow (intent/wiring) | — | **APPROVE** — loop-prevention enforced structurally (render gate; test 9 clicks every button, `onApplyAll` never fires in generated); presentational (no transport/composer-write/anchor-repin/abort — all grep hits are out-of-scope comments); AlreadySolid framed as info not error; single approval authority; provenance gate owned on Apply-all/approved side only (green/blue wash left to XOB-022). |
+
+### Concerns Ledger
+
+| # | Concern | Owner | Resolution |
+|---|---|---|---|
+| G1 (= D1 recurrence) | **v2 `Button` has no `style`/`className`/border prop**, so the Apply-all's `--xb-judge` border (Visual AC) is applied by wrapping the `variant="ghost"` Button in a judge-cyan-bordered span. Clean token-driven workaround — the button stays ghost/transparent so "never primary CTA" holds; touches no Button internals, no suppression. This is the **third** judge/zone affordance hitting the D1 limitation (after XOB-024 full-width, XOB-026 implicit). | v2 `Button` enhancement (rule-of-three TRIGGERED) | The rule-of-three is now met — add a `borderColor`/token or `block` prop to v2 `Button` so judge-channel bordered-ghost buttons and full-width pills don't need wrapper spans. Best done as a small standalone v2 primitive change (or fold into XOB-029 polish). Non-blocking; current wrappers are correct. |
