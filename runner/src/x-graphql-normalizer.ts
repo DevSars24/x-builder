@@ -287,7 +287,6 @@ export const XGraphQlNormalizer = {
       } catch {
         // Tolerate-and-skip: a single debug line, never console.error, never
         // rethrow. (Intentionally low-volume; the observer aggregates context.)
-        // eslint-disable-next-line no-console
         console.debug("[XGraphQlNormalizer] skipped a malformed tweet entry");
       }
     }
