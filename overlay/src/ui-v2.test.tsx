@@ -22,6 +22,7 @@ import { Button } from "../../client/src/ui/v2/button";
 import { IconButton } from "../../client/src/ui/v2/icon-button";
 import { Input } from "../../client/src/ui/v2/input";
 import { KeyValueList } from "../../client/src/ui/v2/key-value-list";
+import { ScoreBar } from "../../client/src/ui/v2/score-bar";
 import { Select } from "../../client/src/ui/v2/select";
 import { Skeleton } from "../../client/src/ui/v2/skeleton";
 import { Switch } from "../../client/src/ui/v2/switch";
@@ -265,5 +266,108 @@ describe("v2 KeyValueList", () => {
     expect(root.textContent).toContain("42");
     expect(root.textContent).toContain("Last capture");
     expect(root.textContent).toContain("2026-06-21");
+  });
+});
+
+describe("v2 ScoreBar", () => {
+  // XOB-025 is the first consumer of the fresh v2 ScoreBar primitive. It mirrors
+  // the legacy `ScoreBarProps` ({ label, value, max?, bandLabel?, helpText?,
+  // loading?, disabled? }) but renders with inline `var(--…)` token styles (no
+  // global classnames) so it travels into the shadow root. The fill colour maps
+  // value → a score-band token (`--score-strong/good/usable/needs-rewrite/
+  // unknown`); it must NEVER use the judge / accent CTA hue. We assert on stable
+  // signals only: progressbar ARIA, the rendered value text, the `data-score-band`
+  // marker, and the fill element's inline width.
+
+  /** The single score-band fill element (the impl exposes `data-score-fill`). */
+  function fill(root: ParentNode): HTMLElement {
+    const el = root.querySelector<HTMLElement>("[data-score-fill]");
+    if (!el) throw new Error("ScoreBar must expose a [data-score-fill] element.");
+    return el;
+  }
+
+  /** The bar's stable score-band marker (`strong`/`good`/`usable`/…). */
+  function band(root: ParentNode): string {
+    const el = root.querySelector<HTMLElement>("[data-score-band]");
+    if (!el) throw new Error("ScoreBar must expose a [data-score-band] marker.");
+    return el.getAttribute("data-score-band") ?? "";
+  }
+
+  it("renders the label and the value text", () => {
+    const root = mount(<ScoreBar label="Static score" value={72} />);
+    expect(root.textContent).toContain("Static score");
+    expect(root.textContent).toContain("72");
+  });
+
+  it("exposes progressbar semantics reflecting value and max", () => {
+    const root = mount(<ScoreBar label="Static score" value={72} />);
+    const bar = root.querySelector('[role="progressbar"]');
+    expect(bar).not.toBeNull();
+    expect(bar!.getAttribute("aria-valuenow")).toBe("72");
+    // max defaults to 100.
+    expect(bar!.getAttribute("aria-valuemax")).toBe("100");
+    expect(bar!.getAttribute("aria-valuemin")).toBe("0");
+  });
+
+  it("when loading, sets aria-busy and shows a skeleton with no value text", () => {
+    const root = mount(<ScoreBar label="Static score" value={72} loading />);
+
+    // aria-busy is set on the busy element.
+    expect(root.querySelector('[aria-busy="true"]')).not.toBeNull();
+    // A skeleton placeholder stands in for the bar.
+    expect(root.querySelector("[data-skeleton]")).not.toBeNull();
+    // The numeric value must NOT leak while loading (no real score yet).
+    expect(root.textContent).not.toContain("72");
+  });
+
+  it("when disabled, marks the bar disabled (aria-disabled) and stays inert", () => {
+    const root = mount(<ScoreBar label="Static score" value={72} disabled />);
+    const bar = root.querySelector('[role="progressbar"]');
+    expect(bar).not.toBeNull();
+    expect(bar!.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("fills the bar to value/max as an inline percentage width", () => {
+    const root = mount(<ScoreBar label="Static score" value={30} max={120} />);
+    // 30 / 120 = 25%.
+    expect(fill(root).style.width).toBe("25%");
+  });
+
+  it("clamps an over-max value to a full (100%) fill", () => {
+    const root = mount(<ScoreBar label="Static score" value={150} max={100} />);
+    expect(fill(root).style.width).toBe("100%");
+  });
+
+  it("maps the fill colour to a distinct score-band token across value ranges", () => {
+    // Each band must resolve to a DIFFERENT, defined score-band token so colour
+    // alone is never the only differentiator AND no two ranges collapse.
+    const strong = mount(<ScoreBar label="s" value={90} />);
+    const strongBand = band(strong);
+    cleanup();
+    harness.cleanup();
+
+    const needsRewrite = mount(<ScoreBar label="s" value={10} />);
+    const lowBand = band(needsRewrite);
+
+    // The high score and the low score land in different bands.
+    expect(strongBand).not.toBe(lowBand);
+    // The band markers are drawn from the known score-band vocabulary.
+    const vocab = ["strong", "good", "usable", "needs-rewrite", "unknown"];
+    expect(vocab).toContain(strongBand);
+    expect(vocab).toContain(lowBand);
+  });
+
+  it("never paints the fill with the judge or accent CTA hue (neutral score bands only)", () => {
+    const root = mount(<ScoreBar label="Static score" value={72} />);
+    const fillEl = fill(root);
+    const bg = getComputedStyle(fillEl).backgroundColor;
+    // The judge token --xb-judge resolves to hsl(192 95% 60%) → rgb(38, 232, 250);
+    // the accent --xb-accent → rgb. The score-band fill must be neither.
+    expect(bg).not.toBe(tokenValue(fillEl, "--xb-judge"));
+    expect(bg).not.toBe(tokenValue(fillEl, "--xb-accent"));
+    // The bar markup must not reference the judge/accent token names at all.
+    expect(fillEl.closest("[role='progressbar']")?.outerHTML ?? "").not.toContain(
+      "--xb-judge",
+    );
   });
 });
