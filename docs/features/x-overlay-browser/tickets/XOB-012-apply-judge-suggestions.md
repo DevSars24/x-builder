@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # XOB-012: ApplyJudgeSuggestionsService + POST /drafts/apply-suggestions
@@ -246,3 +246,19 @@ Used in the never-worse guard and the success path. Rule: `approved = verdict.sc
 - Rewrite produces text identical to original: `rewriteOverall <= originalOverall` is possible; guard returns original — both texts are the same so the response is semantically correct.
 - `text` in request is at max length (8 000 chars): schema accepts it; LLM may truncate the rewrite; `structuredOutput` schema enforces `maxLength: 8000` on the output.
 - `improvedOverOriginal: false` with `approved: false` (original overall < 70): valid combination — the service returns the best available text (original) and a correct `approved` derived from it.
+
+## Pipeline Log
+
+Lean Red-first lane. (One Blue dispatch returned a malformed/injected 0-tool-use response — disregarded as corrupted tool output, not acted on; Blue re-spawned and ran the real validation.)
+
+- **Red** (`e4affb2`): `apply-judge-suggestions-service.test.ts` (8: improves/equal/worse never-worse cases, step1/2/3 failures, annotations→instructions spy, profile-resolver-throw edge) + `drafts-apply-suggestions.test.ts` (3 route: 200 improved, 200 never-worse, 500 generation_failed). Per-call judge fake (call-index keyed) + LLM spy reading `instructions`; verdicts via `verdictWithOverall(n)`. RED via missing module + 3×404; `rg "XOB-"` clean.
+- **Gates** (post-Red, base `a8b1307`): `[scope]` + `[ticket-ids]` CLEAN.
+- **Green** (`909cfa7`): `ApplyJudgeSuggestionsService` (judge→rewrite(`writer_first_pass`, `timeoutMs=chainTimeoutMs/3`)→re-judge; never-worse `<=` guard returns original on tie/worse; `rewriteInstructions` embeds `Fix: [quote] — [recommendation]` ×≤12 + `Improvement:` ×≤5; profile-safe; `deriveApproved` on returned verdict) + `POST /drafts/apply-suggestions` route (parses request before try; throw→`generation_failed`) + `BuildServerOptions.applyJudgeSuggestionsService?` + default construction sharing `judgeDraftService`/resolvers. 8/3/702 tests, typecheck+build green. 2 files.
+- **Gates** (post-Green, base `e4affb2`): all CLEAN; no test files touched.
+- **Blue (Validate Green)**: APPROVE — ran all commands (8/3/702, cache-bypassed `tsc` EXIT 0, forced clean build green); never-worse `<=` exact, request parsed before try (bad body → validation, not generation_failed), instructions embed annotations+improvements, profile-safe, typecheck honest.
+- **Yellow (intent)**: APPROVE — real 3-step chain with the SAME judge instance as `/drafts/judge`, never-worse guard honest (`improvedOverOriginal` set only on `>`), method-#17 contract, loop-prevention boundary intact (stateless text-in/out; the "user-text-only" gate is correctly overlay-side), zero-trace.
+
+### Concerns Ledger
+- **Per-judge chain budget not enforced (consistent with XOB-011 ledger).** Only the rewrite step gets `chainTimeoutMs/3`; the two judge legs are best-effort, bounded by `JudgeDraftService`'s internal cap (no per-judge `timeoutMs` because `JudgeDraft.judge` takes no options and the scope forbids changing it). Same accepted pattern as XOB-011 — revisit jointly if chain-level cancellation is added (relates to the XOB-027 edit-while-applying-cancellation P2).
+- **Doc note (no action):** ticket prose restates `deriveApproved` as `overall>=70`; the shared single-source is label-based (`post_now`/`slight_rework`) — equivalent; AC examples still hold. Consumed-only here (XOB-002-owned).
+- Status → **done**.
