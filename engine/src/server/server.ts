@@ -56,6 +56,7 @@ import {
   type JudgeDraft,
   type JudgeDraftOutcome,
 } from "../llm/judge-draft-service.js";
+import { GenerateIdeasService } from "../llm/generate-ideas-service.js";
 import { judgeProviderRegistry } from "../llm/judge-provider-registry.js";
 import { createSettingsJudgeProviderResolver } from "../llm/judge-provider-resolver.js";
 import { NodeProcessRunner, type ProcessRunner } from "../llm/process-runner.js";
@@ -307,26 +308,6 @@ const attachCooldownSignals = (
 
     return signal === undefined ? item : { ...item, cooldown: signal };
   }),
-});
-
-const defaultGenerateCandidates: GenerateCandidates = ({ idea }) => ({
-  candidates: [
-    {
-      id: "one-liner",
-      format: "one-liner",
-      text: idea,
-    },
-    {
-      id: "mini-framework",
-      format: "mini-framework",
-      text: `${idea}\n\n1. Name the constraint.\n2. Show the tradeoff.\n3. Make the decision.`,
-    },
-    {
-      id: "debate-question",
-      format: "debate-question",
-      text: `${idea}\n\nWhat would change your mind?`,
-    },
-  ],
 });
 
 const readinessTimeoutMsDefault = 750;
@@ -618,7 +599,6 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   const deterministicAnalysisService = new DeterministicAnalysisService();
   const defaultAnalyzePosts: AnalyzePosts = (request) => deterministicAnalysisService.analyzePosts(request);
   const analyzePosts = options.analyzePosts ?? defaultAnalyzePosts;
-  const generateCandidates = options.generateCandidates ?? defaultGenerateCandidates;
   const settingsRepository =
     options.settingsRepository ?? new JsonFileAppSettingsRepository({ root: defaultSettingsRoot });
   const postLibraryRepository =
@@ -682,6 +662,39 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
       return accountProfile;
     }
   };
+
+  // Default idea generation: the format path is LLM-driven (writer_variants) and
+  // judged via the same JudgeDraftService the /drafts/judge route uses; the
+  // idea-only path stays the deterministic stub. The generate step shares the
+  // judge providers and the settings-backed provider resolver, so a settings
+  // PATCH retargets generation and judging on the next call. The profile resolver
+  // forwards no explicit profile, so it falls back to the persisted account
+  // profile (composed with any active archive context).
+  const buildDefaultGenerateCandidates = (): GenerateCandidates => {
+    const workspaceRoot = resolveWorkspaceRoot(process.cwd());
+    // With no resolvable workspace root the provider list is empty, so a format
+    // request resolves to a provider_unconfigured generate failure (->
+    // generation_failed) rather than throwing at construction.
+    const providers = workspaceRoot
+      ? judgeProviderRegistry.map((entry) =>
+          entry.createProvider({ runner: new NodeProcessRunner(), workspaceRoot }),
+        )
+      : [];
+
+    const generateIdeasService = new GenerateIdeasService(
+      new StructuredLlmService({ providers }),
+      judgeDraftService,
+      createSettingsJudgeProviderResolver(settingsRepository),
+      () => resolveJudgeAccountProfile(undefined),
+    );
+
+    // Bind to the constructed instance so `this` survives the function reference;
+    // generate's signature matches GenerateCandidates
+    // (GenerateIdeaRequest -> Promise<GenerateIdeaResponse>).
+    return generateIdeasService.generate.bind(generateIdeasService);
+  };
+  const generateCandidates: GenerateCandidates =
+    options.generateCandidates ?? buildDefaultGenerateCandidates();
 
   app.setNotFoundHandler((_request, reply) => {
     const apiError = notFoundError();
