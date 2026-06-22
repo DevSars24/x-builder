@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@x-builder/engine": "workspace:*",
+    "@x-builder/overlay": "workspace:*",
     "@x-builder/shared": "workspace:*",
     "playwright": "^1.50"
   },

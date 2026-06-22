@@ -1,2 +1,3 @@
-// @x-builder/runner — placeholder entry (XOB-015 fills this)
-export {};
+// @x-builder/runner — public surface.
+export { BrowserController, BrowserInstallError } from "./browser-controller.js";
+export { RunnerApp, OverlayBundleNotFoundError, type RunnerAppOptions, type EngineServices } from "./runner-app.js";

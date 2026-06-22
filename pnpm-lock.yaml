@@ -113,6 +113,9 @@ importers:
       '@x-builder/engine':
         specifier: workspace:*
         version: link:../engine
+      '@x-builder/overlay':
+        specifier: workspace:*
+        version: link:../overlay
       '@x-builder/shared':
         specifier: workspace:*
         version: link:../shared
