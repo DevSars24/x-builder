@@ -1,5 +1,5 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # XOB-026: JudgeStrip — waiting→pulse→fill + generate-refine entry path (UNDER cockpit zone)
@@ -95,7 +95,7 @@ No new local data models.
 - All `JudgeState` rendering (waiting/running/judged/failed/unavailable).
 - Pulse animation + reduced-motion gating.
 - `aria-live` verdict announcement.
-- Generate-refine entry: rendering "✓ Judge approved" when `provenance.status === "generated"` and `judge.status === "judged"` (no pulse on pre-approved entry).
+- Generate-refine entry: rendering "✓ Judge approved" when `provenance === "generated"` AND `judge.status === "judged"` AND `deriveApproved(verdict)` (no pulse on pre-approved entry). **NOTE:** `ProvenanceState` (XOB-023) is a **bare string union** `"generated" | "user_written"` — compare `provenance === "generated"`, NOT `provenance.status`. The "✓ Judge approved" badge is gated on provenance+approved; it is distinct from the verdict **band** badge (post_now/slight_rework/major_rework/do_not_post), which renders on every `judged` state. (Both `slight_rework` and `post_now` are `deriveApproved===true`.)
 - Retry button on failure (calls `onRetryJudge`).
 
 **Out of scope (zero-trace):**
@@ -107,19 +107,14 @@ No new local data models.
 
 ## Test Strategy & Fixture Ownership
 
-**Framework:** Vitest + RTL, shadow-DOM-aware.
+**Framework:** Vitest **browser mode → Playwright Chromium** via `vitest-browser-react` — the established overlay harness (XOB-018/020–025), shadow-DOM-aware. NOT jsdom/RTL.
 
-**Fixtures (owned by overlay package):**
+**Fixtures:** **REUSE the existing `makeJudgeVerdict` factory in `overlay/src/testing/fixtures.ts`** (built in XOB-023 — produces a REAL full 13-dim `JudgeVerdict` and derives the `verdict` label from `scores.overall` via shared's `deriveJudgeVerdict` unless overridden). Do NOT hand-write an abbreviated verdict (the inline example below was abbreviated/missing dims). Build the fixtures as:
 ```ts
-// fixtures/judge-verdict.ts — reuse/mirror shared/src/schemas/judge.ts shape
-export const judgedVerdict: JudgeVerdict = {
-  verdict: "slight_rework", confidence: "medium", headline: "Good hook, sharpen the close",
-  scores: { overall: 74, voiceMatch: 81, negativeRisk: 22, strangerAnswerability: 68, /* ... 13 total */ },
-  strengths: ["Clear value prop"], improvements: ["End with a sharper call to action"],
-  annotations: [{ quote: "sharpen the close", severity: "suggestion", recommendation: "Add a concrete CTA" }],
-};
-export const approvedVerdict: JudgeVerdict = { ...judgedVerdict, verdict: "post_now", scores: { ...judgedVerdict.scores, overall: 85 } };
+const judgedVerdict = makeJudgeVerdict({ scores: { overall: 74 }, headline: "Good hook, sharpen the close", strengths: ["Clear value prop"], improvements: ["End with a sharper call to action"], annotations: [{ quote: "sharpen the close", severity: "suggestion", recommendation: "Add a concrete CTA" }] }); // → verdict "slight_rework" (deriveApproved === true)
+const approvedVerdict = makeJudgeVerdict({ scores: { overall: 85 } }); // → verdict "post_now" (deriveApproved === true)
 ```
+`provenance` fixtures are the bare strings `"generated"` / `"user_written"` (NOT `{ status: … }`).
 
 **Test cases:**
 1. **Waiting state** — static label rendered; no pulse dot; no `aria-busy`.
@@ -127,7 +122,7 @@ export const approvedVerdict: JudgeVerdict = { ...judgedVerdict, verdict: "post_
 3. **Judged state** — verdict band badge, 13 `ScoreBar` dims filled, strengths/improvements visible.
 4. **`aria-live` announce** — transition `running → judged` → `aria-live="polite"` region announces band + overall.
 5. **Failed state** — `Alert` variant `"danger"` + retry button; `onRetryJudge` called on click.
-6. **Refine entry (pre-approved)** — `judge: { status: "judged", verdict: approvedVerdict }` + `provenance: { status: "generated" }` → "✓ Judge approved" shown; no pulse.
+6. **Refine entry (pre-approved)** — `judge: { status: "judged", verdict: approvedVerdict }` + `provenance: "generated"` → "✓ Judge approved" shown; no pulse.
 7. **Refine fallback (no verdict)** — candidate applied without verdict → `judge: { status: "waiting" }` → normal flow starts.
 8. **Reduced motion** — pulse keyframe absent; static label present.
 9. **Never primary CTA** — no element in `JudgeStrip` uses `--xb-accent` button style or `variant="primary"`.
@@ -178,7 +173,7 @@ export const approvedVerdict: JudgeVerdict = { ...judgedVerdict, verdict: "post_
 - Container: `--xb-surface-panel` glass, `--xb-judge` (`hsl(192 95% 60%)`) edge accent, `--xb-glow-judge` on edges.
 - Pulse dot: 8px, `background: var(--xb-judge)`, `box-shadow: var(--xb-glow-judge)`; pulse keyframe token-driven.
 - Verdict band badge: `--xb-band-post-now` (green) / `--xb-band-slight` (teal) / `--xb-band-major` (amber) / `--xb-band-donot` (red) per verdict.
-- `ScoreBar` fills (judge dims): `--xb-judge` tinted (distinct from static `--xb-accent`).
+- `ScoreBar` fills (judge dims): reuse the v2 `ScoreBar` primitive (built in XOB-025). Its fill is colored by neutral `--score-*` band (semantic: green=strong…red=weak) and the primitive exposes no color-override prop — so do NOT fork it to force a `--xb-judge` tint. **Judge-channel identity is carried at the container level** (the `--xb-judge` edge accent + `--xb-glow-judge` + "✦ AI judge" caption + the pulse), not by per-bar tinting. (No test asserts bar tint.)
 - "✓ Judge approved": `--xb-band-post-now` green; `Badge` variant `"success"`.
 - `Alert` failure: existing `Alert` `variant="danger"` tokens.
 - Retry button: `Button` `variant="ghost"` or `"secondary"` — **never** `variant="primary"`.
