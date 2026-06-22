@@ -1,5 +1,5 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # XOB-005: RepetitionWindowService — real rolling-window cooldown over the merged corpus
