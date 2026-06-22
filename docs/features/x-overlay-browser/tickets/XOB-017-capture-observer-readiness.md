@@ -1,5 +1,5 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # XOB-017: GraphQlCaptureObserver wiring + `getOverlayReadiness` composition (runner-side)
