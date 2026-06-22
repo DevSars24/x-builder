@@ -21,6 +21,7 @@ import {
   archiveTweetsImportResponseSchema,
   archiveTweetsValidateRequestSchema,
   archiveTweetsValidateResponseSchema,
+  generateCategorySchema,
   generateIdeaRequestSchema,
   generateIdeaResponseSchema,
   judgeDraftRequestSchema,
@@ -37,6 +38,8 @@ import {
 import { z } from "zod";
 
 import { DeterministicAnalysisService } from "../deterministic/deterministic-analysis-service.js";
+import { RepetitionWindowService } from "../capture/repetition-window-service.js";
+import { GenerateCategoryService } from "../suggest/generate-category-service.js";
 import {
   ArchiveImportService,
   ArchiveValidationError,
@@ -97,6 +100,7 @@ export interface BuildServerOptions {
   readinessTimeoutMs?: number;
   settingsRepository?: AppSettingsRepository;
   postLibraryRepository?: PostLibraryRepository;
+  generateCategoryService?: GenerateCategoryService;
   judgeDraftService?: JudgeDraft;
 }
 
@@ -176,6 +180,15 @@ const archiveStorageFailedError = (): ApiError =>
     code: "archive_storage_failed",
     message: "The local archive library could not be saved. Try again.",
     scope: "archive",
+    retryable: true,
+    status: 500,
+  });
+
+const libraryStorageFailedError = (): ApiError =>
+  normalize({
+    code: "library_storage_failed",
+    message: "The local post library could not be read. Try again.",
+    scope: "library",
     retryable: true,
     status: 500,
   });
@@ -584,6 +597,12 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     repository: postLibraryRepository,
   });
   const archiveStudioContextResolver = new ArchiveStudioContextResolver(postLibraryRepository);
+  const generateCategoryService =
+    options.generateCategoryService ??
+    new GenerateCategoryService(
+      postLibraryRepository,
+      new RepetitionWindowService(postLibraryRepository),
+    );
   const readinessService =
     options.readinessService ??
     new DefaultReadinessService(
@@ -805,6 +824,20 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     } catch (error) {
       if (error instanceof PostLibraryStorageError) {
         throw new NormalizedApiError(archiveStorageFailedError());
+      }
+
+      throw error;
+    }
+  });
+
+  app.get("/generate/categories", async (_request, reply) => {
+    try {
+      const result = await generateCategoryService.getCategories();
+
+      return reply.send(parseResponseContract(z.array(generateCategorySchema), result));
+    } catch (error) {
+      if (error instanceof PostLibraryStorageError) {
+        throw new NormalizedApiError(libraryStorageFailedError());
       }
 
       throw error;
