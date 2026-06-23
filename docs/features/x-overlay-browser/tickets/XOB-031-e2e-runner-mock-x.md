@@ -1,5 +1,5 @@
 ---
-status: todo
+status: escalated
 labels: [test]
 ---
 
@@ -100,3 +100,16 @@ Each invariant is falsifiable: a compliant implementation passes; the described 
 - `fixtures/mock-route-handlers.ts` — Playwright `page.route` intercepts serving the above fixtures and recording mutation calls
 
 All LLM calls injected via `FakeStructuredLlmService` (deterministic, per-purpose outputs). No internet access in CI.
+
+## Pipeline Log
+
+### 2026-06-23 — ESCALATED `IMPLEMENTATION_BROKEN` (Purple+Blue; tests are GOOD, the product is broken)
+- **Purple** (`dc9a872`): 7 files under `e2e-tests/**` — `runner-harness.ts` (real `RunnerApp` via `launchBrowser`/`bindTransport`/`attachObserver` seams, fake LLM + tmpdir repos via `createBoundEngineServices`), `mock-route-handlers.ts` (`context.route` x.com/GraphQL/`/i/api` + request log), 3 fixtures, 2 specs. Scope CLEAN, ticket-ids CLEAN. **No config change needed/made.**
+- **Result:** 25 pass / 8 fail. **PASS:** Flow D + invariants #1/#2 (capture observe-only / normalizer / transport bindings genuinely work — they ride `__xbuilder_*` directly). **FAIL (all same root cause):** Flows A,B,C,E,F + invariants #3,#4,#5 — *the overlay never mounts in the runner.*
+- **Blue Validate Purple: ESCALATE `IMPLEMENTATION_BROKEN`** — tests verified well-constructed, falsifiable, honest mocks, schema-shaped fixtures, no brittleness; the 8 would pass against a correctly-mounted overlay. Failure is upstream production defects, confirmed by a direct `addInitScript` browser probe (`__xbBootstrap` + `__xbTransport` both `undefined`, pageerror `process is not defined`). **Affects the real `npx x-builder` path, not just the test.**
+- **Three stacked production defects (owned by prior "done" tickets, NOT XOB-031):**
+  1. **Bundle not browser-safe** — `overlay/vite.config.ts` has no `define`; built `overlay.iife.js` has 46 raw `process.*` refs → IIFE throws before `window.__xbBootstrap = bootstrap` (`overlay/src/index.ts:17`). (Bundle config: XOB-018.)
+  2. **No `window.__xbTransport` writer anywhere** — `overlay/src/transport/provider.tsx:60` READS it (comment cites "XOB-015"); `ExposeFunctionTransport.bindAll` only `exposeFunction`s raw `__xbuilder_*`; nothing assembles them into the `EngineTransport` object. Missing integration seam. (Owed by XOB-015/016 wiring.)
+  3. Downstream: no-op transport `getOverlayReadiness()` → `{}` → cockpit judge gate (`compose-cockpit.tsx:155`) never fires.
+- **Status:** escalated to user (2026-06-23). Tests are committed and correct; XOB-031 cannot reach Done until the production defects are fixed and the 8 specs pass. Epic tail (post-epic gates, XOB-032 [DOC]) is BLOCKED behind this.
+- **Unrelated, flagged for separate triage:** `e2e-tests/tests/shell-recovery-smoke.spec.ts:70` fails deterministically (copy-string mismatch in the `/writer` strangler-fallback area, CAD-0xx) — pre-existing, not part of this epic.
