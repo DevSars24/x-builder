@@ -38,6 +38,9 @@ Build order is dependency-driven: foundations first, schemas before consumers, t
 | 30 | XOB-030 | `[INT]` | Transport↔engine bindings (all 17) + `AnchorLayer` reconciliation + provenance flip | XOB-001–029 |
 | 31 | XOB-031 | `[E2E]` | Runner vs local mock x.com — compose flow, capture→corpus, apply→re-pin, generated entry, highlight degrade | XOB-001–029 |
 | 32 | XOB-032 | `[DOC]` | Overlay architecture + X-policy boundary + one-command setup + provenance/approval/explainer | XOB-030, XOB-031 |
+| 33 | XOB-033 | — | Browser-safe overlay bundle + `window.__xbTransport` assembly seam (overlay-mount remediation) | XOB-015/016/018/030 — **discovered by XOB-031 [E2E]** |
+
+**Remediation (XOB-033, added 2026-06-23):** XOB-031's [E2E] caught `IMPLEMENTATION_BROKEN` — the overlay never mounts in the runner (two prior-ticket gaps: `overlay/vite.config.ts` has no `define` so the IIFE throws `process is not defined`; and nothing assembles `window.__xbTransport` from the exposed `__xbuilder_*` bindings). XOB-033 fixes both via the standard pipeline, using XOB-031's E2E as the integration acceptance gate. Build order: **XOB-033 → re-validate XOB-031 → post-epic gates → XOB-032 [DOC]**.
 
 **Carried P2 concerns (from delta validation) to honor in the relevant tickets:** (a) a per-chain LLM **timeout/budget** + clean failure surfacing for the 3-call apply chain and 4-call generate-refine (XOB-011, XOB-012); (b) **edit-while-applying cancellation** for the apply chain (XOB-027); (c) **rect-thrash visual budget** during rapid typing (XOB-022 Visual AC).
 
