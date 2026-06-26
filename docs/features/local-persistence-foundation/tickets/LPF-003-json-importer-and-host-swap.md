@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 ---
 
 # LPF-003: [FND] One-time JSON-to-SQLite importer and host swap
@@ -72,3 +72,7 @@ Vitest 3, engine unit/integration tests, using `makeTempEngineDb()` (owned by LP
 - A partially-completed prior run (rows present but file not yet renamed): `INSERT OR IGNORE` + non-empty-table guard keep the retry idempotent, and the rename then completes.
 - Posts whose `kind` is `unknown` import verbatim (no remap).
 - Snowflake IDs imported as `TEXT` without precision loss.
+
+## Pipeline Log
+
+- **2026-06-26 — DONE (FND: Red → Blue → Green → Blue+Yellow → Architecture checkpoint). 0 rejection cycles.** Commit `728ae8d` (Green) — `import-post-library-json.ts` (new), `post-library-repository.ts` (extract `upgradePostLibraryStoreToV2` + repoint loadStore), `server.ts` (`storageRoot` option + `resolvePostLibraryRepository` + `startEngineServer`), `index.ts`, `runner-app.ts` (`defaultCreateServices` swap + widen), `bound-engine-services.ts` (2 widenings). Importer is synchronous (sync fs + one `db.transaction` of `INSERT OR IGNORE`), reuses the LPF-002 `post-row-mapping` shred (byte-faithful to the JSON repo), three idempotency guards, renames (never deletes). `upgradePostLibraryStoreToV2` single-sourced (repo loadStore + importer both call it). **Safety:** the user's live 253 KB `~/.x-builder/.../post-library.json` was a real migration risk via the ~14 bare `buildServer()` tests; resolved by `buildServer` precedence injected-repo → `storageRoot` (open+import) → bare `:memory:` (empty, no home I/O), production persistence via `startEngineServer({storageRoot: defaultSettingsRoot})`. Corpus verified byte-identical to the safety backup before+after every run. **Bonus:** the `:memory:` bare-default fixed a pre-existing isolation bug — 3 `posts-analyze` tests were silently reading the real corpus; engine failures dropped 4→1 (remaining `judge-draft-service` failure is pre-existing, unrelated). Validate-Green **APPROVE**, Yellow **APPROVE** (3 host-swap traces wired; `:memory:` default intent-matching), Architecture **APPROVE** (genuine strangler step-2; reversibility preserved — JSON repo still exists for LPF-004; transport still exactly 17). **No concerns.**
