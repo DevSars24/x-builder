@@ -10,6 +10,15 @@ export {
   PostLibraryStorageError,
   type PostLibraryRepository,
 } from "./server/post-library-repository.js";
+// SQLite-backed corpus store (LPF-002). Not wired into any host yet (LPF-003);
+// re-exported so later features and tests can construct it through the barrel.
+export {
+  openEngineDatabase,
+  migrations,
+  type Migration,
+} from "./server/open-engine-database.js";
+export { SqlitePostLibraryRepository } from "./server/sqlite-post-library-repository.js";
+export { makeTempEngineDb, seedPosts } from "./server/sqlite-test-helpers.js";
 export * from "./capture/live-capture-service.js";
 export * from "./capture/repetition-window-service.js";
 export * from "./capture/live-context-resolver.js";
