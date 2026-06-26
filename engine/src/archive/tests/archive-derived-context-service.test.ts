@@ -7,7 +7,9 @@ import { describe, expect, it } from "vitest";
 import {
   ArchiveDerivedContextService,
 } from "../archive-derived-context-service";
-import { JsonFilePostLibraryRepository, type CanonicalOwnPostInput } from "../../server/post-library-repository";
+import { type CanonicalOwnPostInput } from "../../server/post-library-repository";
+import { SqlitePostLibraryRepository } from "../../server/sqlite-post-library-repository";
+import { openEngineDatabase } from "../../server/open-engine-database";
 
 const sourceHash = "sha256:7a2f4e9c1b3d5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcd";
 const importedAt = "2026-06-16T10:00:00.000Z";
@@ -62,7 +64,7 @@ const post = (index: number, kind: CanonicalOwnPostInput["kind"] = "original"): 
 describe("ArchiveDerivedContextService", () => {
   it("generates derived insights and activates compact context for eligible history", async () => {
     await withTempRoot(async (root) => {
-      const repository = new JsonFilePostLibraryRepository({ root });
+      const repository = new SqlitePostLibraryRepository(openEngineDatabase(":memory:"));
       const service = new ArchiveDerivedContextService({
         repository,
         now: () => new Date("2026-06-16T12:00:00.000Z"),
@@ -91,7 +93,7 @@ describe("ArchiveDerivedContextService", () => {
 
   it("preserves detected post formats when activating repeat history", async () => {
     await withTempRoot(async (root) => {
-      const repository = new JsonFilePostLibraryRepository({ root });
+      const repository = new SqlitePostLibraryRepository(openEngineDatabase(":memory:"));
       const service = new ArchiveDerivedContextService({
         repository,
         now: () => new Date("2026-06-16T12:00:00.000Z"),
@@ -115,7 +117,7 @@ describe("ArchiveDerivedContextService", () => {
 
   it("blocks activation below the minimum authored/reply threshold", async () => {
     await withTempRoot(async (root) => {
-      const repository = new JsonFilePostLibraryRepository({ root });
+      const repository = new SqlitePostLibraryRepository(openEngineDatabase(":memory:"));
       const service = new ArchiveDerivedContextService({
         repository,
         now: () => new Date("2026-06-16T12:00:00.000Z"),
@@ -134,7 +136,7 @@ describe("ArchiveDerivedContextService", () => {
 
   it("deactivates active context", async () => {
     await withTempRoot(async (root) => {
-      const repository = new JsonFilePostLibraryRepository({ root });
+      const repository = new SqlitePostLibraryRepository(openEngineDatabase(":memory:"));
       const service = new ArchiveDerivedContextService({
         repository,
         now: () => new Date("2026-06-16T12:00:00.000Z"),

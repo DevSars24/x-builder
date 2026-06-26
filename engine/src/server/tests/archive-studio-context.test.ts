@@ -6,7 +6,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { AnalyzePostsRequest, AnalyzePostsResponse } from "@x-builder/shared";
 
 import { buildServer } from "../server";
-import { JsonFilePostLibraryRepository } from "../post-library-repository";
+import { SqlitePostLibraryRepository } from "../sqlite-post-library-repository";
+import { openEngineDatabase } from "../open-engine-database";
 import { JsonFileAppSettingsRepository } from "../settings-repository";
 
 const withTempRoot = async <T>(run: (root: string) => Promise<T>): Promise<T> => {
@@ -34,7 +35,7 @@ const responseFor = (request: AnalyzePostsRequest): AnalyzePostsResponse => ({
 describe("archive Studio context integration", () => {
   it("imports an archive, activates context, and merges it into Studio analysis", async () => {
     await withTempRoot(async (root) => {
-      const repository = new JsonFilePostLibraryRepository({ root });
+      const repository = new SqlitePostLibraryRepository(openEngineDatabase(":memory:"));
       const analyzePosts = vi.fn(responseFor);
       const app = buildServer({ analyzePosts, postLibraryRepository: repository });
       const tweetsJs = `window.YTD.tweets.part0 = [${Array.from(
@@ -84,7 +85,7 @@ describe("archive Studio context integration", () => {
 
   it("merges active repeat history into analysis when the request has no manual repeat history", async () => {
     await withTempRoot(async (root) => {
-      const repository = new JsonFilePostLibraryRepository({ root });
+      const repository = new SqlitePostLibraryRepository(openEngineDatabase(":memory:"));
       await repository.setActiveContext({
         status: "active",
         sourceImportId: "import-1",
@@ -144,7 +145,7 @@ describe("archive Studio context integration", () => {
 
   it("keeps manual repeat history ahead of archive-derived repeat history", async () => {
     await withTempRoot(async (root) => {
-      const repository = new JsonFilePostLibraryRepository({ root });
+      const repository = new SqlitePostLibraryRepository(openEngineDatabase(":memory:"));
       await repository.setActiveContext({
         status: "active",
         sourceImportId: "import-1",
@@ -203,7 +204,7 @@ describe("archive Studio context integration", () => {
 
   it("composes compact archive judge hints with the settings account profile", async () => {
     await withTempRoot(async (root) => {
-      const repository = new JsonFilePostLibraryRepository({ root: join(root, "library") });
+      const repository = new SqlitePostLibraryRepository(openEngineDatabase(":memory:"));
       const settingsRepository = new JsonFileAppSettingsRepository({ root: join(root, "settings") });
       const judge = vi.fn(async (_text: string, _profile?: string) => ({
         status: "failed" as const,

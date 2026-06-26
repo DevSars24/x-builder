@@ -15,10 +15,11 @@ import { describe, expect, it } from "vitest";
 
 import { buildServer } from "../server";
 import {
-  JsonFilePostLibraryRepository,
   PostLibraryStorageError,
   type PostLibraryRepository,
 } from "../post-library-repository";
+import { SqlitePostLibraryRepository } from "../sqlite-post-library-repository";
+import { openEngineDatabase } from "../open-engine-database";
 
 const tweetsJs = `window.YTD.tweets.part0 = [
   {
@@ -53,7 +54,7 @@ const withTempRoot = async <T>(run: (root: string) => Promise<T>): Promise<T> =>
 describe("archive routes", () => {
   it("validates supported tweets.js contents without persisting posts", async () => {
     await withTempRoot(async (root) => {
-      const postLibraryRepository = new JsonFilePostLibraryRepository({ root });
+      const postLibraryRepository = new SqlitePostLibraryRepository(openEngineDatabase(":memory:"));
       const app = buildServer({ postLibraryRepository });
 
       try {
@@ -78,7 +79,7 @@ describe("archive routes", () => {
   it("imports tweets.js contents once and merges duplicates on a second import", async () => {
     await withTempRoot(async (root) => {
       const app = buildServer({
-        postLibraryRepository: new JsonFilePostLibraryRepository({ root }),
+        postLibraryRepository: new SqlitePostLibraryRepository(openEngineDatabase(":memory:")),
       });
 
       try {
@@ -132,7 +133,7 @@ describe("archive routes", () => {
   it("rejects malformed archive post cursors", async () => {
     await withTempRoot(async (root) => {
       const app = buildServer({
-        postLibraryRepository: new JsonFilePostLibraryRepository({ root }),
+        postLibraryRepository: new SqlitePostLibraryRepository(openEngineDatabase(":memory:")),
       });
 
       try {
@@ -157,7 +158,7 @@ describe("archive routes", () => {
 
   it("returns invalid validation for unrelated archive contents without persisting posts", async () => {
     await withTempRoot(async (root) => {
-      const repository = new JsonFilePostLibraryRepository({ root });
+      const repository = new SqlitePostLibraryRepository(openEngineDatabase(":memory:"));
       const app = buildServer({ postLibraryRepository: repository });
 
       try {
@@ -222,7 +223,7 @@ describe("archive routes", () => {
   it("returns latest insights and activates/deactivates archive context", async () => {
     await withTempRoot(async (root) => {
       const app = buildServer({
-        postLibraryRepository: new JsonFilePostLibraryRepository({ root }),
+        postLibraryRepository: new SqlitePostLibraryRepository(openEngineDatabase(":memory:")),
       });
 
       try {

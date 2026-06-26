@@ -10,9 +10,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { classifyPostFormat } from "../../deterministic/format-classifier";
 import {
-  JsonFilePostLibraryRepository,
   type CanonicalOwnPostInput,
+  type PostLibraryRepository,
 } from "../../server/post-library-repository";
+import { SqlitePostLibraryRepository } from "../../server/sqlite-post-library-repository";
+import { openEngineDatabase } from "../../server/open-engine-database";
 import { RepetitionWindowService } from "../repetition-window-service";
 // Imported from the not-yet-existing module under test: this import alone keeps
 // the suite RED until Green creates ../live-context-resolver.
@@ -157,14 +159,14 @@ const requestWith = (
 // Per-test isolation: fresh mkdtemp root + real repository, deterministic clock.
 // ---------------------------------------------------------------------------
 let root: string;
-let repository: JsonFilePostLibraryRepository;
+let repository: PostLibraryRepository;
 let windowService: RepetitionWindowService;
 let resolver: LiveContextResolver;
 
 beforeEach(async () => {
   idCounter = 0;
   root = await mkdtemp(join(tmpdir(), "x-builder-live-context-"));
-  repository = new JsonFilePostLibraryRepository({ root });
+  repository = new SqlitePostLibraryRepository(openEngineDatabase(":memory:"));
   windowService = new RepetitionWindowService(repository, fixedNow);
   resolver = new LiveContextResolver(repository, windowService);
 });
