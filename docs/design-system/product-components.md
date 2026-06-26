@@ -1,12 +1,6 @@
 # Product Components — X Builder
 
-Stage: product-design-system / Stage 3 COMPONENTS.
-
-Status: approved for Stage 5 composition.
-
-Companion preview:
-
-- [Product Component Specimen](./product-components.html)
+> **Historical, SPA-era spec.** This was written for the removed web studio. Several components here (`AppShell`, `SidebarNav`, `TopStatusBar`, `VoiceProfileEditor`, `KnownPostsTable`, `ImportPreviewTable`) do not exist in the overlay. The **live** primitive library is `overlay/src/ui/v2/` and the live tokens are the overlay sheets listed in [README](./README.md) — **not** the removed `product-tokens.css` referenced below. Keep this file for the per-component **standard** (the checklist below), not as a literal inventory.
 
 ## Component Standard
 
@@ -21,7 +15,7 @@ Every reusable component must define:
 - Density behavior for default 32px controls.
 - Localization and overflow rules.
 
-Components must use [Product Tokens CSS](./product-tokens.css). New hardcoded colors, shadows, gradients, and decorative backgrounds are not allowed.
+Components must use the overlay token sheets (`overlay/src/neon-sheet.ts`, `overlay/src/design-tokens.ts`, `overlay/src/ui/v2/tokens.ts`). New hardcoded colors, shadows, gradients, and decorative backgrounds are not allowed.
 
 ## Tier 1: Primitives
 

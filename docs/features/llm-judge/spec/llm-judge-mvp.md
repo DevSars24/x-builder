@@ -1,5 +1,27 @@
 # LLM Judge — MVP Spec
 
+> **As shipped (current — read this first).** This document is the original MVP spec
+> (a single 0–10 rating on the now-removed Studio route). The judge has since grown
+> well past it; the rest of this file is kept as historical record. What ships today:
+>
+> - **13-dimension verdict, each scored 0–100** (`judgeScoresSchema` in `shared/src/schemas/judge.ts`):
+>   `overall`, `replies`, `profileClicks`, `impressions`, `bookmarkValue`, `dwellProxy`,
+>   `voiceMatch`, `negativeRisk`, `answerEffort`, `strangerAnswerability`, `statusDependency`,
+>   `replyVsQuoteOrientation`, `audienceMatch`. Plus a `label`
+>   (`post_now` / `slight_rework` / `major_rework` / …), `confidence`, `headline`,
+>   `strengths` (≤5), `improvements` (≤5).
+> - **Inline span annotations** (`annotations`, ≤12): each is `{ quote, severity: suggestion|warning, recommendation }`,
+>   rendered as composer underlines by `overlay/src/highlight/`.
+> - **Three CLI providers**, not just Codex — selected via the `judgeProvider` setting
+>   (`codex-cli` / `claude-cli` / `cursor-cli`); see [codex-adapter](../../codex-adapter/).
+> - **Surface:** the overlay's `judge-strip.tsx` (on-demand Run judge), not a Studio panel.
+>   Readiness gates on `status.llm.state` (the old `status.codex` slot was renamed).
+> - **Authoring loop:** generate → judge → **apply all suggestions** (never-worse rewrite).
+>   Documented in [generation-and-judge-surface](../../generation-and-judge-surface/).
+>
+> Request `POST /drafts/judge` also accepts an optional `accountProfile` for the
+> audience-match dimension. The historical contract below predates all of this.
+
 ## Objective
 Let a user ask Codex to critique a single pasted draft on demand, and show the
 verdict (a 0–10 rating plus qualitative critique) in a standalone panel on the

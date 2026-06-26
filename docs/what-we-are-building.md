@@ -1,166 +1,42 @@
-# What We Are Building
+# What we're building
 
-X Builder is a local internal workbench for deciding what to post on X.
+**An AI writing coach that lives inside x.com.** Writing on X is a black box — you can't tell whether a post will reach before you publish it. x-builder is a local tool that gives you a sharp second opinion *in the composer*, calibrated to your own account, before you press Post.
 
-The product has one purpose: take an idea, understand the user's voice and evidence, generate strong post candidates, score them, judge them, and preserve the results so future recommendations get better.
+It runs on your machine and never posts for you. A local Playwright runner attaches to your own logged-in Chrome and injects a React overlay onto x.com's composer; the scoring engine runs in-process. As you write — or generate — a draft, you get:
 
-This is not a marketing dashboard, content calendar, or generic social media tool. It is an operator console for one founder writing sharp X posts.
+- **A live deterministic score** (no LLM, instant): a reach prediction calibrated to your follower count + trailing performance, plus Post Coach checks (hook, tension, quotability, hedging…).
+- **An on-demand LLM judge**: a 13-dimension verdict with inline span fixes and a one-click "apply all suggestions" rewrite. It runs through a CLI you already have (Codex / Claude / Cursor), so there's no hosted API.
+- **Grounded generation**: drafts written to follow a reach playbook (which formats actually travel) and your own voice.
+- **Cooldown nudges**: a warning when you're overusing a format (repetition decays reach).
 
-## Day-One Product
+## How it learns you
 
-Day one should prove the loop locally:
+Everything is calibrated to **your** account, from a local corpus of your own posts. The corpus is built from **two independent enrichment sources**:
 
-1. The user opens a simple local UI.
-2. The user writes an idea.
-3. The deterministic engine generates and scores candidates.
-4. The backend calls Codex through a `codex exec` adapter for LLM writing or judging.
-5. The UI shows deterministic and LLM outputs separately.
-6. The user chooses, copies, saves, or marks a post for later.
-7. The run is persisted so the product can learn from it later.
+1. **Passive profile capture (default).** While the runner is attached, it reads the posts X already fetches as you browse your profile — no extra work, growing as you scroll.
+2. **Archive import (optional fast-start).** A one-time `tweets.js` import from your X data export loads your full history at once, so the reach baseline and voice are deep on day one.
 
-## Architecture Direction
+The corpus drives voice (generation examples), cooldowns (format repetition), and your reach baseline (so the reach prediction reflects *your* numbers, not a generic curve).
 
-The backend calls Codex directly. We are not building a day-one engine CLI just so the app can call itself.
+## The loop
 
-```txt
-UI
-  -> backend
-       -> deterministic engine
-       -> CodexAdapter
-            -> codex exec
-       -> storage
+```
+browse x.com → corpus → score / judge / generate (grounded) → you post
+     ▲                                                            │
+     └──────────────── enriches the corpus ──────────────────────┘
 ```
 
-There can be a CLI later for developer ergonomics, batch work, or automation. It is not part of the first product path.
+## Principles
 
-## LLM Direction
+- **Local & private** — your session, your machine; no hosted account or publishing token.
+- **Never auto-posts** — the overlay fills the composer only on your click; you press X's Post button.
+- **Calibrated to you** — voice, reach baseline, and cadence are per your account.
+- **Heuristics, not guarantees** — a structured second read, not a prediction of real numbers.
 
-Day one has one LLM execution path:
+## What it is not
 
-```txt
-writer = codex-cli
-judge = codex-cli
-fallback = deterministic
-```
+Not a scheduler, not a publisher, not a hosted social tool. It's a private writing studio that lives where you actually write.
 
-Important rules:
+## Status & direction
 
-- Deterministic scoring always runs.
-- LLM judging is additive, not a replacement for deterministic scoring.
-- If Codex is unavailable, the product still shows deterministic candidates and explains that Codex judge is unavailable.
-- We do not silently route app LLM calls through a ChatGPT subscription.
-- Later, we may add provider adapters for OpenAI API, OpenRouter, Gemini, Groq, Nvidia, Ollama, or others.
-
-## Core Loop
-
-```txt
-idea
-  -> candidate generation
-  -> deterministic scoring
-  -> Codex judge
-  -> user selection
-  -> post saved / copied / marked published
-  -> later X metrics imported
-  -> feedback loop updates recommendations
-```
-
-The loop only becomes valuable if we persist each step:
-
-```txt
-idea
-  -> candidates
-  -> scores
-  -> judge result
-  -> selected post
-  -> published X URL
-  -> post metrics
-  -> learned signal
-```
-
-## Recommendation Modes
-
-The writer should propose posts in three formats:
-
-1. One-liners / founder truths.
-2. Lessons / mini-framework posts.
-3. Engagement / debate / founder question posts.
-
-The interaction is two-step:
-
-1. Propose one candidate per format.
-2. After the user chooses a format, propose three more variants in that same format.
-
-Every candidate should show:
-
-- deterministic reach score
-- deterministic engagement score
-- deterministic impressions score
-- deterministic voice-match score
-- overall heuristic rank
-- Codex judge recommendation when available
-- reasons, risks, and suggested rewrite when available
-
-Scores must be labeled as:
-
-```txt
-Heuristic rank, not prediction.
-```
-
-LLM output must be labeled as:
-
-```txt
-Codex judge
-```
-
-## Voice And Evidence
-
-Voice profile is core, not optional. Without voice, "best X post" becomes generic.
-
-The product needs:
-
-- imported posts
-- selected posts for voice extraction
-- editable voice profile
-- examples of voice
-- phrases to avoid
-- known unused posts
-- external signal posts
-- run history
-
-The engine should use voice and known posts as evidence, but must avoid copying external accounts. Borrow structure, not content.
-
-## Phase 1 Outcome
-
-Phase 1 is complete when the local app can:
-
-- run with a backend, client, shared schemas, and storage boundary
-- display shell readiness for engine, Codex, and storage
-- import known posts manually
-- extract and edit a voice profile
-- generate and score candidates deterministically
-- call Codex through the adapter
-- write first-pass candidates and same-format variants
-- judge candidates with Codex
-- persist run history and known-post usage state
-
-## Phase 2 Outcome
-
-Phase 2 is complete when the app can:
-
-- import the user's X posts and metrics
-- persist metric snapshots
-- compare generated and published posts against outcomes
-- update scoring and recommendations from the user's analytics
-- import external accounts and metrics
-- extract reusable signal from external posts
-- turn external signal into constraints without copying
-
-## Later Outcome
-
-A later publishing/export workflow should close the loop:
-
-- copy to clipboard
-- mark as published
-- paste X URL
-- connect generated candidate to real X post metrics
-- update run history with outcomes
+The overlay product is built end-to-end (capture → score → judge → generate). Active directions: a closed **feedback loop** (compare what the engine predicted to how a post actually performed, and surface what's working for *you*); smarter **generation context** (send the LLM only the relevant slice of the playbook + a tight voice sample instead of the whole knowledge base); and per-account corpus scoping.

@@ -6,6 +6,8 @@ status: done
 
 Purpose: wrap CLI coding agents as engine-internal LLM providers behind one provider-neutral contract. First slice (CAD-001..006, shipped): `codex exec`. Extension (CAD-007..016): Claude Code CLI and Cursor CLI providers with settings-based selection.
 
+> **On the name.** This epic is called "Codex Adapter" for historical reasons — `codex` was the first provider built. It is really the **CLI provider layer** and covers `codex`, `claude`, and `cursor` equally; there is no codex-specific adapter and no per-CLI adapter feature. Adding a provider is one module + one registry entry + one enum value (see Selection below). The default is `codex-cli`.
+
 ## Architecture Context
 
 Three layers, all engine-internal (no public raw LLM HTTP API):
@@ -23,7 +25,7 @@ Three layers, all engine-internal (no public raw LLM HTTP API):
 
 **Labels**: single source `judgeProviderLabels` in shared ("Codex judge" / "Claude judge" / "Cursor judge") — consumed by the engine registry, the Settings select, and the verdict attribution ("Judged by …").
 
-**Client**: provider select in Settings (native select, third model-driven field kind); one "Judge" status badge (4 badges total, label server-owned); judge panel renamed "Draft Judge" with per-verdict provider attribution from the response `model`; `judgeReady` gate derived from `status.llm.state` only. Copy must never match the e2e banned-jargon regex (`codex exec|raw llm|llm judge|judge retry|retry judge`).
+**Surface**: the overlay Settings panel exposes the provider select and one "Judge" status badge (label server-owned); the judge strip shows per-verdict provider attribution from the response `model`; `judgeReady` gates on `status.llm.state` only. (This was originally the SPA Settings/JudgePanel — now the overlay's `settings-panel.tsx` + `judge-strip.tsx`; the SPA client was removed in the overlay pivot.) Copy must never match the e2e banned-jargon regex (`codex exec|raw llm|llm judge|judge retry|retry judge`).
 
 ## API Endpoints
 

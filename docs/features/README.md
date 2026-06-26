@@ -31,19 +31,20 @@ arch-recon
 
 ## Features
 
-- `be-ui-shell`
-- `post-library-manual-import`
-- `voice-profile`
-- `deterministic-engine`
-- `codex-adapter`
-- `writer-logic`
-- `llm-judge`
-- `my-x-data-import`
-- `my-x-archive-import`
-- `my-x-api-sync`
-- `my-feedback-loop`
-- `external-x-import-signals`
-- `external-feedback-loop`
-- `publish-export`
-- `founder-story-reach`
-- `x-overlay-browser`
+**Built (in the overlay product):**
+
+- [`x-overlay-browser`](./x-overlay-browser/) — the overlay runner, capture, and transport seam (the product itself)
+- [`deterministic-engine`](./deterministic-engine/) — instant rule-based reach prediction + Post Coach
+- [`reach-model-upgrade`](./reach-model-upgrade/) — the format-dominant reach model
+- [`founder-story-reach`](./founder-story-reach/) — reach playbook / format taxonomy grounding
+- [`llm-judge`](./llm-judge/) — the 13-dimension on-demand judge
+- [`codex-adapter`](./codex-adapter/) — the CLI provider layer (codex / claude / cursor)
+- [`generation-and-judge-surface`](./generation-and-judge-surface/) — generate, apply-all, annotations, account profile
+- [`my-x-archive-import`](./my-x-archive-import/) — `tweets.js` import (the optional fast-start corpus source)
+
+**Planned:**
+
+- [`external-feedback-loop`](./external-feedback-loop/) · [`my-feedback-loop`](./my-feedback-loop/) — close the predict → measure → learn loop
+- [`external-x-import-signals`](./external-x-import-signals/) — external reach signals
+
+> Folders removed in the overlay pivot (the SPA writer studio era): `be-ui-shell`, `voice-profile`, `writer-logic`, `my-x-data-import`, `my-x-api-sync`, `post-library-manual-import`, `publish-export`. Voice is now corpus-derived (no standalone voice-profile builder); capture replaces API sync.
