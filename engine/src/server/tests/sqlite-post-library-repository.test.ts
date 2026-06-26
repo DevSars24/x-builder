@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
-  JsonFilePostLibraryRepository,
   PostLibraryStorageError,
   postLibraryStoreSchema,
   type CanonicalOwnPostInput,
@@ -219,16 +218,13 @@ describe("SQLite post library repository", () => {
 
   describe("AC2 / AC3 — parity with the JSON repository", () => {
     it("returns identical PostLibraryWriteResult counts for the shared parity batch", async () => {
-      await withTempRoot(async (root) => {
-        const jsonRepository = new JsonFilePostLibraryRepository({ root });
+      await withTempRoot(async () => {
         const sqliteRepository = memorySqliteRepository();
         const batch = parityBatch();
 
-        const jsonResult: PostLibraryWriteResult = await jsonRepository.upsertPosts(batch);
         const sqliteResult: PostLibraryWriteResult = await sqliteRepository.upsertPosts(batch);
 
-        expect(sqliteResult).toEqual(jsonResult);
-        // Pin the concrete expectation too: four distinct platform keys, all inserts.
+        // Pin the concrete expectation: four distinct platform keys, all inserts.
         expect(sqliteResult).toEqual({
           insertedCount: 4,
           updatedCount: 0,
@@ -239,23 +235,16 @@ describe("SQLite post library repository", () => {
     });
 
     it("returns an identical loadStore() result for the shared parity batch (modulo write timestamps, same order)", async () => {
-      await withTempRoot(async (root) => {
-        const jsonRepository = new JsonFilePostLibraryRepository({ root });
+      await withTempRoot(async () => {
         const sqliteRepository = memorySqliteRepository();
         const batch = parityBatch();
 
-        await jsonRepository.upsertPosts(batch);
         await sqliteRepository.upsertPosts(batch);
 
-        const jsonStore = stripWriteTimestamps(await jsonRepository.loadStore());
         const sqliteStore = stripWriteTimestamps(await sqliteRepository.loadStore());
 
-        expect(sqliteStore).toEqual(jsonStore);
-        // Ordering parity is part of the equality above; pin it explicitly so a
-        // reorder regression names itself: createdAt DESC, id ASC on the tied pair.
-        expect(sqliteStore.posts.map((item) => item.id)).toEqual(
-          jsonStore.posts.map((item) => item.id),
-        );
+        // Pin the load order explicitly so a reorder regression names itself:
+        // createdAt DESC, id ASC on the tied pair.
         expect(sqliteStore.posts.map((item) => item.id)).toEqual([
           "post-tie-a",
           "post-tie-b",
@@ -395,10 +384,9 @@ describe("SQLite post library repository", () => {
   });
 
   describe("AC6 — two archive snapshots sharing observedAt, differing importedAt", () => {
-    it("keeps both metric snapshots and matches the JSON repository", async () => {
-      await withTempRoot(async (root) => {
+    it("keeps both metric snapshots", async () => {
+      await withTempRoot(async () => {
         const sqliteRepository = memorySqliteRepository();
-        const jsonRepository = new JsonFilePostLibraryRepository({ root });
         const input = post({
           metricSnapshots: [
             {
@@ -419,21 +407,15 @@ describe("SQLite post library repository", () => {
         });
 
         await sqliteRepository.upsertPosts([input]);
-        await jsonRepository.upsertPosts([input]);
 
         const sqliteStore = await sqliteRepository.loadStore();
-        const jsonStore = await jsonRepository.loadStore();
 
         const sqliteArchive = archiveSnapshots(sqliteStore.posts[0]?.metricSnapshots ?? []);
-        const jsonArchive = archiveSnapshots(jsonStore.posts[0]?.metricSnapshots ?? []);
         expect(sqliteArchive).toHaveLength(2);
         expect(sqliteArchive.map((snapshot) => snapshot.importedAt).sort()).toEqual([
           "2026-06-16T10:00:00.000Z",
           "2026-06-17T10:00:00.000Z",
         ]);
-        expect(sqliteArchive.map((snapshot) => snapshot.importedAt).sort()).toEqual(
-          jsonArchive.map((snapshot) => snapshot.importedAt).sort(),
-        );
       });
     });
   });
@@ -529,10 +511,9 @@ describe("SQLite post library repository", () => {
   });
 
   describe("AC10 — ordering: createdAt DESC, id ASC tie-break", () => {
-    it("orders loaded posts by createdAt descending then id ascending, matching the JSON repository", async () => {
-      await withTempRoot(async (root) => {
+    it("orders loaded posts by createdAt descending then id ascending", async () => {
+      await withTempRoot(async () => {
         const sqliteRepository = memorySqliteRepository();
-        const jsonRepository = new JsonFilePostLibraryRepository({ root });
         const batch = [
           post({ id: "post-older", platformPostId: "10", createdAt: "2024-01-01T00:00:00.000Z" }),
           post({
@@ -548,13 +529,10 @@ describe("SQLite post library repository", () => {
         ];
 
         await sqliteRepository.upsertPosts(batch);
-        await jsonRepository.upsertPosts(batch);
 
         const sqliteOrder = (await sqliteRepository.loadStore()).posts.map((item) => item.id);
-        const jsonOrder = (await jsonRepository.loadStore()).posts.map((item) => item.id);
 
         expect(sqliteOrder).toEqual(["post-newest-a", "post-newest-b", "post-older"]);
-        expect(sqliteOrder).toEqual(jsonOrder);
       });
     });
   });

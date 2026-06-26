@@ -12,9 +12,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { classifyPostFormat } from "../../deterministic/format-classifier";
 import {
-  JsonFilePostLibraryRepository,
   type CanonicalOwnPostInput,
+  type PostLibraryRepository,
 } from "../../server/post-library-repository";
+import { SqlitePostLibraryRepository } from "../../server/sqlite-post-library-repository";
+import { openEngineDatabase } from "../../server/open-engine-database";
 // Imported from the not-yet-existing module under test: this import alone makes the
 // suite RED until Green creates ../repetition-window-service.
 import { RepetitionWindowService } from "../repetition-window-service";
@@ -161,13 +163,13 @@ const livePost = (
 // Per-test isolation: fresh mkdtemp root + real repository instance, deterministic clock.
 // ---------------------------------------------------------------------------
 let root: string;
-let repository: JsonFilePostLibraryRepository;
+let repository: PostLibraryRepository;
 let service: RepetitionWindowService;
 
 beforeEach(async () => {
   idCounter = 0;
   root = await mkdtemp(join(tmpdir(), "x-builder-repetition-window-"));
-  repository = new JsonFilePostLibraryRepository({ root });
+  repository = new SqlitePostLibraryRepository(openEngineDatabase(":memory:"));
   service = new RepetitionWindowService(repository, fixedNow);
 });
 

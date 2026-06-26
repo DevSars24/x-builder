@@ -38,8 +38,8 @@ const nowIso = (): string => new Date().toISOString();
 
 const stableJson = (value: unknown): string => JSON.stringify(value);
 
-// Ported verbatim from JsonFilePostLibraryRepository — these define the dedup
-// identities the composite primary keys reproduce.
+// The post-library dedup helpers — these define the dedup identities the
+// composite primary keys reproduce.
 const uniqueBy = <T>(items: T[], keyFor: (item: T) => string): T[] => {
   const seen = new Set<string>();
   const result: T[] = [];

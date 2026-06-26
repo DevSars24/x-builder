@@ -15,9 +15,11 @@ import { classifyPostFormat } from "../../deterministic/format-classifier";
 import { LiveContextResolver } from "../../capture/live-context-resolver";
 import { RepetitionWindowService } from "../../capture/repetition-window-service";
 import {
-  JsonFilePostLibraryRepository,
   type CanonicalOwnPostInput,
+  type PostLibraryRepository,
 } from "../post-library-repository";
+import { SqlitePostLibraryRepository } from "../sqlite-post-library-repository";
+import { openEngineDatabase } from "../open-engine-database";
 
 type AnalyzePostsFake = (request: AnalyzePostsRequest) => Promise<AnalyzePostsResponse> | AnalyzePostsResponse;
 
@@ -551,7 +553,7 @@ describe("posts analyze API", () => {
 
 // ---------------------------------------------------------------------------
 // Live auto-context + per-item cooldown (route integration). These tests seed a
-// real JsonFilePostLibraryRepository over a tmpdir, inject a LiveContextResolver
+// real SqlitePostLibraryRepository over an in-memory db, inject a LiveContextResolver
 // + a shared RepetitionWindowService, and exercise the real deterministic
 // scorer through the HTTP boundary.
 //
@@ -632,7 +634,7 @@ describe("posts analyze API — live auto-context fixture guard", () => {
 
 describe("posts analyze API — live auto-context and per-item cooldown", () => {
   let root: string;
-  let repository: JsonFilePostLibraryRepository;
+  let repository: PostLibraryRepository;
 
   const buildLiveServer = () => {
     const windowService = new RepetitionWindowService(repository);
@@ -664,7 +666,7 @@ describe("posts analyze API — live auto-context and per-item cooldown", () => 
   beforeEach(async () => {
     seedIdCounter = 0;
     root = await mkdtemp(join(tmpdir(), "x-builder-posts-analyze-live-"));
-    repository = new JsonFilePostLibraryRepository({ root });
+    repository = new SqlitePostLibraryRepository(openEngineDatabase(":memory:"));
   });
 
   afterEach(async () => {

@@ -23,11 +23,9 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
-  JsonFilePostLibraryRepository,
   PostLibraryStorageError,
   postLibraryStoreSchema,
-  // Not-yet-exported: the single-sourced v1->v2 upgrade the repository's loadStore
-  // and the importer both call. Import fails until Green exports it from the repo.
+  // The single-sourced v1->v2 upgrade the importer calls.
   upgradePostLibraryStoreToV2,
   type CanonicalOwnPost,
   type PostLibraryStore,
@@ -170,15 +168,6 @@ const withTempJsonRoot = async <T>(run: (root: string) => Promise<T>): Promise<T
   }
 };
 
-// Drop write-time timestamps before equality. Both repos stamp store.updatedAt and
-// each post.updatedAt with nowIso() at save/read time, so they differ by
-// construction; everything else stays asserted.
-const stripWriteTimestamps = (store: PostLibraryStore): PostLibraryStore => ({
-  ...store,
-  updatedAt: "<normalized>",
-  posts: store.posts.map((post) => ({ ...post, updatedAt: "<normalized>" })),
-});
-
 const fileExists = async (path: string): Promise<boolean> => {
   try {
     await readFile(path);
@@ -232,30 +221,7 @@ describe("JSON -> SQLite post-library importer", () => {
       });
     });
 
-    it("imports faithfully: SQLite loadStore() matches the same file loaded through the JSON repository", async () => {
-      await withTempJsonRoot(async (root) => {
-        // The JSON repository reads the SAME on-disk file as the parity oracle.
-        const jsonRepository = new JsonFilePostLibraryRepository({ root });
-        const expectedStore = stripWriteTimestamps(await loadOraclyStore(root, jsonRepository));
-
-        // A second identical file in a separate root feeds the importer, so the
-        // oracle's own read does not consume (rename) the importer's input.
-        await withTempJsonRoot(async (importRoot) => {
-          await writeStoreFile(importRoot, v2Store());
-          const db = openEngineDatabase(":memory:");
-
-          importPostLibraryJsonToSqlite(importRoot, db);
-
-          const sqliteStore = stripWriteTimestamps(
-            await new SqlitePostLibraryRepository(db).loadStore(),
-          );
-
-          expect(sqliteStore).toEqual(expectedStore);
-        });
-      });
-    });
-
-    it("orders the imported posts createdAt DESC then id ASC, matching the JSON repository", async () => {
+    it("orders the imported posts createdAt DESC then id ASC", async () => {
       await withTempJsonRoot(async (root) => {
         const posts = [
           canonicalPost({ id: "post-older", platformPostId: "10", createdAt: "2024-01-01T00:00:00.000Z" }),
@@ -570,39 +536,4 @@ describe("upgradePostLibraryStoreToV2 (single-sourced v1->v2 upgrade)", () => {
     });
   });
 
-  describe("AC8 — behavior preserved: the JSON repository still upgrades a v1 file via the extracted function", () => {
-    it("loads a v1 post-library.json through JsonFilePostLibraryRepository.loadStore() with profileSnapshots defaulted to []", async () => {
-      await withTempJsonRoot(async (root) => {
-        const v1 = {
-          schemaVersion: 1,
-          updatedAt: importedAt,
-          posts: [canonicalPost()],
-          importRuns: [],
-          derivedInsights: [],
-          activeContext: { status: "empty" },
-        };
-        await writeStoreFile(root, v1);
-        const repository = new JsonFilePostLibraryRepository({ root });
-
-        const store = await repository.loadStore();
-
-        expect(store.schemaVersion).toBe(2);
-        expect(store.profileSnapshots).toEqual([]);
-        expect(store.posts).toHaveLength(1);
-        expect(store.posts[0]?.platformPostId).toBe("1800000000000000001");
-      });
-    });
-  });
 });
-
-// Load the parity-oracle store from the SAME bytes the importer consumes. A fresh
-// JsonFilePostLibraryRepository over the json root reads post-library.json without
-// mutating it, so it is a faithful oracle for the import equality assertion.
-const loadOraclyStore = async (
-  root: string,
-  repository: JsonFilePostLibraryRepository,
-): Promise<PostLibraryStore> => {
-  await writeStoreFile(root, v2Store());
-
-  return repository.loadStore();
-};

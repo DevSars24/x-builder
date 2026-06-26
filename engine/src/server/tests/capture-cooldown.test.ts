@@ -12,11 +12,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { classifyPostFormat } from "../../deterministic/format-classifier";
 import { RepetitionWindowService } from "../../capture/repetition-window-service";
 import {
-  JsonFilePostLibraryRepository,
   PostLibraryStorageError,
   type CanonicalOwnPostInput,
   type PostLibraryRepository,
 } from "../post-library-repository";
+import { SqlitePostLibraryRepository } from "../sqlite-post-library-repository";
+import { openEngineDatabase } from "../open-engine-database";
 import { buildServer } from "../server";
 
 // ---------------------------------------------------------------------------
@@ -155,13 +156,13 @@ const parseApiError = (payload: unknown) => apiErrorSchema.parse(payload);
 // the option.
 // ---------------------------------------------------------------------------
 let root: string;
-let repository: JsonFilePostLibraryRepository;
+let repository: PostLibraryRepository;
 let repetitionWindowService: RepetitionWindowService;
 
 beforeEach(async () => {
   idCounter = 0;
   root = await mkdtemp(join(tmpdir(), "x-builder-capture-cooldown-"));
-  repository = new JsonFilePostLibraryRepository({ root });
+  repository = new SqlitePostLibraryRepository(openEngineDatabase(":memory:"));
   repetitionWindowService = new RepetitionWindowService(repository, fixedNow);
 });
 

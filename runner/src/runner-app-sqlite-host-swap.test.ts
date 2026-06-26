@@ -15,9 +15,8 @@
  * and they capture the bundle RunnerApp hands to `bindTransport` to inspect the
  * repository it constructed.
  *
- * The default path currently constructs a JsonFilePostLibraryRepository (no db
- * file, no rename), so the SQLite/rename assertions below fail until Green swaps
- * the host. That is the intended Red signal.
+ * Before the swap the default path read the JSON file directly (no db file, no
+ * rename); the SQLite/rename assertions below pin the swapped behavior.
  *
  * Isolation: engineSettingsDir is always a mkdtemp tmpdir. The real ~/.x-builder
  * path is never touched.

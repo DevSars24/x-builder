@@ -12,12 +12,13 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
-  JsonFilePostLibraryRepository,
   PostLibraryStorageError,
   type CanonicalOwnPostInput,
   type MetricSnapshot,
   type PostLibraryRepository,
 } from "../../server/post-library-repository";
+import { SqlitePostLibraryRepository } from "../../server/sqlite-post-library-repository";
+import { openEngineDatabase } from "../../server/open-engine-database";
 import { buildServer } from "../../server/server";
 import { LiveCaptureService } from "../live-capture-service";
 
@@ -35,12 +36,12 @@ const liveSnapshots = (snapshots: readonly MetricSnapshot[]) =>
 // No shared mutable state between tests.
 // ---------------------------------------------------------------------------
 let root: string;
-let repository: JsonFilePostLibraryRepository;
+let repository: PostLibraryRepository;
 let service: LiveCaptureService;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "x-builder-live-capture-"));
-  repository = new JsonFilePostLibraryRepository({ root });
+  repository = new SqlitePostLibraryRepository(openEngineDatabase(":memory:"));
   service = new LiveCaptureService(repository);
 });
 

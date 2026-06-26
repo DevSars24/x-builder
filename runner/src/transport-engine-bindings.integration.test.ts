@@ -54,7 +54,8 @@ import {
 } from "@x-builder/shared";
 import {
   JsonFileAppSettingsRepository,
-  JsonFilePostLibraryRepository,
+  SqlitePostLibraryRepository,
+  openEngineDatabase,
   LiveCaptureService,
 } from "@x-builder/engine";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -198,7 +199,7 @@ function analyzeRequest(text: string): AnalyzePostsRequest {
 
 let tempDir: string;
 let settingsRepository: JsonFileAppSettingsRepository;
-let postLibraryRepository: JsonFilePostLibraryRepository;
+let postLibraryRepository: SqlitePostLibraryRepository;
 let liveCapture: LiveCaptureService;
 
 function buildBundle(extra?: { observerState?: "ok" | "paused" | "layout_changed" }) {
@@ -220,9 +221,7 @@ function buildBundle(extra?: { observerState?: "ok" | "paused" | "layout_changed
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), "x-builder-binding-int-"));
   settingsRepository = new JsonFileAppSettingsRepository({ root: join(tempDir, "settings") });
-  postLibraryRepository = new JsonFilePostLibraryRepository({
-    root: join(tempDir, "storage"),
-  });
+  postLibraryRepository = new SqlitePostLibraryRepository(openEngineDatabase(":memory:"));
   liveCapture = new LiveCaptureService(postLibraryRepository);
 });
 

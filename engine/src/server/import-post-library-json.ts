@@ -23,7 +23,7 @@ const migratedFileName = "post-library.json.migrated";
 // synchronous engine-database open (better-sqlite3 is sync). It reuses the LPF-002
 // post-row-mapping shred (toPostRow / toMetricObsRow / toSourceRefRow, which compute
 // content_hash + logical_post_id) and the single-sourced upgradePostLibraryStoreToV2,
-// so the imported corpus is byte-faithful to JsonFilePostLibraryRepository.loadStore.
+// so the imported corpus is byte-faithful to the post-library store on disk.
 //
 // Guard order keeps it idempotent and safe:
 //   1. No post-library.json present -> no-op (nothing to migrate).

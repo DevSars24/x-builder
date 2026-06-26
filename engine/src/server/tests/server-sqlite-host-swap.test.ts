@@ -3,7 +3,7 @@
  *
  * buildServer must open the engine database once at startup against a `storage`
  * directory, run the one-time JSON->SQLite importer there, and serve the corpus
- * from SqlitePostLibraryRepository instead of JsonFilePostLibraryRepository.
+ * from SqlitePostLibraryRepository instead of reading the JSON file directly.
  *
  * Repo isolation forbids inferring the real home dir or relying on real runtime
  * state in tests, so buildServer must accept an explicit storage-root override.

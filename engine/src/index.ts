@@ -6,7 +6,6 @@ export {
   type AppSettingsRepository,
 } from "./server/settings-repository.js";
 export {
-  JsonFilePostLibraryRepository,
   PostLibraryStorageError,
   upgradePostLibraryStoreToV2,
   type PostLibraryRepository,
