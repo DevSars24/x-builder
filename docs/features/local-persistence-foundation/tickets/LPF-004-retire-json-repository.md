@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 ---
 
 # LPF-004: [RFR] Retire JsonFilePostLibraryRepository and the JSON write paths
@@ -61,3 +61,7 @@ Zero-trace: no dangling import of the removed class anywhere in shipped source o
 - `pnpm test` (engine + runner, excluding e2e) is green; `pnpm typecheck` and `pnpm build` pass.
 - The only surviving `post-library.json` access is the importer's one-time read + the shared `upgradePostLibraryStoreToV2`; no code writes the JSON file.
 - `rg "JsonFilePostLibraryRepository|withSerializedWrite"` returns nothing in shipped source or tests.
+
+## Pipeline Log
+
+- **2026-06-26 — DONE ([RFR]: Red-RFR → Blue pinning → pre-Green gate → Green → Blue+Yellow). 0 rejection cycles.** Pinning: Red-RFR (`f996b40`) inventoried all 7 Behavior-Preservation Invariants, confirmed the ~10 consumer suites are fixture-only (no oracle equality), and added oracle-independent backstops `sqlite-loadstore-shape-pin.test.ts` (PIN 1 = full parityBatch round-trip shape, PIN 2 = full imported-v2 shape) for the only two field-level spots pinned solely via the JSON oracle. Blue Validate-RFR-Pinning **APPROVE** (pins JSON-repo-free + mutation-falsifiable). Pre-Green pinning gate green at baseline. Green (`352384f`): deleted `JsonFilePostLibraryRepository` + options + `saveStore`/`withSerializedWrite` + its own test + dead helpers (`post-library-repository.ts` 446→184); migrated 10 consumer fixtures to `new SqlitePostLibraryRepository(openEngineDatabase(":memory:"))` (assertions byte-identical); adapted the 4 oracle tests (removed only the `toEqual(json…)` lines, kept concrete assertions); swapped the `index.ts` export; reworded the 2 provenance comments. **DoD met:** `rg "JsonFilePostLibraryRepository|withSerializedWrite"` → ZERO hits in source+tests; engine 741/1 (the 1 = pre-existing unrelated `judge-draft-service`), runner 103/0, typecheck+build clean. Validate-Green **APPROVE** (construction-only migration, each removal oracle/structure-coupled with surviving pins, surviving public surface intact, transport still 17). Yellow **APPROVE** (genuine removal — no dual store, no router, no orphan helpers, no compat shim; corpus still reachable through the unchanged interface). Safety: live `~/.x-builder` corpus byte-identical to backup throughout. **No concerns.**
