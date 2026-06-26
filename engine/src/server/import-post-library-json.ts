@@ -10,13 +10,13 @@ import {
 } from "./post-row-mapping.js";
 import {
   PostLibraryStorageError,
+  postLibraryFileName,
   postLibraryStoreSchema,
   upgradePostLibraryStoreToV2,
 } from "./post-library-repository.js";
 
 type DatabaseHandle = Database.Database;
 
-const postLibraryFileName = "post-library.json";
 const migratedFileName = "post-library.json.migrated";
 
 // The one-time JSON->SQLite importer. SYNCHRONOUS so it runs inline at the
