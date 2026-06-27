@@ -1,5 +1,5 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # SGC-002: Implement format playbook slicing
@@ -71,5 +71,6 @@ Coverage level: engine unit tests. Owning suite: engine LLM tests. Fixture strat
 
 ## Pipeline Log
 
+- 2026-06-27: RGB pipeline started; ticket moved to in-progress after SGC-001 completion.
 - 2026-06-27: SGC-001 Yellow concern folded in; Red must cover exact KB section-id normalization for numbered and underscore headings.
 - 2026-06-27: RGB audit tightened ticket contract before implementation.
