@@ -1,5 +1,5 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # SGC-006: Wire HTTP and runner parity
@@ -8,7 +8,9 @@ status: todo
 
 Wire `buildServer` and `createBoundEngineServices` to use the exported `createGenerationGuidanceResolver` when they construct the default `GenerateIdeasService`.
 
-Remove the runner-local whole-KB guidance resolver only after runner bindings consume the engine export. Preserve `options.generateCandidates` as a full override: when a host injects generation, no guidance resolver is wrapped around it.
+Remove the runner-local whole-KB guidance resolver when runner bindings consume the engine export. The SGC-006 diff must not leave `MAX_KNOWLEDGE_BASE_CHARS`, `VOICE_EXAMPLE_COUNT`, `buildGenerationGuidanceResolver`, or `.slice(-VOICE_EXAMPLE_COUNT)` in `runner/src/bound-engine-services.ts`. Preserve `options.generateCandidates` as a full override: when a host injects generation, no guidance resolver is wrapped around it.
+
+Both default entry points must pass the original `GenerateIdeaRequest` fields through `GenerateIdeasService` into the shared resolver; neither entry point may read or render the full knowledge base directly.
 
 ## Data Models
 
@@ -41,8 +43,11 @@ Coverage level: server integration and runner transport integration tests. Ownin
 
 - Given default `buildServer` with KB and post library, when `/ideas/generate` receives `{ format }`, then default service gets compact guidance.
 - Given runner bound services with the same settings and store, when `generateIdeas({ format })` runs, then the same resolver behavior is used.
+- Given a KB fixture with unrelated sections, when either default entry point generates by format, then unrelated section text is absent from the captured prompt.
+- Given a known post id in the request, when either default entry point generates by format, then voice samples honor that known id before fallback posts.
 - Given `options.generateCandidates` is injected, when `/ideas/generate` runs, then the injected function remains the complete generation owner.
 - Given no KB and empty corpus, when either entry point runs, then generation still reaches the base LLM prompt.
+- Given the runner binding source after Green, then the runner-local whole-KB resolver and old guidance constants are gone.
 
 ## Edge Cases
 
@@ -51,7 +56,10 @@ Coverage level: server integration and runner transport integration tests. Ownin
 - Settings path absent.
 - Runner-only environment.
 - Injected generation override.
+- Stale runner-local resolver.
+- Stale whole-KB prompt constants.
 
 ## Pipeline Log
 
 - 2026-06-27: RGB audit tightened ticket contract before implementation.
+- 2026-06-27: RGB pipeline started; ticket moved to in-progress. SGC-005 Yellow validated that `runner/src/bound-engine-services.ts` still used a runner-local whole-KB zero-arg resolver; SGC-006 owns removing that resolver and proving HTTP/runner parity through the shared engine resolver.
