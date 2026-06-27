@@ -1,12 +1,14 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # SGC-005: Wire GenerateIdeasService to request-aware guidance
 
 ## Implementation Details
 
-Change `GenerateIdeasService` so its optional generation guidance resolver accepts a `GenerationGuidanceRequest`. In the existing format path, pass `format`, `idea`, `voiceProfileId`, and `useKnownPostIds ?? []` into the resolver. Keep idea-only behavior unchanged: no LLM generation, no judge, and no guidance resolver call.
+Change `GenerateIdeasService` so its optional generation guidance resolver is typed as `GenerationGuidanceResolver` and accepts a `GenerationGuidanceRequest`. In the existing format path, pass `format`, `idea`, `voiceProfileId`, and `useKnownPostIds ?? []` into the resolver. Keep idea-only behavior unchanged: no LLM generation, no judge, and no guidance resolver call.
+
+`resolveGuidanceSafely` must call the resolver with the request object, catch resolver errors, trim resolver output, and treat blank or whitespace-only guidance as absent. Non-empty guidance is appended through the existing `generationInstructions` guidance block.
 
 Preserve the existing structured LLM request, generated candidate response shape, and all-settled judge behavior.
 
@@ -23,7 +25,7 @@ type GenerationGuidanceRequest = {
 };
 ```
 
-No shared schema or response model changes.
+`GenerateIdeasService` constructor dependency changes from a zero-argument guidance function to `GenerationGuidanceResolver`. No shared schema or response model changes.
 
 ## Integration Point
 
@@ -48,9 +50,10 @@ Coverage level: engine unit tests. Owning suite: existing `GenerateIdeasService`
 
 ## Acceptance Criteria
 
-- Given `generate({ format, voiceProfileId, useKnownPostIds })`, when the format path runs, then resolver is called once with those fields and `useKnownPostIds` defaults to `[]` when omitted.
+- Given `generate({ format, idea, voiceProfileId, useKnownPostIds })`, when the format path runs, then resolver is called once with those fields and `useKnownPostIds` defaults to `[]` when omitted.
 - Given `generate({ idea })`, when the idea-only path runs, then resolver is not called.
 - Given resolver throws, when format generation runs, then generation continues with the base prompt.
+- Given resolver returns blank or whitespace-only guidance, when format generation runs, then the LLM instructions do not include the guidance block.
 - Given one candidate judge fails, when response returns, then candidate count remains three and only successful judge verdicts are attached.
 
 ## Edge Cases
@@ -63,3 +66,4 @@ Coverage level: engine unit tests. Owning suite: existing `GenerateIdeasService`
 ## Pipeline Log
 
 - 2026-06-27: RGB audit tightened ticket contract before implementation.
+- 2026-06-27: RGB pipeline started; ticket moved to in-progress. Pre-Red contract clarified `GenerationGuidanceResolver` constructor type, request-object invocation, and blank-guidance fail-open behavior.
