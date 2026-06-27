@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it, vi } from "vitest";
 import {
   apiErrorSchema,
@@ -46,6 +48,7 @@ const formatPathResponse = (): GenerateIdeaResponse => ({
 });
 
 const formatBody: GenerateIdeaRequest = { format: "hot_take" };
+const serverSource = () => readFileSync(new URL("../server.ts", import.meta.url), "utf8");
 
 describe("POST /ideas/generate", () => {
   it("returns 200 with exactly three candidates for a format-path request", async () => {
@@ -53,22 +56,36 @@ describe("POST /ideas/generate", () => {
       async (_input: GenerateIdeaRequest): Promise<GenerateIdeaResponse> => formatPathResponse(),
     );
     const app = buildServer({ generateCandidates });
+    const body: GenerateIdeaRequest = { format: "hot_take", useKnownPostIds: ["known-post-id"] };
 
     try {
       const response = await app.inject({
         method: "POST",
         url: "/ideas/generate",
-        payload: formatBody,
+        payload: body,
       });
 
       expect(response.statusCode).toBe(200);
       expect(generateCandidates).toHaveBeenCalledTimes(1);
+      expect(generateCandidates).toHaveBeenCalledWith(body);
 
       const result = generateIdeaResponseSchema.parse(parseJson(response.body));
       expect(result.candidates).toHaveLength(3);
     } finally {
       await app.close();
     }
+  });
+
+  it("constructs the default generation service with the shared guidance resolver", () => {
+    const source = serverSource();
+
+    expect(source).toMatch(
+      /import\s*\{[\s\S]*createGenerationGuidanceResolver[\s\S]*\}\s*from "\.\.\/llm\/generation-guidance\.js";/,
+    );
+    expect(source).toMatch(
+      /new GenerateIdeasService\(\s*new StructuredLlmService\(\{ providers \}\),\s*judgeDraftService,\s*createSettingsJudgeProviderResolver\(settingsRepository\),\s*\(\) => resolveJudgeAccountProfile\(undefined\),\s*undefined,\s*createGenerationGuidanceResolver\(\{\s*settingsRepository,\s*postLibraryRepository,\s*\}\),\s*\)/s,
+    );
+    expect(source).toContain("options.generateCandidates ?? buildDefaultGenerateCandidates()");
   });
 
   it("returns 500 with generation_failed when the generate step throws", async () => {
