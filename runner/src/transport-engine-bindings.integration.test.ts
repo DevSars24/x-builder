@@ -46,6 +46,7 @@ import {
   appStatusSchema,
   cooldownReportSchema,
   deriveApproved,
+  generateIdeaRequestSchema,
   generateIdeaResponseSchema,
   judgeDraftResponseSchema,
   overlayReadinessSchema,
@@ -514,6 +515,22 @@ describe("real engine bundle — generateIdeas refine attaches verdict + approve
     const fallbackIndex = instructions.indexOf(FALLBACK_VOICE_SENTINEL);
     expect(knownIndex).toBeGreaterThanOrEqual(0);
     expect(fallbackIndex).toBeGreaterThan(knownIndex);
+    expect(instructions).not.toContain("Reply text must not become a voice sample.");
+  });
+
+  it("accepts the existing overlay generate request shape without context-only fields", async () => {
+    const { services } = buildBundle();
+    const mockPage = createMockPage();
+    await ExposeFunctionTransport.bindAll(mockPage.page as never, services);
+
+    const request = generateIdeaRequestSchema.parse({ format: "hot_take" });
+    const handler = mockPage.handlers.get(ENGINE_TRANSPORT_BINDINGS.generateIdeas)!;
+    const raw = await handler(request);
+
+    const parsed = generateIdeaResponseSchema.parse(raw);
+    expect(parsed.candidates).toHaveLength(3);
+    expect(request.format).toBe("hot_take");
+    expect(Object.prototype.hasOwnProperty.call(request, "generationContext")).toBe(false);
   });
 
   it("reaches the base writer prompt when there is no playbook and no voice corpus", async () => {
