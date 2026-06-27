@@ -61,6 +61,7 @@ import {
   type JudgeDraftOutcome,
 } from "../llm/judge-draft-service.js";
 import { GenerateIdeasService } from "../llm/generate-ideas-service.js";
+import { createGenerationGuidanceResolver } from "../llm/generation-guidance.js";
 import { ApplyJudgeSuggestionsService } from "../llm/apply-judge-suggestions-service.js";
 import { SuggestPostService } from "../suggest/suggest-post-service.js";
 import { judgeProviderRegistry } from "../llm/judge-provider-registry.js";
@@ -784,6 +785,11 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
       judgeDraftService,
       createSettingsJudgeProviderResolver(settingsRepository),
       () => resolveJudgeAccountProfile(undefined),
+      undefined,
+      createGenerationGuidanceResolver({
+        settingsRepository,
+        postLibraryRepository,
+      }),
     );
 
     // Bind to the constructed instance so `this` survives the function reference;
