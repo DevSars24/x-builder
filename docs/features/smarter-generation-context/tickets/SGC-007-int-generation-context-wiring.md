@@ -1,5 +1,5 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # SGC-007: [INT] Verify generation context wiring across engine entry points
@@ -35,3 +35,4 @@ Coverage level: engine/runner integration tests. Owning suites: engine server te
 ## Pipeline Log
 
 - 2026-06-27: RGB audit tightened ticket contract before implementation.
+- 2026-06-27: RGB `[INT]` pipeline started after pre-flight confirmed SGC-006 done, named engine/runner symbols resolvable, unchanged request/response schemas present, and integration surfaces testable in local suites.
