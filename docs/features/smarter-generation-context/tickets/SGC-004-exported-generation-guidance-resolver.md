@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # SGC-004: Implement exported createGenerationGuidanceResolver
@@ -82,3 +82,6 @@ Coverage level: engine unit tests. Owning suite: engine LLM tests. Fixture strat
 
 - 2026-06-27: RGB audit tightened ticket contract before implementation.
 - 2026-06-27: RGB pipeline started; ticket moved to in-progress. Pre-Red contract clarified factory input, render headings, failure isolation, exact founder-story guardrail, and request pass-through.
+- 2026-06-27: Red committed in `5203459` after Blue requested voice-only founder-story guardrail coverage and enforceable `voiceProfileId` pass-through coverage.
+- 2026-06-27: Green committed in `aa91dd6`; targeted resolver tests pass 13/13 and related guidance tests pass 57/57.
+- 2026-06-27: Yellow approved SGC-004 with substitute deterministic gates; full engine typecheck remains blocked by pre-existing shared/engine baseline with no SGC-004 diagnostics.
