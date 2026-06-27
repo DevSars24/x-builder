@@ -104,6 +104,73 @@ Ignore the selector and include every surrounding section.
     });
   });
 
+  it("returns empty guidance when the configured knowledge base is empty", async () => {
+    const knowledgeBasePath = await writeKnowledgeBase("");
+
+    const slice = await resolvePlaybookSlice({
+      format: "story",
+      knowledgeBasePath,
+    });
+
+    expect(slice).toMatchObject({
+      format: "story",
+      sections: [],
+      content: "",
+      charCount: 0,
+      truncated: false,
+    });
+  });
+
+  it("returns empty guidance when markdown has no parseable section headings", async () => {
+    const knowledgeBasePath = await writeKnowledgeBase(`
+This knowledge base has prose only.
+
+Include the story playbook even though no mapped heading exists.
+`);
+
+    const slice = await resolvePlaybookSlice({
+      format: "story",
+      knowledgeBasePath,
+    });
+
+    expect(slice).toMatchObject({
+      format: "story",
+      sections: [],
+      content: "",
+      charCount: 0,
+      truncated: false,
+    });
+  });
+
+  it("returns empty guidance when no parsed sections match the requested format", async () => {
+    const knowledgeBasePath = await writeKnowledgeBase(`
+# Engine knowledge
+
+## Growth loop
+
+GROWTH_LOOP_ONLY_SENTINEL
+
+## Graph quality
+
+GRAPH_QUALITY_ONLY_SENTINEL
+`);
+
+    const slice = await resolvePlaybookSlice({
+      format: "hot_take",
+      knowledgeBasePath,
+    });
+
+    expect(slice).toMatchObject({
+      format: "hot_take",
+      sections: [],
+      content: "",
+      charCount: 0,
+      truncated: false,
+    });
+    expect(slice.content).not.toContain("GROWTH_LOOP_ONLY_SENTINEL");
+    expect(slice.content).not.toContain("GRAPH_QUALITY_ONLY_SENTINEL");
+  });
+
   it("clips over-budget selected content", async () => {
     const overBudgetBody = `START_OF_LONG_SECTION\n${"A".repeat(6_500)}\nEND_OF_LONG_SECTION`;
     const knowledgeBasePath = await writeKnowledgeBase(`
