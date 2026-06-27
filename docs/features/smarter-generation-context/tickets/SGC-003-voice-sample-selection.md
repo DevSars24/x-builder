@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # SGC-003: Implement voice sample selection
@@ -89,3 +89,6 @@ Coverage level: engine unit tests. Owning suite: engine LLM or post-library-adja
 - 2026-06-27: RGB pipeline started; ticket moved to in-progress. Pre-Red contract clarified repository input, known-id matching, and rendered voice-sample budget helper.
 - 2026-06-27: RGB audit tightened ticket contract before implementation.
 - 2026-06-27: Pre-Red clarification added exact voice guidance render format and invalid-date fallback ordering.
+- 2026-06-27: Red committed in `ad4d236` after Blue requested coverage for output shape, invalid known ids, and no usable originals.
+- 2026-06-27: Green committed in `343e033`; targeted voice sample tests pass 14/14 and related guidance tests pass 44/44.
+- 2026-06-27: Yellow approved SGC-003 with substitute deterministic gates; full engine typecheck remains blocked by pre-existing shared/engine baseline with no SGC-003 diagnostics.
