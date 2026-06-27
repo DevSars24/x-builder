@@ -86,6 +86,24 @@ Ignore the selector and include every surrounding section.
     });
   });
 
+  it("returns empty guidance when the configured knowledge base cannot be read", async () => {
+    const unreadablePath = await mkdtemp(join(tmpdir(), "playbook-slicing-unreadable-"));
+    tempDirs.push(unreadablePath);
+
+    const slice = await resolvePlaybookSlice({
+      format: "story",
+      knowledgeBasePath: unreadablePath,
+    });
+
+    expect(slice).toMatchObject({
+      format: "story",
+      sections: [],
+      content: "",
+      charCount: 0,
+      truncated: false,
+    });
+  });
+
   it("clips over-budget selected content", async () => {
     const overBudgetBody = `START_OF_LONG_SECTION\n${"A".repeat(6_500)}\nEND_OF_LONG_SECTION`;
     const knowledgeBasePath = await writeKnowledgeBase(`
