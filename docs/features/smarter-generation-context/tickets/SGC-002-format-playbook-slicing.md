@@ -10,6 +10,8 @@ Implement deterministic playbook slicing for the configured knowledge base path 
 
 Section-id normalization must be explicit and tested against current knowledge-base heading patterns, including numbered headings such as `## 2. Format taxonomy` and underscore headings such as `## 10. founder_story is real but amplifier-gated`. Mapping ids like `format-taxonomy` and `founder-story` must resolve only through this deterministic normalization, not fuzzy matching.
 
+Expose the helper as `resolvePlaybookSlice(input: ResolvePlaybookSliceInput): Promise<PlaybookSlice>`, where `ResolvePlaybookSliceInput` carries `format: DetectedPostFormat` and optional `knowledgeBasePath?: string`. Duplicate normalized section ids are deterministic: the first heading wins and later duplicate headings are ignored for that id.
+
 The selector must never append the full knowledge base. Missing files, unreadable files, empty content, parse misses, or missing mapped sections return an empty `PlaybookSlice` and allow generation to continue without playbook guidance.
 
 ## Data Models
@@ -19,6 +21,11 @@ Consumes `DetectedPostFormat` and `FormatPlaybookMapping`.
 Produces:
 
 ```ts
+type ResolvePlaybookSliceInput = {
+  format: DetectedPostFormat;
+  knowledgeBasePath?: string;
+};
+
 type PlaybookSlice = {
   format: DetectedPostFormat;
   sourcePath?: string;
@@ -56,7 +63,7 @@ Coverage level: engine unit tests. Owning suite: engine LLM tests. Fixture strat
 - Given a KB with hot-take and story sections, when request format is `hot_take`, then rendered guidance contains hot-take content and not story content.
 - Given an unreadable KB path, when the selector runs, then playbook guidance is empty and no exception escapes.
 - Given an over-budget section, when the selector renders it, then content is clipped within the playbook budget and `truncated` is true.
-- Given duplicate headings, when the selector runs, then deterministic section ids decide which content is included.
+- Given duplicate headings that normalize to the same id, when the selector runs, then the first matching section is used and later duplicates are ignored.
 - Given numbered or underscore KB headings, when the selector normalizes headings, then mapping ids resolve deterministically without fuzzy matching.
 
 ## Edge Cases
@@ -71,6 +78,7 @@ Coverage level: engine unit tests. Owning suite: engine LLM tests. Fixture strat
 
 ## Pipeline Log
 
+- 2026-06-27: Pre-Red clarification added `resolvePlaybookSlice` input signature and first-heading-wins duplicate policy.
 - 2026-06-27: RGB pipeline started; ticket moved to in-progress after SGC-001 completion.
 - 2026-06-27: SGC-001 Yellow concern folded in; Red must cover exact KB section-id normalization for numbered and underscore headings.
 - 2026-06-27: RGB audit tightened ticket contract before implementation.
