@@ -1,7 +1,11 @@
 import { readFile } from "node:fs/promises";
 import type { DetectedPostFormat } from "@x-builder/shared";
 
+import type { CanonicalOwnPost, PostLibraryRepository } from "../server/post-library-repository.js";
+
 const PLAYBOOK_SLICE_CHAR_LIMIT = 6_000;
+const VOICE_SAMPLE_LIMIT = 5;
+const VOICE_SAMPLE_GUIDANCE_CHAR_LIMIT = 2_400;
 
 export type GenerationGuidanceRequest = {
   format: DetectedPostFormat;
@@ -42,6 +46,18 @@ export type VoiceSamplePost = {
   createdAt: string;
   kind: "original";
   source: "known_post_id" | "profile_sample" | "recent_original";
+};
+
+export type SelectVoiceSamplesInput = {
+  postLibraryRepository: Pick<PostLibraryRepository, "loadStore">;
+  useKnownPostIds?: string[];
+  voiceProfileId?: string;
+};
+
+export type RenderedVoiceSamples = {
+  content: string;
+  charCount: number;
+  truncated: boolean;
 };
 
 export type GenerationContext = {
@@ -180,6 +196,130 @@ type MarkdownHeading = {
   lineIndex: number;
   level: number;
   heading: string;
+};
+
+type VoiceSampleSource = VoiceSamplePost["source"];
+
+type SortableVoicePost = {
+  post: CanonicalOwnPost;
+  timestamp: number | undefined;
+};
+
+const isUsableVoicePost = (post: CanonicalOwnPost): boolean =>
+  post.kind === "original" && typeof post.text === "string" && post.text.trim().length > 0;
+
+const postCreatedAt = (post: CanonicalOwnPost): string => {
+  const createdAt = (post as { createdAt?: unknown }).createdAt;
+  return typeof createdAt === "string" ? createdAt : "";
+};
+
+const parsedCreatedAt = (post: CanonicalOwnPost): number | undefined => {
+  const createdAt = postCreatedAt(post);
+  const timestamp = Date.parse(createdAt);
+
+  return Number.isNaN(timestamp) ? undefined : timestamp;
+};
+
+const compareVoicePosts = (left: SortableVoicePost, right: SortableVoicePost): number => {
+  if (left.timestamp !== undefined && right.timestamp !== undefined) {
+    if (left.timestamp !== right.timestamp) {
+      return right.timestamp - left.timestamp;
+    }
+
+    return left.post.id.localeCompare(right.post.id);
+  }
+
+  if (left.timestamp !== undefined) {
+    return -1;
+  }
+
+  if (right.timestamp !== undefined) {
+    return 1;
+  }
+
+  return left.post.id.localeCompare(right.post.id);
+};
+
+const toVoiceSamplePost = (post: CanonicalOwnPost, source: VoiceSampleSource): VoiceSamplePost => ({
+  id: post.id,
+  platformPostId: post.platformPostId,
+  text: post.text,
+  createdAt: postCreatedAt(post),
+  kind: "original",
+  source,
+});
+
+export const selectVoiceSamples = async (
+  input: SelectVoiceSamplesInput,
+): Promise<VoiceSamplePost[]> => {
+  let posts: CanonicalOwnPost[];
+  try {
+    posts = (await input.postLibraryRepository.loadStore()).posts;
+  } catch {
+    return [];
+  }
+
+  const candidates = posts.filter(isUsableVoicePost);
+  if (candidates.length === 0) {
+    return [];
+  }
+
+  const selected: VoiceSamplePost[] = [];
+  const selectedIds = new Set<string>();
+
+  for (const knownPostId of input.useKnownPostIds ?? []) {
+    if (selected.length >= VOICE_SAMPLE_LIMIT) {
+      break;
+    }
+
+    const match = candidates.find(
+      (post) => post.id === knownPostId || post.platformPostId === knownPostId,
+    );
+    if (match === undefined || selectedIds.has(match.id)) {
+      continue;
+    }
+
+    selected.push(toVoiceSamplePost(match, "known_post_id"));
+    selectedIds.add(match.id);
+  }
+
+  const fallbackPosts = candidates
+    .filter((post) => !selectedIds.has(post.id))
+    .map((post) => ({ post, timestamp: parsedCreatedAt(post) }))
+    .sort(compareVoicePosts);
+
+  for (const { post } of fallbackPosts) {
+    if (selected.length >= VOICE_SAMPLE_LIMIT) {
+      break;
+    }
+
+    selected.push(toVoiceSamplePost(post, "recent_original"));
+    selectedIds.add(post.id);
+  }
+
+  return selected;
+};
+
+export const renderVoiceSampleGuidance = (samples: VoiceSamplePost[]): RenderedVoiceSamples => {
+  if (samples.length === 0) {
+    return {
+      content: "",
+      charCount: 0,
+      truncated: false,
+    };
+  }
+
+  const rendered = samples
+    .map((sample) => `- ${sample.text.replace(/\s+/g, " ").trim()}`)
+    .join("\n");
+  const truncated = rendered.length > VOICE_SAMPLE_GUIDANCE_CHAR_LIMIT;
+  const content = truncated ? rendered.slice(0, VOICE_SAMPLE_GUIDANCE_CHAR_LIMIT) : rendered;
+
+  return {
+    content,
+    charCount: content.length,
+    truncated,
+  };
 };
 
 const emptyPlaybookSlice = (input: ResolvePlaybookSliceInput): PlaybookSlice => ({
