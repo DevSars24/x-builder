@@ -175,8 +175,16 @@ export type JudgeDraftOutcome =
       details?: Record<string, unknown>;
     };
 
+export interface JudgeDraftOptions {
+  timeoutMs?: number;
+}
+
 export interface JudgeDraft {
-  judge(text: string, accountProfile?: string): Promise<JudgeDraftOutcome>;
+  judge(
+    text: string,
+    accountProfile?: string,
+    options?: JudgeDraftOptions,
+  ): Promise<JudgeDraftOutcome>;
 }
 
 export type JudgeProviderResolver = string | (() => string | Promise<string>);
@@ -195,7 +203,11 @@ export class JudgeDraftService implements JudgeDraft {
     private readonly resolveModel?: JudgeModelResolver,
   ) {}
 
-  async judge(text: string, accountProfile?: string): Promise<JudgeDraftOutcome> {
+  async judge(
+    text: string,
+    accountProfile?: string,
+    options: JudgeDraftOptions = {},
+  ): Promise<JudgeDraftOutcome> {
     const provider = await resolveValue(this.resolveProvider);
     const model = await this.resolveModel?.();
     // Thread the account profile into the prompt envelope only when present, so a
@@ -216,7 +228,7 @@ export class JudgeDraftService implements JudgeDraft {
         parser: toVerdict,
       },
       options: {
-        timeoutMs: judgeTimeoutMs,
+        timeoutMs: options.timeoutMs ?? judgeTimeoutMs,
         ...(model !== undefined && model.length > 0 ? { model } : {}),
       },
     });
