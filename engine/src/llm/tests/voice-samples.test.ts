@@ -279,6 +279,31 @@ describe("voice sample selection", () => {
     ]);
   });
 
+  it("caps known-id lookup work before falling back to newest originals", async () => {
+    const posts = [
+      canonicalPost({
+        id: "post-after-cap",
+        platformPostId: "platform-after-cap",
+        createdAt: isoDay(6),
+      }),
+      canonicalPost({ id: "post-newest", platformPostId: "platform-newest", createdAt: isoDay(10) }),
+      canonicalPost({ id: "post-older", platformPostId: "platform-older", createdAt: isoDay(5) }),
+    ];
+    const overLimitKnownIds = [
+      ...Array.from({ length: 25 }, (_value, index) => `missing-${index}`),
+      "post-after-cap",
+    ];
+
+    const selected = await selectFrom(posts, { useKnownPostIds: overLimitKnownIds });
+
+    expect(selected.map((sample) => sample.id)).toEqual([
+      "post-newest",
+      "post-after-cap",
+      "post-older",
+    ]);
+    expect(selected.every((sample) => sample.source === "recent_original")).toBe(true);
+  });
+
   it("ignores a known id that points to a reply", async () => {
     const reply = canonicalPost({
       id: "post-reply",

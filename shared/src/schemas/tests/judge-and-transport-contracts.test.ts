@@ -314,6 +314,15 @@ describe("generateIdeaRequestSchema additive refine", () => {
     ).toBe(false);
   });
 
+  it("rejects more than 25 known post ids", () => {
+    const result = generateIdeaRequestSchema.safeParse({
+      format: "hot_take",
+      useKnownPostIds: Array.from({ length: 26 }, (_value, index) => `post-${index}`),
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it("rejects an unknown format value", () => {
     expect(
       generateIdeaRequestSchema.safeParse({ format: "viral_thread" }).success,

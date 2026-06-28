@@ -104,6 +104,30 @@ Ignore the selector and include every surrounding section.
     });
   });
 
+  it("returns empty guidance without reading oversized knowledge-base files", async () => {
+    const knowledgeBasePath = await writeKnowledgeBase(`
+# Engine knowledge
+
+## Format taxonomy
+
+${"A".repeat(260_000)}
+`);
+
+    const slice = await resolvePlaybookSlice({
+      format: "hot_take",
+      knowledgeBasePath,
+    });
+
+    expect(slice).toMatchObject({
+      format: "hot_take",
+      sourcePath: knowledgeBasePath,
+      sections: [],
+      content: "",
+      charCount: 0,
+      truncated: false,
+    });
+  });
+
   it("returns empty guidance when the configured knowledge base is empty", async () => {
     const knowledgeBasePath = await writeKnowledgeBase("");
 

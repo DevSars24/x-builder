@@ -1,11 +1,13 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import type { DetectedPostFormat } from "@x-builder/shared";
 
 import type { CanonicalOwnPost, PostLibraryRepository } from "../server/post-library-repository.js";
 import type { AppSettingsRepository } from "../server/settings-repository.js";
 
 const PLAYBOOK_SLICE_CHAR_LIMIT = 6_000;
+const KNOWLEDGE_BASE_FILE_BYTE_LIMIT = 256_000;
 const VOICE_SAMPLE_LIMIT = 5;
+const KNOWN_POST_ID_LIMIT = 25;
 const VOICE_SAMPLE_GUIDANCE_CHAR_LIMIT = 2_400;
 const PLAYBOOK_GUIDANCE_HEADER = "# Requested format playbook";
 const VOICE_SAMPLE_GUIDANCE_HEADER = "# Voice samples (match tone, do not copy)";
@@ -276,15 +278,23 @@ export const selectVoiceSamples = async (
 
   const selected: VoiceSamplePost[] = [];
   const selectedIds = new Set<string>();
+  const candidatesByKnownId = new Map<string, CanonicalOwnPost>();
 
-  for (const knownPostId of input.useKnownPostIds ?? []) {
+  for (const candidate of candidates) {
+    if (!candidatesByKnownId.has(candidate.id)) {
+      candidatesByKnownId.set(candidate.id, candidate);
+    }
+    if (!candidatesByKnownId.has(candidate.platformPostId)) {
+      candidatesByKnownId.set(candidate.platformPostId, candidate);
+    }
+  }
+
+  for (const knownPostId of (input.useKnownPostIds ?? []).slice(0, KNOWN_POST_ID_LIMIT)) {
     if (selected.length >= VOICE_SAMPLE_LIMIT) {
       break;
     }
 
-    const match = candidates.find(
-      (post) => post.id === knownPostId || post.platformPostId === knownPostId,
-    );
+    const match = candidatesByKnownId.get(knownPostId);
     if (match === undefined || selectedIds.has(match.id)) {
       continue;
     }
@@ -530,6 +540,19 @@ const appendRenderedSection = (
   };
 };
 
+const readKnowledgeBaseMarkdown = async (knowledgeBasePath: string): Promise<string | undefined> => {
+  try {
+    const stats = await stat(knowledgeBasePath);
+    if (!stats.isFile() || stats.size > KNOWLEDGE_BASE_FILE_BYTE_LIMIT) {
+      return undefined;
+    }
+
+    return await readFile(knowledgeBasePath, "utf8");
+  } catch {
+    return undefined;
+  }
+};
+
 export const resolvePlaybookSlice = async (
   input: ResolvePlaybookSliceInput,
 ): Promise<PlaybookSlice> => {
@@ -537,10 +560,8 @@ export const resolvePlaybookSlice = async (
     return emptyPlaybookSlice(input);
   }
 
-  let markdown: string;
-  try {
-    markdown = await readFile(input.knowledgeBasePath, "utf8");
-  } catch {
+  const markdown = await readKnowledgeBaseMarkdown(input.knowledgeBasePath);
+  if (markdown === undefined) {
     return emptyPlaybookSlice(input);
   }
 
