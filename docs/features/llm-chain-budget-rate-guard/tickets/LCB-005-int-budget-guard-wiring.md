@@ -54,5 +54,6 @@ Isolation boundary: no real LLM provider, browser, live x.com, user settings dir
 - 2026-06-28: Integration coverage completed in 0e14152 for raw/assembled guard sharing, route-level generate/apply budget failures, chain-budget judge fatality, and non-LLM access under guard pressure.
 - 2026-06-28: Blue review found the apply route budget test bypassed the default service; fixed in 0e14152 by exercising `buildServer()` with the real default apply chain and a Date.now deadline spy.
 - 2026-06-28: Yellow review found assembled `getCooldown(windowDays)` could fail the shared positional contract; fixed in 0e14152 by accepting numeric windowDays at the raw binding parser and verifying assembled `getCooldown(7)` under guard pressure.
-- 2026-06-28: Yellow approved final HEAD; Blue approved the default apply-route correction. Full runner tests, engine LCB-focused tests, engine typecheck, runner typecheck, and `git diff --check` passed.
+- 2026-06-28: Blue final review found the default apply-route budget test still used the user settings root; fixed in df0eaa5 by injecting a temp settings repository and in-memory post library while preserving the default apply service path.
+- 2026-06-28: Yellow approved final transport fix; Blue findings were addressed. Full runner tests, engine LCB-focused tests, engine typecheck, runner typecheck, and `git diff --check` passed.
 - 2026-06-28: Ticket completed.
