@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 ---
 
 # EXS-009: [E2E] Verify overlay ExternalXSignals workflow
@@ -33,3 +33,6 @@ status: todo
 ## Pipeline Log
 
 - 2026-06-28: Ticket authored from approved arch recon.
+- 2026-06-28: Added Playwright coverage for settings add/refresh/remove, page-issued mock X GraphQL replay, external pattern rendering, and own captured-post summary isolation through the real runner transport.
+- 2026-06-28: Updated the E2E runner harness to mirror production external-observer skip wiring for registered external sources.
+- 2026-06-28: Verification: `./node_modules/.bin/tsc -p tsconfig.json --noEmit`; `./node_modules/.bin/playwright test tests/external-x-signals-settings.spec.ts tests/runner-capture-observe-only.spec.ts --config tests --workers=1 --timeout=45000` (4 passed).
