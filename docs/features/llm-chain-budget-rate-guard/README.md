@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 ---
 
 # LLM Chain Budget / Rate Guard
@@ -73,3 +73,5 @@ No new runtime dependency is required.
 - 2026-06-28: Arch recon research found the current issue in generate/apply chains and the current 20-method transport seam.
 - 2026-06-28: System architecture selected engine-local deadlines plus runner-local binding guard.
 - 2026-06-28: Architecture validator approved the sequence with no blockers.
+- 2026-06-28: LCB-001 through LCB-005 completed through the RGB-TDD pipeline.
+- 2026-06-28: Final validation passed: full runner suite, engine LCB-focused suites, engine typecheck, runner typecheck, and `git diff --check`.

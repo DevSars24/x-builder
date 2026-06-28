@@ -43,12 +43,12 @@ arch-recon
 - [`my-x-archive-import`](./my-x-archive-import/) — `tweets.js` import (the optional fast-start corpus source)
 - [`local-persistence-foundation`](./local-persistence-foundation/) — local SQLite corpus store + one-time JSON migration
 - [`my-feedback-loop`](./my-feedback-loop/) — local predicted-vs-actual feedback over captured post performance
+- [`llm-chain-budget-rate-guard`](./llm-chain-budget-rate-guard/) — chain budgets for multi-call LLM flows plus runner-side LLM binding protection
 
 **Next build queue:**
 
 1. [`smarter-generation-context`](./smarter-generation-context/) - send the LLM only the requested format's playbook slice plus a tight voice sample instead of the whole knowledge base.
-2. [`llm-chain-budget-rate-guard`](./llm-chain-budget-rate-guard/) - cap multi-call generate/apply chains and add basic protection around LLM-spawning bindings.
-3. **Refactor hotspots** — split `engine/src/server/server.ts` and `overlay/src/compose/compose-cockpit.tsx` after behavior is pinned.
+2. **Refactor hotspots** — split `engine/src/server/server.ts` and `overlay/src/compose/compose-cockpit.tsx` after behavior is pinned.
 
 **Planned feature areas:**
 
