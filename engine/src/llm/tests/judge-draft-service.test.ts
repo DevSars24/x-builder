@@ -113,6 +113,18 @@ describe("JudgeDraftService", () => {
     expect(request.options?.timeoutMs).toBe(45_000);
   });
 
+  it("passes a zero caller timeout through for structured LLM validation", async () => {
+    const generateStructured = vi.fn(
+      async (_request: StructuredLlmRequest<JudgeVerdict>) => successResult,
+    );
+    const judge: JudgeDraft = new JudgeDraftService({ generateStructured });
+
+    await judge.judge("A draft with an invalid chain-owned timeout.", undefined, { timeoutMs: 0 });
+
+    const request = generateStructured.mock.calls[0]![0];
+    expect(request.options?.timeoutMs).toBe(0);
+  });
+
   it("requires additionalProperties false on every object in the judge output schema for strict structured-output providers", async () => {
     // Strict structured-output providers (codex 0.139 / gpt-5.5 routing
     // --output-schema through OpenAI structured output) reject any object node
