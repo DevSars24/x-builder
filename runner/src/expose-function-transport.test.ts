@@ -34,7 +34,7 @@
  *   - applyJudgeSuggestionsService: { apply }
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   ENGINE_TRANSPORT_BINDINGS,
@@ -339,6 +339,16 @@ function createMockPage() {
   return { page: { exposeFunction }, handlers, exposeFunction };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 // ---------------------------------------------------------------------------
 // Mock BoundEngineServices: every method is a vi.fn() returning a valid shape
 // ---------------------------------------------------------------------------
@@ -466,6 +476,10 @@ let services: ReturnType<typeof createMockServices>;
 beforeEach(() => {
   mockPage = createMockPage();
   services = createMockServices();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("ExposeFunctionTransport.bindAll — registration", () => {
@@ -710,6 +724,142 @@ describe("ExposeFunctionTransport — remaining bindings round-trip their respon
       limit: 50,
     });
     expect(() => getFeedbackLoopSummaryResponseSchema.parse(result)).not.toThrow();
+  });
+});
+
+describe("ExposeFunctionTransport — LLM binding guard", () => {
+  it("blocks a second guarded LLM binding before service invocation while one is in flight", async () => {
+    const heldJudge = deferred<typeof judgeResponse>();
+    (services.judgeDraftService.judge as ReturnType<typeof vi.fn>).mockReturnValueOnce(
+      heldJudge.promise,
+    );
+
+    await ExposeFunctionTransport.bindAll(mockPage.page, services);
+
+    const judgeDraft = mockPage.handlers.get(B.judgeDraft)!;
+    const suggestPost = mockPage.handlers.get(B.suggestPost)!;
+    const inFlight = Promise.resolve(judgeDraft({ text: "A draft worth judging." }));
+
+    expect(services.judgeDraftService.judge).toHaveBeenCalledTimes(1);
+
+    try {
+      await expect(suggestPost({})).rejects.toMatchObject({
+        code: "llm_binding_busy",
+      });
+      expect(services.suggestPostService.suggest).not.toHaveBeenCalled();
+    } finally {
+      heldJudge.resolve(judgeResponse);
+      await inFlight;
+    }
+  });
+
+  it("releases guarded capacity when a guarded service rejects", async () => {
+    (services.judgeDraftService.judge as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("judge failed"),
+    );
+
+    await ExposeFunctionTransport.bindAll(mockPage.page, services);
+
+    const judgeDraft = mockPage.handlers.get(B.judgeDraft)!;
+    const suggestPost = mockPage.handlers.get(B.suggestPost)!;
+
+    await expect(judgeDraft({ text: "A draft worth judging." })).rejects.toThrow("judge failed");
+
+    const result = await suggestPost({});
+    expect(services.suggestPostService.suggest).toHaveBeenCalledTimes(1);
+    expect(result).toEqual(suggestPostResponse);
+  });
+
+  it("rejects invalid guarded payloads before spending guarded capacity", async () => {
+    await ExposeFunctionTransport.bindAll(mockPage.page, services);
+
+    const judgeDraft = mockPage.handlers.get(B.judgeDraft)!;
+
+    for (let i = 0; i < 6; i += 1) {
+      await expect(judgeDraft({ text: "   " })).rejects.toThrow();
+    }
+
+    const result = await judgeDraft({ text: "A valid draft after invalid payloads." });
+    expect(services.judgeDraftService.judge).toHaveBeenCalledTimes(1);
+    expect(result).toEqual(judgeResponse);
+  });
+
+  it("lets idea-only generateIdeas bypass the guard while a guarded call is in flight", async () => {
+    const heldJudge = deferred<typeof judgeResponse>();
+    (services.judgeDraftService.judge as ReturnType<typeof vi.fn>).mockReturnValueOnce(
+      heldJudge.promise,
+    );
+
+    await ExposeFunctionTransport.bindAll(mockPage.page, services);
+
+    const judgeDraft = mockPage.handlers.get(B.judgeDraft)!;
+    const generateIdeas = mockPage.handlers.get(B.generateIdeas)!;
+    const inFlight = Promise.resolve(judgeDraft({ text: "A draft worth judging." }));
+
+    expect(services.judgeDraftService.judge).toHaveBeenCalledTimes(1);
+
+    try {
+      const result = await generateIdeas({ idea: "ship faster" });
+      expect(services.generateIdeasService.generate).toHaveBeenCalledTimes(1);
+      expect(result).toEqual(generateIdeasResponse);
+    } finally {
+      heldJudge.resolve(judgeResponse);
+      await inFlight;
+    }
+  });
+
+  it("lets getGenerateCategories bypass the guard while a guarded call is in flight", async () => {
+    const heldJudge = deferred<typeof judgeResponse>();
+    (services.judgeDraftService.judge as ReturnType<typeof vi.fn>).mockReturnValueOnce(
+      heldJudge.promise,
+    );
+
+    await ExposeFunctionTransport.bindAll(mockPage.page, services);
+
+    const judgeDraft = mockPage.handlers.get(B.judgeDraft)!;
+    const getGenerateCategories = mockPage.handlers.get(B.getGenerateCategories)!;
+    const inFlight = Promise.resolve(judgeDraft({ text: "A draft worth judging." }));
+
+    expect(services.judgeDraftService.judge).toHaveBeenCalledTimes(1);
+
+    try {
+      const result = await getGenerateCategories(undefined);
+      expect(services.generateCategoryService.getCategories).toHaveBeenCalledTimes(1);
+      expect(result).toEqual([
+        expect.objectContaining(generateCategoriesResponse[0]!),
+      ]);
+    } finally {
+      heldJudge.resolve(judgeResponse);
+      await inFlight;
+    }
+  });
+
+  it("rejects guarded starts after the default rolling limit with retryAfterMs", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(NOW_ISO));
+
+    await ExposeFunctionTransport.bindAll(mockPage.page, services);
+
+    const judgeDraft = mockPage.handlers.get(B.judgeDraft)!;
+
+    for (let i = 0; i < 6; i += 1) {
+      await judgeDraft({ text: `A draft worth judging ${i}.` });
+    }
+
+    let thrown: unknown;
+    try {
+      await judgeDraft({ text: "A seventh guarded start in the same window." });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({
+      code: "llm_binding_rate_limited",
+      retryAfterMs: expect.any(Number),
+    });
+    const retryAfterMs = (thrown as { retryAfterMs?: unknown }).retryAfterMs;
+    expect(retryAfterMs as number).toBeGreaterThan(0);
+    expect(services.judgeDraftService.judge).toHaveBeenCalledTimes(6);
   });
 });
 
