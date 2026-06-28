@@ -6,7 +6,8 @@ import {
   type JudgeVerdict,
 } from "@x-builder/shared";
 
-import { GenerateIdeasService } from "../generate-ideas-service";
+import { GenerateIdeasService, IdeaGenerationError } from "../generate-ideas-service";
+import type { GenerationGuidanceResolver } from "../generation-guidance";
 import { type JudgeDraft, type JudgeDraftOutcome } from "../judge-draft-service";
 import {
   type StructuredLlmProviderResult,
@@ -165,7 +166,134 @@ const formatRequest = (
   ...overrides,
 });
 
+const guidanceBlockIntro = "Ground your drafts in the following guidance";
+
+const makeGuidanceResolver = (guidance: string | undefined = "Use concrete details.") =>
+  vi.fn(async (_request: Parameters<GenerationGuidanceResolver>[0]) => guidance);
+
+const makeAllJudgedFake = (overall = 82) =>
+  makeJudgeFake(
+    new Map<string, JudgeDraftOutcome>(
+      generatedCandidates.candidates.map((candidate) => [
+        candidate.text,
+        judgedOutcome(verdictWithOverall(overall)),
+      ]),
+    ),
+  );
+
+const createServiceWithGuidance = (
+  llm: ConstructorParameters<typeof GenerateIdeasService>[0],
+  judge: JudgeDraft,
+  resolver: GenerationGuidanceResolver,
+  profileResolver: () => Promise<string | undefined> = resolveProfile,
+): GenerateIdeasService =>
+  new GenerateIdeasService(
+    llm,
+    judge,
+    resolveProvider,
+    profileResolver,
+    undefined,
+    resolver as unknown as ConstructorParameters<typeof GenerateIdeasService>[5],
+  );
+
 describe("GenerateIdeasService format path", () => {
+  it("calls the generation guidance resolver with the format request fields", async () => {
+    const { llm } = makeLlmFake(generateSuccess());
+    const { judge } = makeAllJudgedFake();
+    const resolver = makeGuidanceResolver("Use the known launch story.");
+
+    const service = createServiceWithGuidance(llm, { judge }, resolver);
+
+    await service.generate(
+      formatRequest({
+        format: "founder_story",
+        idea: "Why the launch shipped late",
+        voiceProfileId: "voice-alpha",
+        useKnownPostIds: ["post-1", "platform-2"],
+      }),
+    );
+
+    expect(resolver).toHaveBeenCalledTimes(1);
+    expect(resolver).toHaveBeenCalledWith({
+      format: "founder_story",
+      idea: "Why the launch shipped late",
+      voiceProfileId: "voice-alpha",
+      useKnownPostIds: ["post-1", "platform-2"],
+    });
+  });
+
+  it("defaults omitted known post ids to an empty resolver request array", async () => {
+    const { llm } = makeLlmFake(generateSuccess());
+    const { judge } = makeAllJudgedFake();
+    const resolver = makeGuidanceResolver("Use recent originals.");
+
+    const service = createServiceWithGuidance(llm, { judge }, resolver);
+
+    await service.generate(
+      formatRequest({
+        format: "hot_take",
+        idea: "Why default context should be small",
+      }),
+    );
+
+    expect(resolver).toHaveBeenCalledTimes(1);
+    expect(resolver).toHaveBeenCalledWith({
+      format: "hot_take",
+      idea: "Why default context should be small",
+      useKnownPostIds: [],
+    });
+  });
+
+  it("appends non-empty resolver guidance through the structured LLM guidance block", async () => {
+    const { generateStructured, llm } = makeLlmFake(generateSuccess());
+    const { judge } = makeAllJudgedFake();
+    const resolver = makeGuidanceResolver(
+      "Use the requested format playbook.\nMirror the author's terse voice.",
+    );
+
+    const service = createServiceWithGuidance(llm, { judge }, resolver);
+
+    await service.generate(formatRequest({ format: "hot_take" }));
+
+    const instructions = generateStructured.mock.calls[0]?.[0].instructions;
+    expect(instructions).toContain(guidanceBlockIntro);
+    expect(instructions).toContain("Use the requested format playbook.");
+    expect(instructions).toContain("Mirror the author's terse voice.");
+  });
+
+  it("continues without the guidance block when resolver output is blank", async () => {
+    const { generateStructured, llm } = makeLlmFake(generateSuccess());
+    const { judge } = makeAllJudgedFake();
+    const resolver = makeGuidanceResolver("  \n\t  ");
+
+    const service = createServiceWithGuidance(llm, { judge }, resolver);
+
+    const response = (await service.generate(formatRequest())) as GenerateIdeaResponse;
+
+    expect(response.candidates).toHaveLength(3);
+    const instructions = generateStructured.mock.calls[0]?.[0].instructions;
+    expect(instructions).not.toContain(guidanceBlockIntro);
+  });
+
+  it("continues with the base prompt and judges candidates when guidance resolution fails", async () => {
+    const { generateStructured, llm } = makeLlmFake(generateSuccess());
+    const { judge, calls } = makeAllJudgedFake();
+    const resolver = vi.fn(
+      async (_request: Parameters<GenerationGuidanceResolver>[0]): Promise<string | undefined> => {
+        throw new Error("guidance unavailable");
+      },
+    );
+
+    const service = createServiceWithGuidance(llm, { judge }, resolver);
+
+    const response = (await service.generate(formatRequest())) as GenerateIdeaResponse;
+
+    expect(response.candidates).toHaveLength(3);
+    expect(calls).toHaveLength(3);
+    const instructions = generateStructured.mock.calls[0]?.[0].instructions;
+    expect(instructions).not.toContain(guidanceBlockIntro);
+  });
+
   it("returns three candidates each carrying verdict and approved when every judge succeeds", async () => {
     const { generateStructured, llm } = makeLlmFake(generateSuccess());
     const verdicts = new Map<string, JudgeVerdict>([
@@ -234,13 +362,23 @@ describe("GenerateIdeasService format path", () => {
     expect(judgedThird.approved).toBe(deriveApproved(verdict2));
   });
 
-  it("rejects when the generate step returns a failed result", async () => {
+  it("preserves the typed generate failure path even when guidance resolves", async () => {
     const { generateStructured, llm } = makeLlmFake(generateFailed());
     const { judge, calls } = makeJudgeFake(new Map());
+    const resolver = makeGuidanceResolver("Use the compact guidance.");
 
-    const service = new GenerateIdeasService(llm, { judge }, resolveProvider, resolveProfile);
+    const service = createServiceWithGuidance(llm, { judge }, resolver);
 
-    await expect(service.generate(formatRequest())).rejects.toBeInstanceOf(Error);
+    let thrown: unknown;
+    try {
+      await service.generate(formatRequest());
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(IdeaGenerationError);
+    expect(thrown).toMatchObject({ code: "structured_output_invalid" });
+    expect(resolver).toHaveBeenCalledTimes(1);
     expect(generateStructured).toHaveBeenCalledTimes(1);
     // A generate failure never reaches the judge step.
     expect(calls).toHaveLength(0);
@@ -335,16 +473,18 @@ describe("GenerateIdeasService format path", () => {
 });
 
 describe("GenerateIdeasService idea-only path", () => {
-  it("never calls the structured LLM and returns the stub-shaped candidates without verdict or approved", async () => {
+  it("never calls guidance, the structured LLM, or judge and returns the stub-shaped candidates without verdict or approved", async () => {
     const { generateStructured, llm } = makeLlmFake(generateSuccess());
     const judge = vi.fn(async () => judgedOutcome(verdictWithOverall(90)));
+    const resolver = makeGuidanceResolver("Should not be read for idea-only generation.");
 
-    const service = new GenerateIdeasService(llm, { judge }, resolveProvider, resolveProfile);
+    const service = createServiceWithGuidance(llm, { judge }, resolver);
     const response = (await service.generate({
       idea: "Why the best code is invisible",
     })) as GenerateIdeaResponse;
 
-    // The idea-only branch must not touch the generate step or the judge step.
+    // The idea-only branch must not touch guidance, the generate step, or the judge step.
+    expect(resolver).toHaveBeenCalledTimes(0);
     expect(generateStructured).toHaveBeenCalledTimes(0);
     expect(judge).toHaveBeenCalledTimes(0);
 

@@ -6,6 +6,7 @@ import {
   type GeneratedIdeaCandidate,
 } from "@x-builder/shared";
 
+import type { GenerationGuidanceRequest, GenerationGuidanceResolver } from "./generation-guidance.js";
 import {
   type JudgeDraft,
   type JudgeProviderResolver,
@@ -145,9 +146,9 @@ export class GenerateIdeasService {
     private readonly resolveProvider: JudgeProviderResolver,
     private readonly resolveJudgeAccountProfile: () => Promise<string | undefined>,
     chainTimeoutMs: number = defaultChainTimeoutMs,
-    // Optional: resolves the generation guidance block (reach/format knowledge
-    // base + the author's captured voice). Absent → drafts use the base template.
-    private readonly resolveGenerationGuidance?: () => Promise<string | undefined>,
+    // Optional: resolves the request-aware generation guidance block. Absent →
+    // drafts use the base template.
+    private readonly resolveGenerationGuidance?: GenerationGuidanceResolver,
   ) {
     this.chainTimeoutMs = chainTimeoutMs;
   }
@@ -160,7 +161,12 @@ export class GenerateIdeasService {
       return this.generateFromIdeaOnly(input);
     }
 
-    return this.generateFromFormat(input.format, input.idea);
+    return this.generateFromFormat({
+      format: input.format,
+      ...(input.idea === undefined ? {} : { idea: input.idea }),
+      ...(input.voiceProfileId === undefined ? {} : { voiceProfileId: input.voiceProfileId }),
+      useKnownPostIds: input.useKnownPostIds ?? [],
+    });
   }
 
   // Idea-only path: deterministic stub, byte-for-byte the shell's three
@@ -186,12 +192,12 @@ export class GenerateIdeasService {
   }
 
   private async generateFromFormat(
-    format: DetectedPostFormat,
-    idea: string | undefined,
+    guidanceRequest: GenerationGuidanceRequest,
   ): Promise<GenerateIdeaResponse> {
     const stepTimeoutMs = Math.floor(this.chainTimeoutMs / 4);
     const provider = await resolveProviderId(this.resolveProvider);
-    const guidance = await this.resolveGuidanceSafely();
+    const guidance = await this.resolveGuidanceSafely(guidanceRequest);
+    const { format, idea } = guidanceRequest;
 
     const request: StructuredLlmRequest<GeneratedDrafts> = {
       provider,
@@ -281,12 +287,17 @@ export class GenerateIdeasService {
 
   // Resolve the generation guidance, never throwing: a missing resolver or a
   // failed read collapses to undefined so generation falls back to the template.
-  private async resolveGuidanceSafely(): Promise<string | undefined> {
+  private async resolveGuidanceSafely(
+    request: GenerationGuidanceRequest,
+  ): Promise<string | undefined> {
     if (this.resolveGenerationGuidance === undefined) {
       return undefined;
     }
     try {
-      return await this.resolveGenerationGuidance();
+      const guidance = await this.resolveGenerationGuidance(request);
+      const trimmed = guidance?.trim();
+
+      return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed;
     } catch {
       return undefined;
     }

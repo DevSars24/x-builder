@@ -45,6 +45,7 @@ import {
   appStatusSchema,
   cooldownReportSchema,
   deriveApproved,
+  generateIdeaRequestSchema,
   generateIdeaResponseSchema,
   judgeDraftResponseSchema,
   overlayReadinessSchema,
@@ -78,6 +79,11 @@ import userTweetsValid from "./__fixtures__/graphql/user-tweets-valid.json";
 // ---------------------------------------------------------------------------
 
 const ISO = "2026-06-21T12:00:00.000Z";
+const SELECTED_HOT_TAKE_SENTINEL = "HOT_TAKE_SELECTED_FORMAT_SENTINEL";
+const SELECTED_STATUS_GATE_SENTINEL = "HOT_TAKE_SELECTED_STATUS_SENTINEL";
+const UNRELATED_KB_SENTINEL = "UNRELATED_FULL_KB_SENTINEL";
+const KNOWN_VOICE_SENTINEL = "KNOWN_POST_VOICE_SENTINEL";
+const FALLBACK_VOICE_SENTINEL = "FALLBACK_RECENT_VOICE_SENTINEL";
 
 // Map a draft string to a deterministic 0-100 score so two different drafts
 // yield two different verdicts (invariant #2). Longer text scores higher; the
@@ -119,12 +125,18 @@ function verdictModelOutput(text: string) {
  * verdict-band derivation and Zod validation run exactly as in production, only
  * the provider round-trip is faked.
  */
+type FakeLlmCall = { purpose: string; userContent: string; instructions: string };
+
 function createFakeLlm() {
-  const calls: Array<{ purpose: string; userContent: string }> = [];
+  const calls: FakeLlmCall[] = [];
   const generateStructured = vi.fn(async (request: any) => {
     const userContent =
       request.turns.find((t: any) => t.role === "user")?.content ?? "";
-    calls.push({ purpose: request.purpose, userContent });
+    calls.push({
+      purpose: request.purpose,
+      userContent,
+      instructions: request.instructions ?? "",
+    });
 
     let raw: unknown;
     if (request.purpose === "candidate_judge") {
@@ -180,6 +192,75 @@ async function seedHotTakeCorpus(capture: LiveCaptureService): Promise<void> {
     })),
   };
   await capture.ingest(batch);
+}
+
+
+type VoicePostInput = Parameters<SqlitePostLibraryRepository["upsertPosts"]>[0][number];
+
+const voicePost = (
+  overrides: Pick<VoicePostInput, "id" | "platformPostId" | "text" | "createdAt"> &
+    Partial<VoicePostInput>,
+): VoicePostInput => ({
+  platform: "x",
+  kind: "original",
+  language: "en",
+  replyReferences: {},
+  entityFlags: { hasUrls: false, hasMedia: false, hasHashtags: false, hasMentions: false },
+  weakMetrics: {},
+  metricSnapshots: [],
+  sourceRefs: [],
+  ...overrides,
+});
+
+function writeCompactGuidancePlaybook(): string {
+  const path = join(tempDir, "generation-playbook.md");
+  writeFileSync(
+    path,
+    [
+      "# Format Taxonomy",
+      `Hot take format rules. ${SELECTED_HOT_TAKE_SENTINEL}.`,
+      "",
+      "# Growth Loop",
+      `This unrelated section must not reach the writer prompt. ${UNRELATED_KB_SENTINEL}.`,
+      "",
+      "# Status Gate",
+      `Status gate rules for hot takes. ${SELECTED_STATUS_GATE_SENTINEL}.`,
+    ].join("\n"),
+    "utf8",
+  );
+
+  return path;
+}
+
+async function seedVoiceSamples(): Promise<void> {
+  await postLibraryRepository.upsertPosts([
+    voicePost({
+      id: "recent-fallback",
+      platformPostId: "platform-recent-fallback",
+      text: `${FALLBACK_VOICE_SENTINEL}: recent fallback voice sample.`,
+      createdAt: "2026-06-21T12:00:00.000Z",
+    }),
+    voicePost({
+      id: "known-canonical",
+      platformPostId: "known-platform-id",
+      text: `${KNOWN_VOICE_SENTINEL}: known post voice sample.`,
+      createdAt: "2024-01-01T12:00:00.000Z",
+    }),
+    voicePost({
+      id: "reply-ignored",
+      platformPostId: "reply-ignored-platform",
+      text: "Reply text must not become a voice sample.",
+      createdAt: "2026-06-22T12:00:00.000Z",
+      kind: "reply",
+    }),
+  ]);
+}
+
+function writerInstructions(calls: FakeLlmCall[]): string {
+  const call = calls.find((entry) => entry.purpose === "writer_variants");
+  expect(call).toBeDefined();
+
+  return call!.instructions;
 }
 
 // A schema-valid analyze request whose single item is a hot_take draft.
@@ -399,6 +480,68 @@ describe("real engine bundle — generateIdeas refine attaches verdict + approve
       // never a bespoke threshold.
       expect(candidate.approved).toBe(deriveApproved(verdict));
     }
+  });
+
+  it("grounds the writer prompt in compact format guidance and known voice samples", async () => {
+    await settingsRepository.save({
+      ...settingsRepository.defaults(),
+      knowledgeBasePath: writeCompactGuidancePlaybook(),
+    });
+    await seedVoiceSamples();
+
+    const { services, calls } = buildBundle();
+    const mockPage = createMockPage();
+    await ExposeFunctionTransport.bindAll(mockPage.page as never, services);
+
+    const handler = mockPage.handlers.get(ENGINE_TRANSPORT_BINDINGS.generateIdeas)!;
+    const raw = await handler({ format: "hot_take", useKnownPostIds: ["known-platform-id"] });
+
+    expect(() => generateIdeaResponseSchema.parse(raw)).not.toThrow();
+
+    const instructions = writerInstructions(calls);
+    expect(instructions).toContain("# Requested format playbook");
+    expect(instructions).toContain(SELECTED_HOT_TAKE_SENTINEL);
+    expect(instructions).toContain(SELECTED_STATUS_GATE_SENTINEL);
+    expect(instructions).not.toContain(UNRELATED_KB_SENTINEL);
+    expect(instructions).toContain("# Voice samples (match tone, do not copy)");
+
+    const knownIndex = instructions.indexOf(KNOWN_VOICE_SENTINEL);
+    const fallbackIndex = instructions.indexOf(FALLBACK_VOICE_SENTINEL);
+    expect(knownIndex).toBeGreaterThanOrEqual(0);
+    expect(fallbackIndex).toBeGreaterThan(knownIndex);
+    expect(instructions).not.toContain("Reply text must not become a voice sample.");
+  });
+
+  it("accepts the existing overlay generate request shape without context-only fields", async () => {
+    const { services } = buildBundle();
+    const mockPage = createMockPage();
+    await ExposeFunctionTransport.bindAll(mockPage.page as never, services);
+
+    const request = generateIdeaRequestSchema.parse({ format: "hot_take" });
+    const handler = mockPage.handlers.get(ENGINE_TRANSPORT_BINDINGS.generateIdeas)!;
+    const raw = await handler(request);
+
+    const parsed = generateIdeaResponseSchema.parse(raw);
+    expect(parsed.candidates).toHaveLength(3);
+    expect(request.format).toBe("hot_take");
+    expect(Object.prototype.hasOwnProperty.call(request, "generationContext")).toBe(false);
+  });
+
+  it("reaches the base writer prompt when there is no playbook and no voice corpus", async () => {
+    const { services, calls } = buildBundle();
+    const mockPage = createMockPage();
+    await ExposeFunctionTransport.bindAll(mockPage.page as never, services);
+
+    const handler = mockPage.handlers.get(ENGINE_TRANSPORT_BINDINGS.generateIdeas)!;
+    const raw = await handler({ format: "hot_take" });
+
+    const parsed = generateIdeaResponseSchema.parse(raw);
+    expect(parsed.candidates).toHaveLength(3);
+
+    const instructions = writerInstructions(calls);
+    expect(instructions).toContain('Produce exactly 3 distinct draft posts in the "hot_take" format.');
+    expect(instructions).not.toContain("# Requested format playbook");
+    expect(instructions).not.toContain("# Voice samples (match tone, do not copy)");
   });
 });
 

@@ -146,7 +146,7 @@ export const generateIdeaRequestSchema = z
       .optional(),
     format: detectedPostFormatSchema.optional(),
     voiceProfileId: z.string().min(1).max(120).optional(),
-    useKnownPostIds: z.array(z.string().min(1).max(240)).default([]).optional(),
+    useKnownPostIds: z.array(z.string().min(1).max(240)).max(25).default([]).optional(),
   })
   .refine((v) => v.idea !== undefined || v.format !== undefined, {
     message: "At least one of idea or format must be provided.",
