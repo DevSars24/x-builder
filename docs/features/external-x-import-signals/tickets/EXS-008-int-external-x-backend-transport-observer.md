@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 ---
 
 # EXS-008: [INT] Cover external X backend, transport, storage, and observer
@@ -37,3 +37,6 @@ status: todo
 
 - 2026-06-28: Ticket authored from approved arch recon. Validator concern included: integration tests must prove external observations cannot leak through the existing own-post live-capture path.
 - 2026-06-28: RGB ticket audit update: persisted pattern snapshots and evidence links are explicit integration invariants.
+- 2026-06-28: Added backend integration coverage for Fastify route -> ExternalXSignalsService -> SQLite storage, dedupe/no-new-evidence behavior, removed-source defaults, own-post table isolation, and persisted pattern evidence links.
+- 2026-06-28: Added runner integration coverage for exact transport method set, bound transport add/overview/remove, observer source gating, duplicate observer response stability, and own-post capture isolation.
+- 2026-06-28: Verification: engine external-X suites (17 passed), runner external-X/transport suites (28 passed), engine typecheck, runner typecheck.
