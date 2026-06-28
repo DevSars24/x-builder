@@ -6,19 +6,21 @@ import {
   type GeneratedIdeaCandidate,
 } from "@x-builder/shared";
 
+import { ChainDeadline } from "./chain-deadline.js";
 import type { GenerationGuidanceRequest, GenerationGuidanceResolver } from "./generation-guidance.js";
 import {
   type JudgeDraft,
+  type JudgeDraftOutcome,
   type JudgeProviderResolver,
 } from "./judge-draft-service.js";
 import {
   StructuredLlmService,
+  structuredLlmOptionLimits,
   type StructuredLlmRequest,
 } from "./structured-llm-service.js";
 
-// Default per-chain budget: the full chain touches up to four LLM calls (one
-// generate + three judges). The generate call and each judge call each get a
-// quarter of this budget.
+// Default per-chain budget for the full format-generation path: one writer call
+// plus three fan-out judges all draw from this same wall-clock deadline.
 const defaultChainTimeoutMs = 4 * 60_000;
 
 // The generate step asks for exactly three candidates; the three rendering
@@ -36,9 +38,9 @@ type GeneratedDrafts = {
   candidates: Array<{ id: string; text: string }>;
 };
 
-// A typed error so the route handler's catch maps a generate-step failure to
-// the generation_failed contract. Judge-step failures never throw — they leave
-// a candidate without verdict/approved.
+// A typed error so the route handler's catch maps fatal generation-chain failures
+// to the generation_failed contract. Non-timeout judge failures still stay local
+// to their candidate.
 export class IdeaGenerationError extends Error {
   constructor(
     message: string,
@@ -48,6 +50,40 @@ export class IdeaGenerationError extends Error {
     this.name = "IdeaGenerationError";
   }
 }
+
+const chainFatalJudgeFailureCodes = new Set(["chain_budget_exhausted", "request_timeout"]);
+
+const remainingLlmTimeoutMs = (deadline: ChainDeadline): number => {
+  deadline.assertRemaining();
+  return deadline.remainingMs(structuredLlmOptionLimits.timeoutMs);
+};
+
+const errorCodeFromUnknown = (value: unknown): string | undefined => {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+  const code = (value as { code?: unknown }).code;
+  return typeof code === "string" ? code : undefined;
+};
+
+const fatalJudgeError = (
+  outcome: PromiseSettledResult<JudgeDraftOutcome>,
+): IdeaGenerationError | undefined => {
+  if (outcome.status === "rejected") {
+    const code = errorCodeFromUnknown(outcome.reason);
+    if (code !== undefined && chainFatalJudgeFailureCodes.has(code)) {
+      const message = outcome.reason instanceof Error ? outcome.reason.message : code;
+      return new IdeaGenerationError(message, code);
+    }
+    return undefined;
+  }
+
+  if (outcome.value.status === "failed" && chainFatalJudgeFailureCodes.has(outcome.value.code)) {
+    return new IdeaGenerationError(outcome.value.message, outcome.value.code);
+  }
+
+  return undefined;
+};
 
 const generatedDraftsSchema: Record<string, unknown> = {
   type: "object",
@@ -194,7 +230,7 @@ export class GenerateIdeasService {
   private async generateFromFormat(
     guidanceRequest: GenerationGuidanceRequest,
   ): Promise<GenerateIdeaResponse> {
-    const stepTimeoutMs = Math.floor(this.chainTimeoutMs / 4);
+    const deadline = new ChainDeadline({ budgetMs: this.chainTimeoutMs });
     const provider = await resolveProviderId(this.resolveProvider);
     const guidance = await this.resolveGuidanceSafely(guidanceRequest);
     const { format, idea } = guidanceRequest;
@@ -217,7 +253,7 @@ export class GenerateIdeasService {
         schema: generatedDraftsSchema,
         parser: toGeneratedDrafts,
       },
-      options: { timeoutMs: stepTimeoutMs },
+      options: { timeoutMs: remainingLlmTimeoutMs(deadline) },
     };
 
     const result = await this.llm.generateStructured(request);
@@ -244,11 +280,20 @@ export class GenerateIdeasService {
     // judge pass.
     const profile = await this.resolveProfileSafely();
 
-    // Judge every candidate in parallel: one judge failure (rejected or a
-    // failed outcome) must not block the others, so allSettled — not all.
+    const judgeTimeoutMs = remainingLlmTimeoutMs(deadline);
+
+    // Judge every candidate in parallel. Chain-budget and request-timeout
+    // failures are fatal for the batch; other judge failures stay candidate-local.
     const judged = await Promise.allSettled(
-      generated.map((candidate) => this.judge.judge(candidate.text, profile)),
+      generated.map((candidate) =>
+        this.judge.judge(candidate.text, profile, { timeoutMs: judgeTimeoutMs }),
+      ),
     );
+
+    const fatal = judged.map(fatalJudgeError).find((error) => error !== undefined);
+    if (fatal !== undefined) {
+      throw fatal;
+    }
 
     const candidates: GeneratedIdeaCandidate[] = generated.map((candidate, index) => {
       const base: GeneratedIdeaCandidate = {
@@ -259,9 +304,9 @@ export class GenerateIdeasService {
 
       const outcome = judged[index];
 
-      // A judge that succeeded attaches verdict + derived approved. Anything
-      // else (rejected promise, or a resolved "failed" outcome) leaves the
-      // candidate without those keys — a genuine omission, not undefined values.
+      // A judge that succeeded attaches verdict + derived approved. Non-fatal
+      // failures leave the candidate without those keys — a genuine omission,
+      // not undefined values.
       if (
         outcome !== undefined &&
         outcome.status === "fulfilled" &&
