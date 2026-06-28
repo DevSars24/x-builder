@@ -8,7 +8,7 @@ Tickets build top to bottom. This epic changes only engine LLM chain budgeting a
 | LCB-002 | [FND] | Add runner LLM binding guard | runner/transport | done | - |
 | LCB-003 | - | Enforce generate chain budget | engine/llm + engine/api | done | LCB-001 |
 | LCB-004 | - | Enforce apply chain budget | engine/llm + engine/api | done | LCB-001 |
-| LCB-005 | [INT] | Verify budget and guard wiring | engine/runner tests | in-progress | LCB-002, LCB-003, LCB-004 |
+| LCB-005 | [INT] | Verify budget and guard wiring | engine/runner tests | done | LCB-002, LCB-003, LCB-004 |
 
 ## Pipeline Log
 
@@ -17,3 +17,4 @@ Tickets build top to bottom. This epic changes only engine LLM chain budgeting a
 - 2026-06-28: LCB-002 completed through RGB-TDD with Blue, Yellow, and [FND] checkpoint approval.
 - 2026-06-28: LCB-003 completed through RGB-TDD with Blue and Yellow approval.
 - 2026-06-28: LCB-004 completed through RGB-TDD with Blue and Yellow approval.
+- 2026-06-28: LCB-005 completed through RGB-TDD with integration verification and final Yellow approval.

@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # LCB-005: [INT] Verify budget and guard wiring
@@ -51,3 +51,8 @@ Isolation boundary: no real LLM provider, browser, live x.com, user settings dir
 - 2026-06-28: Ticket authored from approved arch recon.
 - 2026-06-28: RGB audit fix: mirrored generate fan-out timeout-vs-non-timeout invariant.
 - 2026-06-28: RGB pipeline started; ticket moved to in-progress.
+- 2026-06-28: Integration coverage completed in 0e14152 for raw/assembled guard sharing, route-level generate/apply budget failures, chain-budget judge fatality, and non-LLM access under guard pressure.
+- 2026-06-28: Blue review found the apply route budget test bypassed the default service; fixed in 0e14152 by exercising `buildServer()` with the real default apply chain and a Date.now deadline spy.
+- 2026-06-28: Yellow review found assembled `getCooldown(windowDays)` could fail the shared positional contract; fixed in 0e14152 by accepting numeric windowDays at the raw binding parser and verifying assembled `getCooldown(7)` under guard pressure.
+- 2026-06-28: Yellow approved final HEAD; Blue approved the default apply-route correction. Full runner tests, engine LCB-focused tests, engine typecheck, runner typecheck, and `git diff --check` passed.
+- 2026-06-28: Ticket completed.
