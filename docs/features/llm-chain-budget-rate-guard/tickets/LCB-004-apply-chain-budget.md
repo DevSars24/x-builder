@@ -1,5 +1,5 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # LCB-004: Enforce apply chain budget
@@ -98,3 +98,4 @@ Isolation boundary: no real provider, child process, browser, live x.com, runtim
 ## Pipeline Log
 
 - 2026-06-28: Ticket authored from approved arch recon.
+- 2026-06-28: RGB pipeline started; ticket moved to in-progress.
