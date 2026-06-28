@@ -1,7 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { judgeVerdictSchema, type JudgeVerdict } from "@x-builder/shared";
 
-import { JudgeDraftService } from "../judge-draft-service";
+import {
+  JudgeDraftService,
+  type JudgeDraft,
+  type JudgeDraftOptions,
+  type JudgeDraftOutcome,
+} from "../judge-draft-service";
 import {
   StructuredLlmService,
   type StructuredLlmProviderResult,
@@ -57,15 +62,18 @@ const failure = (
   completedAt: "2026-06-10T12:00:00.000Z",
 });
 
-type JudgeDraftServiceWithOptions = JudgeDraftService & {
-  judge(
-    text: string,
-    accountProfile?: string,
-    options?: { timeoutMs?: number },
-  ): ReturnType<JudgeDraftService["judge"]>;
-};
-
 describe("JudgeDraftService", () => {
+  it("exposes additive timeout options on the JudgeDraft contract", () => {
+    expectTypeOf<JudgeDraftOptions>().toEqualTypeOf<{ timeoutMs?: number }>();
+    expectTypeOf<JudgeDraft["judge"]>().toEqualTypeOf<
+      (
+        text: string,
+        accountProfile?: string,
+        options?: JudgeDraftOptions,
+      ) => Promise<JudgeDraftOutcome>
+    >();
+  });
+
   it("builds a candidate_judge request and maps a success result to a judged response", async () => {
     const generateStructured = vi.fn(
       async (_request: StructuredLlmRequest<JudgeVerdict>) => successResult,
@@ -97,9 +105,9 @@ describe("JudgeDraftService", () => {
     const generateStructured = vi.fn(
       async (_request: StructuredLlmRequest<JudgeVerdict>) => successResult,
     );
-    const service = new JudgeDraftService({ generateStructured }) as JudgeDraftServiceWithOptions;
+    const judge: JudgeDraft = new JudgeDraftService({ generateStructured });
 
-    await service.judge("A draft with a chain-owned timeout.", undefined, { timeoutMs: 45_000 });
+    await judge.judge("A draft with a chain-owned timeout.", undefined, { timeoutMs: 45_000 });
 
     const request = generateStructured.mock.calls[0]![0];
     expect(request.options?.timeoutMs).toBe(45_000);
