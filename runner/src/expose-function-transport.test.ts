@@ -349,6 +349,26 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+function busyGuardErrorFor(method: string) {
+  return {
+    code: "llm_binding_busy",
+    scope: "llm_binding_guard",
+    retryable: true,
+    retryAfterMs: expect.any(Number),
+    method,
+  };
+}
+
+function rateLimitGuardErrorFor(method: string) {
+  return {
+    code: "llm_binding_rate_limited",
+    scope: "llm_binding_guard",
+    retryable: true,
+    retryAfterMs: expect.any(Number),
+    method,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Mock BoundEngineServices: every method is a vi.fn() returning a valid shape
 // ---------------------------------------------------------------------------
@@ -743,9 +763,7 @@ describe("ExposeFunctionTransport — LLM binding guard", () => {
     expect(services.judgeDraftService.judge).toHaveBeenCalledTimes(1);
 
     try {
-      await expect(suggestPost({})).rejects.toMatchObject({
-        code: "llm_binding_busy",
-      });
+      await expect(suggestPost({})).rejects.toMatchObject(busyGuardErrorFor("suggestPost"));
       expect(services.suggestPostService.suggest).not.toHaveBeenCalled();
     } finally {
       heldJudge.resolve(judgeResponse);
@@ -768,9 +786,9 @@ describe("ExposeFunctionTransport — LLM binding guard", () => {
     expect(services.judgeDraftService.judge).toHaveBeenCalledTimes(1);
 
     try {
-      await expect(generateIdeas({ format: "hot_take" })).rejects.toMatchObject({
-        code: "llm_binding_busy",
-      });
+      await expect(generateIdeas({ format: "hot_take" })).rejects.toMatchObject(
+        busyGuardErrorFor("generateIdeas"),
+      );
       expect(services.generateIdeasService.generate).not.toHaveBeenCalled();
     } finally {
       heldJudge.resolve(judgeResponse);
@@ -793,9 +811,9 @@ describe("ExposeFunctionTransport — LLM binding guard", () => {
     expect(services.judgeDraftService.judge).toHaveBeenCalledTimes(1);
 
     try {
-      await expect(applyJudgeSuggestions({ text: "A draft to improve." })).rejects.toMatchObject({
-        code: "llm_binding_busy",
-      });
+      await expect(applyJudgeSuggestions({ text: "A draft to improve." })).rejects.toMatchObject(
+        busyGuardErrorFor("applyJudgeSuggestions"),
+      );
       expect(services.applyJudgeSuggestionsService.apply).not.toHaveBeenCalled();
     } finally {
       heldJudge.resolve(judgeResponse);
@@ -884,6 +902,54 @@ describe("ExposeFunctionTransport — LLM binding guard", () => {
     }
   });
 
+  it("lets feedback-loop bindings bypass the guard while a guarded call is in flight", async () => {
+    const heldJudge = deferred<typeof judgeResponse>();
+    (services.judgeDraftService.judge as ReturnType<typeof vi.fn>).mockReturnValueOnce(
+      heldJudge.promise,
+    );
+
+    await ExposeFunctionTransport.bindAll(mockPage.page, services);
+
+    const judgeDraft = mockPage.handlers.get(B.judgeDraft)!;
+    const recordFeedbackPrediction = mockPage.handlers.get(B.recordFeedbackPrediction)!;
+    const linkFeedbackPrediction = mockPage.handlers.get(B.linkFeedbackPrediction)!;
+    const getFeedbackLoopSummary = mockPage.handlers.get(B.getFeedbackLoopSummary)!;
+    const inFlight = Promise.resolve(judgeDraft({ text: "A draft worth judging." }));
+
+    expect(services.judgeDraftService.judge).toHaveBeenCalledTimes(1);
+
+    try {
+      const recorded = await recordFeedbackPrediction({
+        action: "generated_draft_written",
+        text: "A feedback draft.",
+        snapshot: {
+          detectedFormat: "insight_share",
+          scoreValue: 72,
+          prediction: feedbackPredictionRecord.prediction,
+          scoringContext: { followers: 1_200 },
+          analyzerVersion: "deterministic-v1",
+          analyzedAt: NOW_ISO,
+        },
+      });
+      const linked = await linkFeedbackPrediction({
+        predictionId: "feedback-1",
+        platformPostId: "1800000000000000001",
+        method: "manual_platform_post_id",
+      });
+      const summary = await getFeedbackLoopSummary({ windowDays: 90, limit: 10 });
+
+      expect(services.feedbackLoopService.recordPrediction).toHaveBeenCalledTimes(1);
+      expect(services.feedbackLoopService.linkPrediction).toHaveBeenCalledTimes(1);
+      expect(services.feedbackLoopService.getSummary).toHaveBeenCalledTimes(1);
+      expect(recorded).toEqual(recordFeedbackPredictionResponse);
+      expect(linked).toEqual(linkFeedbackPredictionResponse);
+      expect(summary).toEqual(getFeedbackLoopSummaryResponse);
+    } finally {
+      heldJudge.resolve(judgeResponse);
+      await inFlight;
+    }
+  });
+
   it("rejects guarded starts after the default rolling limit with retryAfterMs", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(NOW_ISO));
@@ -903,10 +969,7 @@ describe("ExposeFunctionTransport — LLM binding guard", () => {
       thrown = error;
     }
 
-    expect(thrown).toMatchObject({
-      code: "llm_binding_rate_limited",
-      retryAfterMs: expect.any(Number),
-    });
+    expect(thrown).toMatchObject(rateLimitGuardErrorFor("judgeDraft"));
     const retryAfterMs = (thrown as { retryAfterMs?: unknown }).retryAfterMs;
     expect(retryAfterMs as number).toBeGreaterThan(0);
     expect(services.judgeDraftService.judge).toHaveBeenCalledTimes(6);
