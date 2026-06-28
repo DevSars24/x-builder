@@ -63,8 +63,10 @@ import {
   typeInComposer,
   type XComposerHandle,
 } from "../../testing/compose-cockpit";
+import { makeCategoryList } from "../../testing/generate-categories";
 
 import type {
+  GenerateCategory,
   GenerateIdeaResponse,
   JudgeDraftResponse,
   RecordFeedbackPredictionRequest,
@@ -190,6 +192,29 @@ function cockpitText(): string {
 /** The first button whose accessible text matches, or `undefined`. */
 function findButton(matcher: RegExp): HTMLButtonElement | undefined {
   return allButtons().find((b) => matcher.test(b.textContent ?? ""));
+}
+
+function categoryButton(label: string): HTMLButtonElement | undefined {
+  return allButtons().find((b) => (b.textContent ?? "").trim() === label);
+}
+
+function renderedCategoryLabels(categories: GenerateCategory[]): string[] {
+  const expected = new Set(categories.map((category) => category.label));
+  return allButtons()
+    .map((button) => (button.textContent ?? "").trim())
+    .filter((label) => expected.has(label));
+}
+
+function railPanelForCategory(label: string): HTMLElement {
+  const button = categoryButton(label);
+  if (button === undefined) {
+    throw new Error(`category button not found: ${label}`);
+  }
+  const panel = button.parentElement;
+  if (!(panel instanceof HTMLElement)) {
+    throw new Error(`rail panel not found for category: ${label}`);
+  }
+  return panel;
 }
 
 /**
@@ -389,6 +414,125 @@ describe("ComposeCockpit — generate flow", () => {
       { text: "c", overall: 80 },
     ]));
     await settle();
+  });
+});
+
+describe("ComposeCockpit — long generate category rail", () => {
+  it("renders every returned category in order and applies the rail-local scroll boundary", async () => {
+    fixture = insertXComposer();
+    const categories = makeCategoryList(20);
+    let categoryLoads = 0;
+    const fake = new FakeEngineTransport({
+      getGenerateCategories: async () => {
+        categoryLoads += 1;
+        return categories;
+      },
+      getCaptureSummary: async () => makeCapture(),
+    });
+
+    mountCockpit(fake);
+    await settleUntil(
+      () => renderedCategoryLabels(categories).length === categories.length,
+      "long category rail render",
+    );
+
+    expect(categoryLoads).toBe(1);
+    expect(renderedCategoryLabels(categories)).toEqual(
+      categories.map((category) => category.label),
+    );
+
+    const panel = railPanelForCategory(categories[0]!.label);
+    expect(panel.querySelectorAll("button")).toHaveLength(categories.length);
+    expect(panel.style.maxHeight).toBe("70vh");
+    expect(panel.style.overflowY).toBe("auto");
+    expect(panel.style.overscrollBehavior).toBe("contain");
+    expect(panel.style.boxSizing).toBe("border-box");
+  });
+
+  it("generates with the clicked format and marks only that category pending", async () => {
+    fixture = insertXComposer();
+    const categories = makeCategoryList(20);
+    const target = categories[4]!;
+    const sameFormatSibling = categories.find(
+      (category) => category.id !== target.id && category.format === target.format,
+    );
+    if (sameFormatSibling === undefined) {
+      throw new Error("long category fixture must include repeated formats");
+    }
+    const generateCalls: unknown[] = [];
+    const pending = deferred<GenerateIdeaResponse>();
+    const fake = new FakeEngineTransport({
+      getGenerateCategories: async () => categories,
+      getCaptureSummary: async () => makeCapture(),
+      generateIdeas: (request) => {
+        generateCalls.push(request);
+        return pending.promise;
+      },
+    });
+
+    mountCockpit(fake);
+    await settleUntil(() => categoryButton(target.label) !== undefined, "target category render");
+    categoryButton(target.label)!.click();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(generateCalls).toHaveLength(1);
+    expect(generateCalls[0]).toMatchObject({ format: target.format });
+
+    const pendingButton = categoryButton(target.label);
+    expect(pendingButton?.disabled).toBe(true);
+    expect(pendingButton?.getAttribute("aria-busy")).toBe("true");
+
+    const sameFormatButton = categoryButton(sameFormatSibling.label);
+    expect(sameFormatButton?.disabled).toBe(false);
+    expect(sameFormatButton?.getAttribute("aria-busy")).not.toBe("true");
+
+    pending.resolve(makeGenerateResponse([
+      { text: "a", overall: 80 },
+      { text: "b", overall: 80 },
+      { text: "c", overall: 80 },
+    ]));
+    await settle();
+  });
+
+  it("keeps the static and judge zones mounted when category loading fails", async () => {
+    fixture = insertXComposer();
+    const categories = makeCategoryList(20);
+    const fake = new FakeEngineTransport({
+      getGenerateCategories: async () => {
+        throw new Error("category load failed");
+      },
+      getCaptureSummary: async () => makeCapture(),
+    });
+
+    mountCockpit(fake);
+    await settle();
+
+    for (const category of categories) {
+      expect(categoryButton(category.label)).toBeUndefined();
+    }
+    const text = cockpitText();
+    expect(text).toContain("◆ Static engine");
+    expect(text).toContain("✦ AI judge");
+  });
+
+  it("adds no horizontal page scroll beyond the fixture baseline with a long rail", async () => {
+    fixture = insertXComposer();
+    const categories = makeCategoryList(24);
+    const fake = new FakeEngineTransport({
+      getGenerateCategories: async () => categories,
+      getCaptureSummary: async () => makeCapture(),
+    });
+
+    const doc = document.documentElement;
+    const baseline = doc.scrollWidth;
+
+    mountCockpit(fake);
+    await settleUntil(
+      () => renderedCategoryLabels(categories).length === categories.length,
+      "long category rail render",
+    );
+
+    expect(doc.scrollWidth).toBeLessThanOrEqual(baseline);
   });
 });
 
