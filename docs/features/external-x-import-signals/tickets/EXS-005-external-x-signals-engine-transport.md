@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 ---
 
 # EXS-005: Extend EngineTransport and runner bindings
@@ -85,3 +85,4 @@ Coverage level: shared/runner/overlay transport tests. Owning suites: shared sch
 ## Pipeline Log
 
 - 2026-06-28: Ticket authored from approved arch recon.
+- 2026-06-28: Implemented the four canonical ExternalXSignals transport methods, 24-name binding registry, runner schema-validated handlers, real bound service adapter, overlay fake/no-op coverage, and stale-alias negative assertions. Verification: shared schema tests; shared typecheck; shared build; engine build; runner transport unit/integration tests; runner typecheck; overlay `use-transport` Vitest; `git diff --check`; RGB gates from `2b5c27e`. Full overlay typecheck remains blocked by unrelated existing provenance/judge/generate-category fixture errors outside EXS scope.

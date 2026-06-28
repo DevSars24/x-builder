@@ -128,7 +128,7 @@ describe("external X signal shared schemas", () => {
 
     expect(() =>
       apiErrorSchema.parse({
-        code: "importExternalSignals",
+        code: "legacy_external_import",
         scope: "external-x-signals",
         message: "stale",
         retryable: true,
