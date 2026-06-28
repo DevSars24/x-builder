@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 ---
 
 # Generation Category Panel
@@ -65,3 +65,4 @@ The implementation agent should verify the current category rendering surface be
 ## Pipeline Log
 
 - 2026-06-28: Arch recon approved with one concern folded into ticket wording: stacked mode is already constrained by the existing `60vh` cockpit pin, so tests must not require rail-only scroll ownership there.
+- 2026-06-28: GCP-001 and GCP-002 completed; bounded rail UI and integration regression coverage are in place.
