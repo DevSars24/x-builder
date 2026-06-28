@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 ---
 
 # EXS-003: Build ExternalXSignalsService
@@ -76,4 +76,5 @@ Coverage level: engine service unit tests. Owning suite: engine external signals
 
 ## Pipeline Log
 
+- 2026-06-28: Implemented `ExternalXSignalsService`, source-gated observed ingestion, honest refresh runs, and persisted deterministic patterns. Verification: service/repository tests, engine typecheck, and `gates.py all --base b8a9111` passed.
 - 2026-06-28: Ticket authored from approved arch recon.
