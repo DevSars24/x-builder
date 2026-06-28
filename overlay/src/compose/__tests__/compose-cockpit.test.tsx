@@ -194,15 +194,62 @@ function findButton(matcher: RegExp): HTMLButtonElement | undefined {
   return allButtons().find((b) => matcher.test(b.textContent ?? ""));
 }
 
+function categoryLabelForButton(button: HTMLButtonElement): string | undefined {
+  const label = Array.from(button.querySelectorAll<HTMLElement>("span[title]")).find(
+    (span) => span.getAttribute("title") !== null,
+  );
+  return label?.getAttribute("title") ?? undefined;
+}
+
+function categoryButtons(): HTMLButtonElement[] {
+  return allButtons().filter((button) => categoryLabelForButton(button) !== undefined);
+}
+
 function categoryButton(label: string): HTMLButtonElement | undefined {
-  return allButtons().find((b) => (b.textContent ?? "").trim() === label);
+  return categoryButtons().find((button) => categoryLabelForButton(button) === label);
 }
 
 function renderedCategoryLabels(categories: GenerateCategory[]): string[] {
   const expected = new Set(categories.map((category) => category.label));
-  return allButtons()
-    .map((button) => (button.textContent ?? "").trim())
+  return categoryButtons()
+    .map((button) => categoryLabelForButton(button)!)
     .filter((label) => expected.has(label));
+}
+
+function warningBadges(root: ParentNode): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>('[data-variant="warning"]'));
+}
+
+function cooldownBadgeLabel(category: GenerateCategory): string {
+  return `${category.cooldownStatus} · ${category.recentCount} in ${category.windowDays}d`;
+}
+
+function makeReturnedOrderCategoryList(count = 20): GenerateCategory[] {
+  return [...makeCategoryList(count)].reverse();
+}
+
+function makeBadgeBearingCategoryList(count = 24): GenerateCategory[] {
+  return makeReturnedOrderCategoryList(count).map((category, index) => {
+    if (index === 3) {
+      return {
+        ...category,
+        basis: "top_performer" as const,
+        cooldownStatus: "warming" as const,
+        recentCount: 2,
+        sampleCount: Math.max(category.sampleCount, 2),
+      };
+    }
+    if (index === 11) {
+      return {
+        ...category,
+        basis: "top_performer" as const,
+        cooldownStatus: "cooldown" as const,
+        recentCount: 5,
+        sampleCount: Math.max(category.sampleCount, 5),
+      };
+    }
+    return category;
+  });
 }
 
 function railPanelForCategory(label: string): HTMLElement {
@@ -420,7 +467,10 @@ describe("ComposeCockpit — generate flow", () => {
 describe("ComposeCockpit — long generate category rail", () => {
   it("renders every returned category in order and applies the rail-local scroll boundary", async () => {
     fixture = insertXComposer();
-    const categories = makeCategoryList(20);
+    const categories = makeReturnedOrderCategoryList(20);
+    expect(categories.map((category) => category.id)).not.toEqual(
+      categories.map((category) => category.id).sort(),
+    );
     let categoryLoads = 0;
     const fake = new FakeEngineTransport({
       getGenerateCategories: async () => {
@@ -496,7 +546,10 @@ describe("ComposeCockpit — long generate category rail", () => {
 
   it("keeps the static and judge zones mounted when category loading fails", async () => {
     fixture = insertXComposer();
-    const categories = makeCategoryList(20);
+    const expectedAbsentCategories = [
+      ...makeReturnedOrderCategoryList(20),
+      ...makeGenerateCategories(),
+    ];
     const fake = new FakeEngineTransport({
       getGenerateCategories: async () => {
         throw new Error("category load failed");
@@ -507,9 +560,8 @@ describe("ComposeCockpit — long generate category rail", () => {
     mountCockpit(fake);
     await settle();
 
-    for (const category of categories) {
-      expect(categoryButton(category.label)).toBeUndefined();
-    }
+    expect(categoryButtons()).toHaveLength(0);
+    expect(renderedCategoryLabels(expectedAbsentCategories)).toEqual([]);
     const text = cockpitText();
     expect(text).toContain("◆ Static engine");
     expect(text).toContain("✦ AI judge");
@@ -517,7 +569,8 @@ describe("ComposeCockpit — long generate category rail", () => {
 
   it("adds no horizontal page scroll beyond the fixture baseline with a long rail", async () => {
     fixture = insertXComposer();
-    const categories = makeCategoryList(24);
+    const categories = makeBadgeBearingCategoryList(24);
+    const badgeCategories = categories.filter((category) => category.cooldownStatus !== "clear");
     const fake = new FakeEngineTransport({
       getGenerateCategories: async () => categories,
       getCaptureSummary: async () => makeCapture(),
@@ -532,6 +585,10 @@ describe("ComposeCockpit — long generate category rail", () => {
       "long category rail render",
     );
 
+    const panel = railPanelForCategory(categories[0]!.label);
+    expect(warningBadges(panel).map((badge) => badge.textContent?.trim())).toEqual(
+      badgeCategories.map(cooldownBadgeLabel),
+    );
     expect(doc.scrollWidth).toBeLessThanOrEqual(baseline);
   });
 });
