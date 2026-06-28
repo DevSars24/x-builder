@@ -5,7 +5,7 @@ Tickets build top to bottom. This epic adds a bounded internal-scroll category p
 | ID | Status | Prefix | Title | Track | Depends on |
 |---|---|---|---|---|---|
 | GCP-001 | Done | - | Bounded Generation Category Panel | overlay/ui | - |
-| GCP-002 | Todo | [INT] | Rail Integration Regression | overlay/browser tests | GCP-001 |
+| GCP-002 | In Progress | [INT] | Rail Integration Regression | overlay/browser tests | GCP-001 |
 
 ## Pipeline Log
 

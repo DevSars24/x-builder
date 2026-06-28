@@ -1,5 +1,5 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # GCP-002: [INT] Rail Integration Regression
@@ -88,3 +88,5 @@ Isolation boundary: browser test DOM fixture; no port inference, no real page na
 ## Pipeline Log
 
 - 2026-06-28: Ticket authored from approved arch recon; validator concern folded into stacked-mode wording.
+
+- 2026-06-28: RGB `[INT]` pipeline started; pre-flight passed and ticket moved to in-progress.
