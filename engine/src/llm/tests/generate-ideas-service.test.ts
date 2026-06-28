@@ -503,6 +503,28 @@ describe("GenerateIdeasService format path", () => {
     });
   });
 
+  it("fails the whole format generation when a candidate judge reports exhausted chain budget", async () => {
+    const { llm } = makeLlmFake(generateSuccess());
+    const [first, second, third] = generatedCandidates.candidates as [
+      { id: string; text: string },
+      { id: string; text: string },
+      { id: string; text: string },
+    ];
+    const { judge } = makeJudgeFake(
+      new Map<string, JudgeDraftOutcome>([
+        [first.text, judgedOutcome(verdictWithOverall(88))],
+        [second.text, judgeFailureOutcome("chain_budget_exhausted")],
+        [third.text, judgedOutcome(verdictWithOverall(72))],
+      ]),
+    );
+
+    const service = new GenerateIdeasService(llm, { judge }, resolveProvider, resolveProfile);
+
+    await expect(service.generate(formatRequest())).rejects.toMatchObject({
+      code: "chain_budget_exhausted",
+    });
+  });
+
   it("preserves the typed generate failure path even when guidance resolves", async () => {
     const { generateStructured, llm } = makeLlmFake(generateFailed());
     const { judge, calls } = makeJudgeFake(new Map());
