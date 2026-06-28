@@ -8,8 +8,13 @@ import {
 
 import { GenerateIdeasService, IdeaGenerationError } from "../generate-ideas-service";
 import type { GenerationGuidanceResolver } from "../generation-guidance";
-import { type JudgeDraft, type JudgeDraftOutcome } from "../judge-draft-service";
 import {
+  type JudgeDraft,
+  type JudgeDraftOptions,
+  type JudgeDraftOutcome,
+} from "../judge-draft-service";
+import {
+  structuredLlmOptionLimits,
   type StructuredLlmProviderResult,
   type StructuredLlmRequest,
 } from "../structured-llm-service";
@@ -122,11 +127,11 @@ const judgedOutcome = (verdict: JudgeVerdict): JudgeDraftOutcome => ({
   },
 });
 
-const judgeFailureOutcome = (): JudgeDraftOutcome => ({
+const judgeFailureOutcome = (code = "provider_unavailable"): JudgeDraftOutcome => ({
   status: "failed",
   retryable: true,
-  code: "provider_unavailable",
-  message: "judge provider unavailable",
+  code,
+  message: code === "request_timeout" ? "judge request timed out" : "judge provider unavailable",
 });
 
 // A JudgeDraft fake driven by a sequence of outcomes resolved per call in the
@@ -136,11 +141,11 @@ const judgeFailureOutcome = (): JudgeDraftOutcome => ({
 // fixed outcome, so a per-index failure is deterministic regardless of timing.
 const makeJudgeFake = (byText: Map<string, JudgeDraftOutcome>): {
   judge: JudgeDraft["judge"];
-  calls: Array<{ text: string; accountProfile?: string }>;
+  calls: Array<{ text: string; accountProfile?: string; options?: JudgeDraftOptions }>;
 } => {
-  const calls: Array<{ text: string; accountProfile?: string }> = [];
-  const judge: JudgeDraft["judge"] = async (text, accountProfile) => {
-    calls.push({ text, accountProfile });
+  const calls: Array<{ text: string; accountProfile?: string; options?: JudgeDraftOptions }> = [];
+  const judge: JudgeDraft["judge"] = async (text, accountProfile, options) => {
+    calls.push({ text, accountProfile, options });
     const outcome = byText.get(text);
     if (outcome === undefined) {
       throw new Error(`No judge outcome configured for text: ${text}`);
@@ -322,6 +327,85 @@ describe("GenerateIdeasService format path", () => {
     }
   });
 
+  it("caps the writer timeout to the structured LLM per-call maximum", async () => {
+    const { generateStructured, llm } = makeLlmFake(generateSuccess());
+    const { judge } = makeAllJudgedFake();
+    const service = new GenerateIdeasService(
+      llm,
+      { judge },
+      resolveProvider,
+      resolveProfile,
+      999_000,
+    );
+
+    await service.generate(formatRequest());
+
+    const request = generateStructured.mock.calls[0]![0];
+    expect(request.options?.timeoutMs).toBe(structuredLlmOptionLimits.timeoutMs);
+  });
+
+  it("uses the full small remaining chain budget for the writer timeout", async () => {
+    const { generateStructured, llm } = makeLlmFake(generateSuccess());
+    const { judge } = makeAllJudgedFake();
+    const service = new GenerateIdeasService(
+      llm,
+      { judge },
+      resolveProvider,
+      resolveProfile,
+      45_000,
+    );
+
+    await service.generate(formatRequest());
+
+    const request = generateStructured.mock.calls[0]![0];
+    expect(request.options?.timeoutMs).toBe(45_000);
+  });
+
+  it("passes one capped remaining timeout to all candidate judges", async () => {
+    const { llm } = makeLlmFake(generateSuccess());
+    const { judge, calls } = makeAllJudgedFake();
+    const service = new GenerateIdeasService(
+      llm,
+      { judge },
+      resolveProvider,
+      resolveProfile,
+      999_000,
+    );
+
+    await service.generate(formatRequest());
+
+    expect(calls).toHaveLength(3);
+    expect(calls.map((call) => call.options?.timeoutMs)).toEqual([
+      structuredLlmOptionLimits.timeoutMs,
+      structuredLlmOptionLimits.timeoutMs,
+      structuredLlmOptionLimits.timeoutMs,
+    ]);
+  });
+
+  it("fails the whole format generation when the chain budget is exhausted before judge fan-out", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-20T12:00:00.000Z"));
+
+    const generateStructured = vi.fn(async (_request: StructuredLlmRequest<unknown>) => {
+      vi.setSystemTime(new Date("2026-06-20T12:00:31.000Z"));
+      return generateSuccess() as StructuredLlmProviderResult<unknown>;
+    });
+    const llm = { generateStructured } as unknown as ConstructorParameters<
+      typeof GenerateIdeasService
+    >[0];
+    const { judge, calls } = makeAllJudgedFake();
+    const service = new GenerateIdeasService(llm, { judge }, resolveProvider, resolveProfile, 30_000);
+
+    try {
+      await expect(service.generate(formatRequest())).rejects.toMatchObject({
+        code: "chain_budget_exhausted",
+      });
+      expect(calls).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("omits verdict and approved on the candidate whose judge failed while keeping the other two judged", async () => {
     const { llm } = makeLlmFake(generateSuccess());
     const [first, second, third] = generatedCandidates.candidates as [
@@ -360,6 +444,28 @@ describe("GenerateIdeasService format path", () => {
     expect(judgedThird).toHaveProperty("approved");
     expect(judgedThird.verdict).toEqual(verdict2);
     expect(judgedThird.approved).toBe(deriveApproved(verdict2));
+  });
+
+  it("fails the whole format generation when a candidate judge times out", async () => {
+    const { llm } = makeLlmFake(generateSuccess());
+    const [first, second, third] = generatedCandidates.candidates as [
+      { id: string; text: string },
+      { id: string; text: string },
+      { id: string; text: string },
+    ];
+    const { judge } = makeJudgeFake(
+      new Map<string, JudgeDraftOutcome>([
+        [first.text, judgedOutcome(verdictWithOverall(88))],
+        [second.text, judgeFailureOutcome("request_timeout")],
+        [third.text, judgedOutcome(verdictWithOverall(72))],
+      ]),
+    );
+
+    const service = new GenerateIdeasService(llm, { judge }, resolveProvider, resolveProfile);
+
+    await expect(service.generate(formatRequest())).rejects.toMatchObject({
+      code: "request_timeout",
+    });
   });
 
   it("preserves the typed generate failure path even when guidance resolves", async () => {
