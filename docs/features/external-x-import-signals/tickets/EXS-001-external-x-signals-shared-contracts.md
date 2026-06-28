@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 ---
 
 # EXS-001: [FND] Define ExternalXSignals shared contracts
@@ -93,4 +93,5 @@ Coverage level: shared schema unit tests. Owning suite: shared schema tests. Fix
 
 ## Pipeline Log
 
+- 2026-06-28: Implemented shared ExternalXSignals schemas, API error scope/codes, barrel exports, and schema tests. Verification: `corepack pnpm --dir shared test -- external-x-signals.test.ts`, `corepack pnpm --dir shared typecheck`, and `gates.py all --base 7cef05d` passed.
 - 2026-06-28: Ticket authored from approved arch recon.

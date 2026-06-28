@@ -75,6 +75,25 @@ export {
   applyJudgeSuggestionsResponseSchema,
 } from "./schemas/apply-judge-suggestions.js";
 export {
+  addExternalXSignalSourceRequestSchema,
+  addExternalXSignalSourceResponseSchema,
+  externalXSignalEvidenceSchema,
+  externalXSignalEvidenceSourceSchema,
+  externalXSignalMetricSnapshotSchema,
+  externalXSignalPatternSchema,
+  externalXSignalPatternTypeSchema,
+  externalXSignalRefreshRunSchema,
+  externalXSignalSourceSchema,
+  externalXSignalSourceStatusSchema,
+  externalXSignalsTotalsSchema,
+  getExternalXSignalsOverviewRequestSchema,
+  getExternalXSignalsOverviewResponseSchema,
+  refreshExternalXSignalSourceRequestSchema,
+  refreshExternalXSignalSourceResponseSchema,
+  removeExternalXSignalSourceRequestSchema,
+  removeExternalXSignalSourceResponseSchema,
+} from "./schemas/external-x-signals.js";
+export {
   feedbackActualMetricsSchema,
   feedbackAmbiguitySchema,
   feedbackFormatLearningSchema,
