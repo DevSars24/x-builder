@@ -5,7 +5,7 @@ Tickets build top to bottom. This epic changes only engine LLM chain budgeting a
 | ID | Prefix | Title | Track | Status | Depends on |
 |---|---|---|---|---|---|
 | LCB-001 | [FND] | Add chain deadline and judge timeout override | engine/llm | done | - |
-| LCB-002 | [FND] | Add runner LLM binding guard | runner/transport | in-progress | - |
+| LCB-002 | [FND] | Add runner LLM binding guard | runner/transport | done | - |
 | LCB-003 | - | Enforce generate chain budget | engine/llm + engine/api | todo | LCB-001 |
 | LCB-004 | - | Enforce apply chain budget | engine/llm + engine/api | todo | LCB-001 |
 | LCB-005 | [INT] | Verify budget and guard wiring | engine/runner tests | todo | LCB-002, LCB-003, LCB-004 |
@@ -14,3 +14,4 @@ Tickets build top to bottom. This epic changes only engine LLM chain budgeting a
 
 - 2026-06-28: Tickets authored from approved arch recon.
 - 2026-06-28: LCB-001 completed through RGB-TDD with Blue, Yellow, and [FND] checkpoint approval.
+- 2026-06-28: LCB-002 completed through RGB-TDD with Blue, Yellow, and [FND] checkpoint approval.

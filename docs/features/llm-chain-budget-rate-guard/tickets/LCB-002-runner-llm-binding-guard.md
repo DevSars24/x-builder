@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # LCB-002: [FND] Add runner LLM binding guard
@@ -112,3 +112,4 @@ Isolation boundary: no real browser, live x.com page, real engine services, LLM 
 
 - 2026-06-28: Ticket authored from approved arch recon.
 - 2026-06-28: RGB pipeline started; ticket moved to in-progress.
+- 2026-06-28: Red/Green completed; Blue, Yellow, and [FND] architecture checkpoint approved. Implemented in `7d4374b`, `2235088`, `4e02f37`, `d3a00e2`, and `990f0fe`.
