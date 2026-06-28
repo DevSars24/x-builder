@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   apiErrorSchema,
@@ -8,7 +12,10 @@ import {
 } from "@x-builder/shared";
 
 import type { StructuredLlmRequest } from "../../llm/structured-llm-service";
+import { openEngineDatabase } from "../open-engine-database";
 import { buildServer } from "../server";
+import { JsonFileAppSettingsRepository } from "../settings-repository";
+import { SqlitePostLibraryRepository } from "../sqlite-post-library-repository";
 
 const parseJson = (payload: string): unknown => JSON.parse(payload);
 
@@ -200,7 +207,10 @@ describe("POST /drafts/apply-suggestions", () => {
     const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => defaultApplyNowMs);
     advanceRewritePastBudget.enabled = true;
 
-    const app = buildServer();
+    const tempRoot = mkdtempSync(join(tmpdir(), "x-builder-http-apply-budget-"));
+    const settingsRepository = new JsonFileAppSettingsRepository({ root: join(tempRoot, "settings") });
+    const postLibraryRepository = new SqlitePostLibraryRepository(openEngineDatabase(":memory:"));
+    const app = buildServer({ settingsRepository, postLibraryRepository });
 
     try {
       const response = await app.inject({
@@ -222,6 +232,7 @@ describe("POST /drafts/apply-suggestions", () => {
     } finally {
       nowSpy.mockRestore();
       await app.close();
+      rmSync(tempRoot, { recursive: true, force: true });
     }
   });
 
