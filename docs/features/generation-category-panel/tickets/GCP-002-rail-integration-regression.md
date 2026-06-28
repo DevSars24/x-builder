@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # GCP-002: [INT] Rail Integration Regression
@@ -90,3 +90,4 @@ Isolation boundary: browser test DOM fixture; no port inference, no real page na
 - 2026-06-28: Ticket authored from approved arch recon; validator concern folded into stacked-mode wording.
 
 - 2026-06-28: RGB `[INT]` pipeline started; pre-flight passed and ticket moved to in-progress.
+- 2026-06-28: Purple integration tests approved after one Blue rejection/fix cycle; focused cockpit rail block passed 4/4; gates clean.
