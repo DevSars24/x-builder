@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # LCB-003: Enforce generate chain budget
@@ -97,3 +97,4 @@ Isolation boundary: no real provider, child process, browser, live x.com, runtim
 - 2026-06-28: Ticket authored from approved arch recon.
 - 2026-06-28: RGB audit fix: specified provider per-call timeout cap and chain-timeout fan-out failure behavior.
 - 2026-06-28: RGB pipeline started; ticket moved to in-progress.
+- 2026-06-28: Red/Green completed; Blue and Yellow approved. Implemented in `6645b12`, `5f1363a`, `1bccd3b`, and `2ffc52d`.
