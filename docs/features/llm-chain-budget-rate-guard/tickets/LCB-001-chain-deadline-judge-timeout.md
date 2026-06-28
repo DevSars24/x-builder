@@ -1,5 +1,5 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # LCB-001: [FND] Add chain deadline and judge timeout override
@@ -94,3 +94,4 @@ Isolation boundary: no real LLM provider, child process, filesystem, database, r
 ## Pipeline Log
 
 - 2026-06-28: Ticket authored from approved arch recon.
+- 2026-06-28: RGB pipeline started; ticket moved to in-progress.
