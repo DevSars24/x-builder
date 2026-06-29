@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # EFL-002: [FND] Add pattern-only snapshot reader
@@ -82,3 +82,5 @@ Coverage level: engine repository tests. Owning suite: external signals reposito
 
 - 2026-06-29: Ticket authored from approved arch recon.
 - 2026-06-29: RGB pipeline started.
+- 2026-06-29: Red approved. Green added `listGenerationPatterns` to the external signals repository boundary and SQLite implementation. Blue, Yellow, and foundation architecture checkpoint approved.
+- 2026-06-29: Verification: `vitest run src/external/sqlite-external-x-signals-repository.test.ts` passed 11/11, `vitest run src/external` passed 17/17, `tsc -p tsconfig.json --noEmit` passed, RGB gates clean.
