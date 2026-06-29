@@ -294,7 +294,11 @@ export function createBoundEngineServices(
       // error the transport propagates (nothing is swallowed).
       judge: async (request: JudgeDraftRequest): Promise<JudgeDraftResponse> => {
         const outcome =
-          request.accountProfile !== undefined
+          request.replyContext !== undefined
+            ? await judgeDraftService.judge(request.text, request.accountProfile, {
+                replyContext: request.replyContext,
+              })
+          : request.accountProfile !== undefined
             ? await judgeDraftService.judge(request.text, request.accountProfile)
             : await judgeDraftService.judge(request.text);
 

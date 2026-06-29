@@ -7,7 +7,10 @@ import {
   type ReplyComposerContext,
 } from "@x-builder/shared";
 
-import { formatReplyContextPromptBlock } from "../reply-context.js";
+import {
+  formatReplyContextPromptBlock,
+  stripLeadingReplyTargetHandle,
+} from "../reply-context.js";
 import { ChainDeadline } from "./chain-deadline.js";
 import type { GenerationGuidanceRequest, GenerationGuidanceResolver } from "./generation-guidance.js";
 import {
@@ -184,6 +187,27 @@ const generationInstructions = (
   return base;
 };
 
+const normalizeGeneratedReplyCandidates = (
+  candidates: GeneratedDrafts["candidates"],
+  replyContext?: ReplyComposerContext,
+): GeneratedDrafts["candidates"] => {
+  if (replyContext === undefined) {
+    return candidates;
+  }
+
+  return candidates.map((candidate) => {
+    const stripped = stripLeadingReplyTargetHandle(candidate.text, replyContext);
+    const text = stripped.text.trim();
+    if (text.length === 0) {
+      throw new IdeaGenerationError(
+        "Generated reply candidate was empty after removing the structural target handle.",
+        "structured_output_invalid",
+      );
+    }
+    return { ...candidate, text };
+  });
+};
+
 export class GenerateIdeasService {
   private readonly chainTimeoutMs: number;
 
@@ -276,7 +300,7 @@ export class GenerateIdeasService {
       throw new IdeaGenerationError(result.message, result.code);
     }
 
-    const generated = result.output.candidates;
+    const generated = normalizeGeneratedReplyCandidates(result.output.candidates, replyContext);
 
     // Fewer or more than the contracted count is a generate failure, not a
     // judge failure — the overlay must not render a short-changed batch.

@@ -1354,7 +1354,11 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     // passed and the model returns a null audienceMatch.
     const accountProfile = await resolveJudgeAccountProfile(input.accountProfile);
     const outcome =
-      accountProfile !== undefined
+      input.replyContext !== undefined
+        ? await judgeDraftService.judge(input.text, accountProfile, {
+            replyContext: input.replyContext,
+          })
+        : accountProfile !== undefined
         ? await judgeDraftService.judge(input.text, accountProfile)
         : await judgeDraftService.judge(input.text);
 
