@@ -1,5 +1,5 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # EFL-003: Wire external pattern guidance into generation
@@ -114,3 +114,4 @@ Coverage level: engine unit and service tests plus construction tests. Owning su
 ## Pipeline Log
 
 - 2026-06-29: Ticket authored from approved arch recon. Validator construction-contract fix included.
+- 2026-06-29: RGB pipeline started.
