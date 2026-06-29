@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # EFL-003: Wire external pattern guidance into generation
@@ -115,3 +115,6 @@ Coverage level: engine unit and service tests plus construction tests. Owning su
 
 - 2026-06-29: Ticket authored from approved arch recon. Validator construction-contract fix included.
 - 2026-06-29: RGB pipeline started.
+- 2026-06-29: Red approved. Green wired `ExternalPatternGuidanceProvider` into `createGenerationGuidanceResolver`, server construction, and runner bound services without changing public generate schemas, transport, overlay UI, or judge/apply inputs.
+- 2026-06-29: Yellow rejected once because `RunnerApp` constructed a persistent external signals repository but passed only `ExternalXSignalsService` into `createBoundEngineServices`, disabling generation guidance in the real runner path. Green fixed `RunnerApp` to retain and pass the same repository as `externalPatternSnapshotReader`.
+- 2026-06-29: Blue and Yellow approved after the runner wiring fix. Verification: engine targeted tests passed 36/36, runner targeted tests passed 22/22, engine and runner typecheck passed, RGB gates clean. Repo-level pnpm/turbo lint could not run honestly because the pnpm wrapper attempted dependency/build approval before lint tasks; package-local typechecks covered the changed packages.
