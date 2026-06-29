@@ -1,5 +1,5 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # EFL-004: Enforce no-contamination boundaries
@@ -77,3 +77,4 @@ Coverage level: static policy tests plus focused runtime contract tests. Owning 
 ## Pipeline Log
 
 - 2026-06-29: Ticket authored from approved arch recon.
+- 2026-06-29: RGB pipeline started.
