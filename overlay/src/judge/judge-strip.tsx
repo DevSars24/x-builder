@@ -62,6 +62,8 @@ export interface JudgeStripProps {
   onRunJudge: () => void;
   /** Whether the judge can run now (text present + the LLM judge is ready). */
   canRunJudge: boolean;
+  /** Whether the manual judge affordance should render even while disabled. */
+  showRunJudge?: boolean;
   /** `deriveApproved(verdict)` — drives the "✓ Judge approved" badge on generated. */
   approved: boolean;
   onApplyAll: () => void;
@@ -389,14 +391,22 @@ function JudgedBody({
 function RunJudgeButton({
   judged,
   onRunJudge,
+  disabled,
 }: {
   judged: boolean;
   onRunJudge: () => void;
+  disabled: boolean;
 }): ReactElement {
   // Once judged, re-running is a utility → subtle ghost. Before, it's the only
   // action → the filled (secondary) one. Small + flat (no glow) for the toolbar.
   return (
-    <Button variant={judged ? "ghost" : "secondary"} size="sm" flat onClick={onRunJudge}>
+    <Button
+      variant={judged ? "ghost" : "secondary"}
+      size="sm"
+      flat
+      onClick={onRunJudge}
+      disabled={disabled}
+    >
       {judged ? "↻ Re-run judge" : "Run judge"}
     </Button>
   );
@@ -485,6 +495,7 @@ function JudgeActionRow({
   provenance,
   applyState,
   canRunJudge,
+  showRunJudge,
   onRunJudge,
   onApplyAll,
 }: {
@@ -492,19 +503,22 @@ function JudgeActionRow({
   provenance: ProvenanceState;
   applyState: ApplyState;
   canRunJudge: boolean;
+  showRunJudge: boolean;
   onRunJudge: () => void;
   onApplyAll: () => void;
 }): ReactElement | null {
   const isJudged = judge.status === "judged";
   const showApply = applyState === "idle" && provenance === "user_written" && isJudged;
 
-  if (!canRunJudge && !showApply) {
+  if (!showRunJudge && !showApply) {
     return null;
   }
 
   return (
     <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap", alignItems: "center" }}>
-      {canRunJudge ? <RunJudgeButton judged={isJudged} onRunJudge={onRunJudge} /> : null}
+      {showRunJudge ? (
+        <RunJudgeButton judged={isJudged} onRunJudge={onRunJudge} disabled={!canRunJudge} />
+      ) : null}
       {showApply ? <ApplyAllButton onApplyAll={onApplyAll} /> : null}
     </div>
   );
@@ -558,6 +572,7 @@ export function JudgeStrip({
   applyState,
   onRunJudge,
   canRunJudge,
+  showRunJudge = canRunJudge,
   approved,
   onApplyAll,
   explainer,
@@ -581,6 +596,7 @@ export function JudgeStrip({
           provenance={provenance}
           applyState={applyState}
           canRunJudge={canRunJudge}
+          showRunJudge={showRunJudge}
           onRunJudge={onRunJudge}
           onApplyAll={onApplyAll}
         />

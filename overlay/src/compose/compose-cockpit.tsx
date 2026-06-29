@@ -123,6 +123,10 @@ function chooseBestCandidate(candidates: GeneratedIdeaCandidate[]): GeneratedIde
   return candidates[0]!;
 }
 
+function readComposerText(composerEl: HTMLElement): string {
+  return composerEl.innerText ?? composerEl.textContent ?? "";
+}
+
 function optionalReplyContext(
   replyContext: ReplyComposerContext | undefined,
 ): { replyContext?: ReplyComposerContext } {
@@ -148,6 +152,48 @@ function stripLeadingReplyTargetHandle(
   return withoutWhitespace.slice(duplicate[0].length);
 }
 
+function structuralPrefixForReplyText(text: string, targetHandle: string): string {
+  const firstMention = text.match(/^@([A-Za-z0-9_]{1,15})(?:\s+|$)/);
+  if (firstMention === null || firstMention[1]?.toLowerCase() !== targetHandle.toLowerCase()) {
+    return "";
+  }
+  return text.match(/^((?:@[A-Za-z0-9_]{1,15}(?:\s+|$))+)/)?.[1] ?? firstMention[0];
+}
+
+function splitComposerText(
+  composerText: string,
+  replyContext: ReplyComposerContext | undefined,
+): ReplyDraftSplit {
+  if (replyContext === undefined) {
+    return {
+      mode: "post",
+      authoredBody: composerText,
+      structuralPrefix: "",
+      leadingHandleState: "user_deleted",
+      merge: (body) => body,
+    };
+  }
+
+  const structuralPrefix = structuralPrefixForReplyText(
+    composerText,
+    replyContext.leadingTargetHandle.handle,
+  );
+  const leadingHandleState = structuralPrefix.length > 0 ? "present" : "user_deleted";
+  return {
+    mode: "reply",
+    authoredBody:
+      leadingHandleState === "present"
+        ? composerText.slice(structuralPrefix.length)
+        : composerText,
+    structuralPrefix,
+    leadingHandleState,
+    merge(body) {
+      if (leadingHandleState === "user_deleted") return body;
+      return structuralPrefix + stripLeadingReplyTargetHandle(body, replyContext);
+    },
+  };
+}
+
 function bodyTextForCompose(
   composerText: string,
   draftSplit: ReplyDraftSplit,
@@ -170,6 +216,20 @@ function mergeReplyBody(
 ): string {
   const strippedBody = stripLeadingReplyTargetHandle(body, replyContext);
   return replyContext === undefined ? strippedBody : draftSplit.merge(strippedBody);
+}
+
+function contextForSplit(
+  replyContext: ReplyComposerContext | undefined,
+  draftSplit: ReplyDraftSplit,
+): ReplyComposerContext | undefined {
+  if (replyContext === undefined) return undefined;
+  return {
+    ...replyContext,
+    leadingTargetHandle: {
+      ...replyContext.leadingTargetHandle,
+      state: draftSplit.leadingHandleState,
+    },
+  };
 }
 
 /** Derive the StaticEngineColumn analyze state from the machine phase. */
@@ -365,6 +425,18 @@ function ActiveCockpit({
   // The dialog element that hosts the composer (the pin anchor rect source).
   const dialogEl = composerEl.closest<HTMLElement>('[role="dialog"]');
   const requestText = bodyTextForCompose(composerText, draftSplit, replyContext);
+
+  const readLiveCompose = useCallback(() => {
+    const text = readComposerText(composerEl);
+    const split = splitComposerText(text, replyContext);
+    const context = contextForSplit(replyContext, split);
+    return {
+      text,
+      split,
+      replyContext: context,
+      bodyText: bodyTextForCompose(text, split, context),
+    };
+  }, [composerEl, replyContext]);
 
   // The shadow-host-relative single per-frame snapshot for the pins (and the
   // same composer the one highlight layer rides).
@@ -575,16 +647,15 @@ function ActiveCockpit({
         }
 
         dispatch({ type: "analyze_succeeded", analyzeResult, followers });
-        if (replyContext === undefined && !/^@[A-Za-z0-9_]{1,15}(?:\s+|$)/.test(analyzeText)) {
-          runJudge(analyzeText, text);
-        }
+        // The judge does NOT auto-run on edits (XOB #4) — only on an explicit
+        // Run judge click. The static score above still updates live as you type.
       })();
     }, ANALYZE_DEBOUNCE_MS);
 
     return () => {
       if (timer !== null) clearTimeout(timer);
     };
-  }, [composerText, requestText, transport, followers, replyContext, runJudge]);
+  }, [composerText, requestText, transport, followers, replyContext]);
 
   // ---- Raw-input abort: a genuine edit aborts in-flight work immediately ----
   useEffect(() => {
@@ -622,20 +693,22 @@ function ActiveCockpit({
   // ---- Generate (auto-apply-best) ------------------------------------------
   const onGenerate = useCallback(
     (category: GenerateCategory): void => {
+      const action = readLiveCompose();
       const token = ++tokenRef.current;
       dispatch({ type: "generate_started", categoryId: category.id });
       void (async () => {
         try {
           const response = await transport.generateIdeas({
             format: category.format,
-            ...optionalReplyContext(replyContext),
+            ...optionalReplyContext(action.replyContext),
           });
           if (tokenRef.current !== token) return;
           const best = chooseBestCandidate(response.candidates);
-          const hasCandidateVerdict = best.verdict !== undefined;
-          const writtenBody = stripLeadingReplyTargetHandle(best.text, replyContext);
-          const written = mergeReplyBody(writtenBody, draftSplit, replyContext);
-          writeComposer(written, hasCandidateVerdict);
+          const latest = readLiveCompose();
+          const writeContext = latest.replyContext ?? action.replyContext;
+          const writtenBody = stripLeadingReplyTargetHandle(best.text, writeContext);
+          const written = mergeReplyBody(writtenBody, latest.split, writeContext);
+          writeComposer(written, true);
           // Draft adopts the text asynchronously, so analyze/judge the REQUESTED
           // text rather than reading the (stale) composer back synchronously.
 
@@ -648,7 +721,7 @@ function ActiveCockpit({
           try {
             const analysis = await transport.analyzePosts({
               items: [
-                { id: "compose-draft", text: writtenBody, ...optionalReplyContext(replyContext) },
+                { id: "compose-draft", text: writtenBody, ...optionalReplyContext(action.replyContext) },
               ],
               scoringContext: followers !== undefined ? { followers } : {},
               presentation: { postCoachMode: "preview" },
@@ -666,7 +739,7 @@ function ActiveCockpit({
           if (analyzeResult !== undefined) {
             dispatch({ type: "analyze_succeeded", analyzeResult, followers });
           }
-          recordFeedback("generated_draft_written", writtenBody, analyzeResult, token, replyContext);
+          recordFeedback("generated_draft_written", writtenBody, analyzeResult, token, action.replyContext);
 
           if (best.verdict !== undefined) {
             // Pre-judged candidate: adopt its verdict (generated posts are judged
@@ -675,7 +748,7 @@ function ActiveCockpit({
             setJudgeUi({ status: "judged", verdict: best.verdict, judgedText: written });
           } else {
             // Verdict-less candidate: run the judge on the written text.
-            runJudge(writtenBody, written, replyContext);
+            runJudge(writtenBody, written, action.replyContext);
           }
         } catch {
           if (tokenRef.current !== token) return;
@@ -683,12 +756,13 @@ function ActiveCockpit({
         }
       })();
     },
-    [transport, writeComposer, runJudge, followers, recordFeedback, replyContext, draftSplit],
+    [transport, writeComposer, runJudge, followers, recordFeedback, readLiveCompose],
   );
 
   // ---- Apply-all (improve) -------------------------------------------------
   const onApplyAll = useCallback((): void => {
-    const text = requestText;
+    const action = readLiveCompose();
+    const text = action.bodyText;
     if (text.trim() === "") return;
     const token = ++tokenRef.current;
     dispatch({ type: "apply_started" });
@@ -696,12 +770,14 @@ function ActiveCockpit({
       try {
         const result = await transport.applyJudgeSuggestions({
           text,
-          ...optionalReplyContext(replyContext),
+          ...optionalReplyContext(action.replyContext),
         });
         if (tokenRef.current !== token) return; // edit aborted the apply
         // Write the improved text + re-pin the green anchor (provenance generated).
-        const writtenBody = stripLeadingReplyTargetHandle(result.text, replyContext);
-        const written = mergeReplyBody(writtenBody, draftSplit, replyContext);
+        const latest = readLiveCompose();
+        const writeContext = latest.replyContext ?? action.replyContext;
+        const writtenBody = stripLeadingReplyTargetHandle(result.text, writeContext);
+        const written = mergeReplyBody(writtenBody, latest.split, writeContext);
         writeComposer(written, true);
         // Adopt the post-apply verdict (judged against the improved text).
         judgeTokenRef.current += 1;
@@ -711,7 +787,7 @@ function ActiveCockpit({
           verdict: result.verdict,
           improvedOverOriginal: result.improvedOverOriginal,
         });
-        recordFeedback("apply_all_result_written", writtenBody, undefined, token, replyContext);
+        recordFeedback("apply_all_result_written", writtenBody, undefined, token, action.replyContext);
       } catch (error) {
         if (tokenRef.current !== token) return;
         dispatch({
@@ -720,7 +796,7 @@ function ActiveCockpit({
         });
       }
     })();
-  }, [requestText, transport, replyContext, writeComposer, draftSplit, recordFeedback]);
+  }, [transport, writeComposer, recordFeedback, readLiveCompose]);
 
   // ---- Retry handlers ------------------------------------------------------
   const onRetryStatic = useCallback((): void => {
@@ -756,8 +832,9 @@ function ActiveCockpit({
   // Manual judge: the always-present Run/Re-run button judges the LIVE composer
   // text (XOB #4). The judge never runs on its own.
   const onRunJudge = useCallback((): void => {
-    runJudge(requestText, composerText, replyContext);
-  }, [requestText, composerText, replyContext, runJudge]);
+    const action = readLiveCompose();
+    runJudge(action.bodyText, action.text, action.replyContext);
+  }, [readLiveCompose, runJudge]);
 
   // ---- Derived child props --------------------------------------------------
   const analyzeState = deriveAnalyzeState(state.phase);
@@ -771,7 +848,8 @@ function ActiveCockpit({
   const latestVerdict: JudgeVerdict | null =
     judgeUi.status === "judged" ? judgeUi.verdict : null;
   const judgeReady = readiness?.llm?.state === "ready";
-  const canRunJudge = composerText.trim().length > 0 && judgeReady;
+  const canRunJudge = requestText.trim().length > 0 && judgeReady;
+  const showRunJudge = composerText.trim().length > 0 && judgeReady;
 
   // Map the decoupled judge UI onto the JudgeStrip display state.
   const judgeState: JudgeState =
@@ -849,6 +927,7 @@ function ActiveCockpit({
                   applyState={state.applyState as ApplyState}
                   onRunJudge={onRunJudge}
                   canRunJudge={canRunJudge}
+                  showRunJudge={showRunJudge}
                   approved={ctx.approved}
                   onApplyAll={onApplyAll}
                   explainer={explainer}
