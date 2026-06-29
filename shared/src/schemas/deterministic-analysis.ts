@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { cooldownSignalSchema } from "./cooldown.js";
 import { deterministicSourceFormatSchema, detectedPostFormatSchema } from "./post-formats.js";
+import { replyComposerContextSchema } from "./reply-composer-context.js";
 export { deterministicSourceFormatSchema, detectedPostFormatSchema };
 
 const voiceCheckSchema = z.object({
@@ -122,6 +123,7 @@ const analyzePostsRequestItemSchema = z.object({
   id: z.string().min(1).max(120),
   text: z.string().min(1).max(8_000),
   sourceFormat: deterministicSourceFormatSchema.optional(),
+  replyContext: replyComposerContextSchema.optional(),
 });
 
 export const repeatHistoryEntrySchema = z.object({

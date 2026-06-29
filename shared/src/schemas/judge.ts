@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { replyComposerContextSchema } from "./reply-composer-context.js";
 
 export const judgeAnnotationSchema = z.object({
   quote: z.string().min(1).max(280),
@@ -11,6 +12,7 @@ export const judgeDraftRequestSchema = z.object({
   // the (slow, paid) judge.
   text: z.string().trim().min(1).max(8_000),
   accountProfile: z.string().trim().min(1).max(600).optional(),
+  replyContext: replyComposerContextSchema.optional(),
 });
 
 const judgeScoreValue = z.number().int().min(0).max(100);

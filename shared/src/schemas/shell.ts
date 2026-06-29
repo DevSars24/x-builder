@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { detectedPostFormatSchema } from "./post-formats.js";
 import { judgeVerdictSchema } from "./judge.js";
+import { replyComposerContextSchema } from "./reply-composer-context.js";
 
 const localEngineUrlMessage = "Engine base URL must use http(s) localhost or 127.0.0.1.";
 
@@ -156,6 +157,7 @@ export const generateIdeaRequestSchema = z
     format: detectedPostFormatSchema.optional(),
     voiceProfileId: z.string().min(1).max(120).optional(),
     useKnownPostIds: z.array(z.string().min(1).max(240)).max(25).default([]).optional(),
+    replyContext: replyComposerContextSchema.optional(),
   })
   .refine((v) => v.idea !== undefined || v.format !== undefined, {
     message: "At least one of idea or format must be provided.",

@@ -39,6 +39,9 @@ export {
   judgeVerdictSchema,
 } from "./schemas/judge.js";
 export {
+  replyComposerContextSchema,
+} from "./schemas/reply-composer-context.js";
+export {
   apiErrorSchema,
   appSettingsResponseSchema,
   appSettingsSchema,
@@ -177,6 +180,9 @@ export type {
   JudgeVerdict,
   JudgeVerdictLabel,
 } from "./schemas/judge.js";
+export type {
+  ReplyComposerContext,
+} from "./schemas/reply-composer-context.js";
 export type {
   ApiError,
   AppSettings,
