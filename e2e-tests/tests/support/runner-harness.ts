@@ -72,6 +72,14 @@ export interface FakeLlmPolicy {
    * running" pulse is observable. Does not apply to "hang"/"fail".
    */
   judgeLatencyMs: number;
+  /**
+   * Optional exact writer-variants output. Reply-context specs use this to
+   * assert prefix merging against a stable generated body instead of inheriting
+   * the service's full prompt text through the fake LLM echo.
+   */
+  writerVariants?: string[];
+  /** Optional exact Apply-all rewrite body for stable composer-write assertions. */
+  rewriteText?: string;
 }
 
 export function defaultLlmPolicy(): FakeLlmPolicy {
@@ -212,6 +220,16 @@ function createFakeLlm(policy: FakeLlmPolicy): FakeLlm {
     }
 
     if (purpose === "writer_first_pass") {
+      if (policy.rewriteText !== undefined) {
+        return {
+          status: "success" as const,
+          provider: "codex-cli",
+          requestId: "req-fake-rewrite",
+          output: request.structuredOutput.parser({ text: policy.rewriteText }),
+          durationMs: 1,
+          completedAt: ISO,
+        };
+      }
       // The Apply-all rewrite. Make it strictly longer than the original so the
       // re-judge scores higher and the never-worse guard keeps the improved text.
       const improved = `${userContent} Now with a sharper, more answerable closing question.`;
@@ -228,12 +246,15 @@ function createFakeLlm(policy: FakeLlmPolicy): FakeLlm {
     // writer_variants: three distinct drafts derived from the seed. Each is long
     // enough that its subsequent judge pass lands in the approved band so the
     // generate→judge refine returns pre-approved candidates (Flow B).
+    const variantTexts = policy.writerVariants;
     const raw = {
-      candidates: [
+      candidates: (variantTexts ?? [
         { id: "c1", text: `${userContent} :: a first sharp angle worth posting today.` },
         { id: "c2", text: `${userContent} :: a second distinct angle that reads like a person.` },
         { id: "c3", text: `${userContent} :: a third angle with a concrete, answerable hook.` },
-      ],
+      ]).map((candidate, index) =>
+        typeof candidate === "string" ? { id: `c${index + 1}`, text: candidate } : candidate,
+      ),
     };
     return {
       status: "success" as const,
@@ -288,12 +309,45 @@ export interface SeedCapturedPostInput {
   id?: string;
 }
 
+export type CapturedTransportMethod =
+  | "analyzePosts"
+  | "judgeDraft"
+  | "generateIdeas"
+  | "applyJudgeSuggestions";
+
+export interface CapturedTransportCall {
+  method: CapturedTransportMethod;
+  arg: unknown;
+}
+
+const capturedTransportMethods = new Set<string>([
+  "analyzePosts",
+  "judgeDraft",
+  "generateIdeas",
+  "applyJudgeSuggestions",
+]);
+
+const transportMethodByBinding = new Map<string, CapturedTransportMethod>(
+  [
+    ["__xbuilder_analyzePosts", "analyzePosts"],
+    ["__xbuilder_judgeDraft", "judgeDraft"],
+    ["__xbuilder_generateIdeas", "generateIdeas"],
+    ["__xbuilder_applyJudgeSuggestions", "applyJudgeSuggestions"],
+  ],
+);
+
+function cloneTransportArg(arg: unknown): unknown {
+  return arg === undefined ? undefined : JSON.parse(JSON.stringify(arg));
+}
+
 export interface RunnerHarness {
   app: RunnerApp;
   page: Page;
   context: BrowserContext;
   log: MockXLog;
   llm: FakeLlm;
+  /** Raw overlay→runner exposed-function arguments for high-value transport calls. */
+  transportCalls: CapturedTransportCall[];
   /** Mount the overlay (bounded wait; throws a descriptive error on failure). */
   mountOverlay(): Promise<void>;
   /** Invoke a page-exposed `__xbuilder_<method>` engine binding directly. */
@@ -332,6 +386,7 @@ export async function startRunner(options: StartRunnerOptions = {}): Promise<Run
   let context!: BrowserContext;
   let log!: MockXLog;
   let seedCapturedPostImpl: ((input: SeedCapturedPostInput) => Promise<void>) | undefined;
+  const transportCalls: CapturedTransportCall[] = [];
 
   const app = new RunnerApp({
     engineSettingsDir,
@@ -389,7 +444,24 @@ export async function startRunner(options: StartRunnerOptions = {}): Promise<Run
         observer,
         readinessService: readyReadinessService(),
       } as never);
-      await ExposeFunctionTransport.bindAll(page as never, bundle);
+      const playwrightPage = page as unknown as Pick<Page, "exposeFunction">;
+      const recordingPage = {
+        exposeFunction: (name: string, handler: (arg: unknown) => unknown) =>
+          playwrightPage.exposeFunction(name, async (arg: unknown) => {
+            const method = transportMethodByBinding.get(name);
+            if (method !== undefined && capturedTransportMethods.has(method)) {
+              transportCalls.push({
+                method: method as CapturedTransportMethod,
+                arg: cloneTransportArg(arg),
+              });
+              if (process.env.XB_E2E_DEBUG) {
+                console.log("[transport]", method, JSON.stringify(arg));
+              }
+            }
+            return handler(arg);
+          }),
+      };
+      await ExposeFunctionTransport.bindAll(recordingPage as never, bundle);
     },
     // Register observe-only listeners on the context. External registered
     // sources are written to the external ledger and skipped by own-post capture.
@@ -430,6 +502,7 @@ export async function startRunner(options: StartRunnerOptions = {}): Promise<Run
     context,
     log,
     llm,
+    transportCalls,
     mountOverlay: () => mountOverlay(page),
     callBinding: (method: string, arg?: unknown) => callBinding(page, method, arg),
     seedCapturedPost: async (input: SeedCapturedPostInput): Promise<void> => {
