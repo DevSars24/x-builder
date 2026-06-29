@@ -61,7 +61,10 @@ function buildReplyTargetArticle(opts: ReplyTargetFixture): HTMLElement {
   return article;
 }
 
-function buildXComposerFixture(opts?: { replyTarget?: ReplyTargetFixture }): XFixture {
+function buildXComposerFixture(opts?: {
+  replyTarget?: ReplyTargetFixture;
+  outsideTarget?: ReplyTargetFixture;
+}): XFixture {
   const root = document.createElement("div");
   root.dataset.xbFixture = "reply-context";
 
@@ -82,6 +85,11 @@ function buildXComposerFixture(opts?: { replyTarget?: ReplyTargetFixture }): XFi
 
   dialog.append(composer, button);
   root.append(dialog);
+
+  if (opts?.outsideTarget) {
+    root.append(buildReplyTargetArticle(opts.outsideTarget));
+  }
+
   document.body.append(root);
 
   return {
@@ -128,7 +136,10 @@ afterEach(() => {
   document.querySelectorAll('[data-xb-fixture="reply-context"]').forEach((n) => n.remove());
 });
 
-function fixture(opts?: { replyTarget?: ReplyTargetFixture }): XFixture {
+function fixture(opts?: {
+  replyTarget?: ReplyTargetFixture;
+  outsideTarget?: ReplyTargetFixture;
+}): XFixture {
   const f = buildXComposerFixture(opts);
   fixtures.push(f);
   return f;
@@ -207,6 +218,34 @@ describe("AnchorLayer reply compose context", () => {
       leadingHandleState: "user_deleted",
     });
     expect(latest?.draftSplit.merge("new body")).toBe("new body");
+  });
+
+  it("does not infer reply mode from complete target evidence outside the active dialog", async () => {
+    const f = fixture({
+      outsideTarget: {
+        handle: "alice",
+        statusId: "1930000000000000001",
+        targetText: "A complete tweet outside the dialog is timeline context, not reply context.",
+      },
+    });
+    typeInto(f.composer, "@alice good point");
+    let latest: ReturnType<typeof useComposeContext> | undefined;
+
+    render(
+      <AnchorLayer>
+        <ComposeProbe sink={(v) => (latest = v)} />
+      </AnchorLayer>,
+    );
+
+    await settleCompose();
+    expect(latest?.mode).toBe("post");
+    expect(latest?.replyContext).toBeUndefined();
+    expect(latest?.draftSplit).toMatchObject({
+      mode: "post",
+      authoredBody: "@alice good point",
+      structuralPrefix: "",
+      leadingHandleState: "user_deleted",
+    });
   });
 
   it("withholds reply context when the same-dialog target article lacks required evidence", async () => {
