@@ -1,5 +1,5 @@
 ---
-status: todo
+status: in-progress
 ---
 
 # EFL-006: [DOC] Document External Feedback Loop
@@ -33,3 +33,4 @@ Document:
 ## Pipeline Log
 
 - 2026-06-29: Ticket authored from approved arch recon. Documentation target and Diataxis quadrant added per validator requirement.
+- 2026-06-29: Documentation pipeline started after EFL-005 approval.
