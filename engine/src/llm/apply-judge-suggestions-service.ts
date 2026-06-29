@@ -3,8 +3,13 @@ import {
   type ApplyJudgeSuggestionsRequest,
   type ApplyJudgeSuggestionsResponse,
   type JudgeVerdict,
+  type ReplyComposerContext,
 } from "@x-builder/shared";
 
+import {
+  formatReplyContextPromptBlock,
+  stripLeadingReplyTargetHandle,
+} from "../reply-context.js";
 import { ChainDeadline } from "./chain-deadline.js";
 import {
   type JudgeDraft,
@@ -112,8 +117,13 @@ const resolveProviderId = async (
 // Build the rewrite system prompt: each annotation becomes a span-level fix
 // ("Fix: [quote] — [recommendation]"), each improvement a structural directive,
 // and the model is told to preserve voice, topic, and length while applying
-// every fix. Empty lists leave the model to improve on its own judgment.
-const rewriteInstructions = (verdict: JudgeVerdict): string => {
+// every fix. Empty lists leave the model to improve on its own judgment. Reply
+// context is included only as untrusted framing and the returned text remains
+// authored body text, not the composer's structural handle prefix.
+const rewriteInstructions = (
+  verdict: JudgeVerdict,
+  replyContext?: ReplyComposerContext,
+): string => {
   const lines = [
     "You are an expert X (Twitter) editor revising a single draft post.",
     "Apply every fix below while preserving the author's voice, keeping the same",
@@ -134,6 +144,10 @@ const rewriteInstructions = (verdict: JudgeVerdict): string => {
     for (const improvement of improvements) {
       lines.push(`Improvement: ${improvement}`);
     }
+  }
+
+  if (replyContext !== undefined) {
+    lines.push(formatReplyContextPromptBlock(replyContext));
   }
 
   lines.push(
@@ -162,12 +176,25 @@ export class ApplyJudgeSuggestionsService {
   ): Promise<ApplyJudgeSuggestionsResponse> {
     const deadline = new ChainDeadline({ budgetMs: this.chainTimeoutMs });
     const profile = await this.resolveProfileSafely();
+    const authoredText =
+      request.replyContext === undefined
+        ? request.text
+        : stripLeadingReplyTargetHandle(request.text, request.replyContext, {
+            structuralOnly: true,
+          }).text;
+    const judgeOptions = (timeoutMs: number) => ({
+      timeoutMs,
+      ...(request.replyContext === undefined ? {} : { replyContext: request.replyContext }),
+    });
+
 
     // Step 1 — judge the original. A failed judge is the never-recoverable head
     // of the chain: throw the typed error the route maps to generation_failed.
-    const originalOutcome = await this.judge.judge(request.text, profile, {
-      timeoutMs: remainingLlmTimeoutMs(deadline),
-    });
+    const originalOutcome = await this.judge.judge(
+      authoredText,
+      profile,
+      judgeOptions(remainingLlmTimeoutMs(deadline)),
+    );
     if (originalOutcome.status !== "judged") {
       throw new ApplySuggestionsError(
         originalOutcome.message,
@@ -183,8 +210,8 @@ export class ApplyJudgeSuggestionsService {
     const rewriteRequest: StructuredLlmRequest<string> = {
       provider,
       purpose: "writer_first_pass",
-      instructions: rewriteInstructions(originalVerdict),
-      turns: [{ role: "user", content: request.text }],
+      instructions: rewriteInstructions(originalVerdict, request.replyContext),
+      turns: [{ role: "user", content: authoredText }],
       structuredOutput: {
         name: "applied_suggestions_rewrite",
         schema: rewriteOutputSchema,
@@ -200,13 +227,18 @@ export class ApplyJudgeSuggestionsService {
 
     // The parser yields the rewritten string, so output is the text itself; the
     // unit fake sets output to that string directly.
-    const rewrittenText = rewriteResult.output;
+    const rewrittenText =
+      request.replyContext === undefined
+        ? rewriteResult.output
+        : stripLeadingReplyTargetHandle(rewriteResult.output, request.replyContext).text;
 
     // Step 3 — re-judge the rewrite. A failed re-judge throws as well, so the
     // route cannot return a rewrite whose quality is unknown.
-    const rewriteOutcome = await this.judge.judge(rewrittenText, profile, {
-      timeoutMs: remainingLlmTimeoutMs(deadline),
-    });
+    const rewriteOutcome = await this.judge.judge(
+      rewrittenText,
+      profile,
+      judgeOptions(remainingLlmTimeoutMs(deadline)),
+    );
     if (rewriteOutcome.status !== "judged") {
       throw new ApplySuggestionsError(
         rewriteOutcome.message,
@@ -221,7 +253,7 @@ export class ApplyJudgeSuggestionsService {
     // and approved flag always describe the RETURNED text.
     if (rewriteOverall <= originalOverall) {
       return {
-        text: request.text,
+        text: authoredText,
         verdict: originalVerdict,
         approved: deriveApproved(originalVerdict),
         improvedOverOriginal: false,

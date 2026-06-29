@@ -4,8 +4,10 @@ import {
   type GenerateIdeaRequest,
   type GenerateIdeaResponse,
   type GeneratedIdeaCandidate,
+  type ReplyComposerContext,
 } from "@x-builder/shared";
 
+import { formatReplyContextPromptBlock } from "../reply-context.js";
 import { ChainDeadline } from "./chain-deadline.js";
 import type { GenerationGuidanceRequest, GenerationGuidanceResolver } from "./generation-guidance.js";
 import {
@@ -36,6 +38,10 @@ const generatedCandidateCount = candidateRenderingFormats.length;
 // The shape the model is asked to return: exactly three { id, text } drafts.
 type GeneratedDrafts = {
   candidates: Array<{ id: string; text: string }>;
+};
+
+type FormatGenerationRequest = GenerationGuidanceRequest & {
+  replyContext?: ReplyComposerContext;
 };
 
 // A typed error so the route handler's catch maps fatal generation-chain failures
@@ -146,6 +152,7 @@ const resolveProviderId = async (
 const generationInstructions = (
   format: DetectedPostFormat,
   idea?: string,
+  replyContext?: ReplyComposerContext,
   guidance?: string,
 ): string => {
   const lines = [
@@ -160,6 +167,10 @@ const generationInstructions = (
     "Return only JSON matching the output schema: a candidates array of exactly",
     `${generatedCandidateCount} items, each with a short id and the draft text.`,
   ];
+
+  if (replyContext !== undefined) {
+    lines.push(formatReplyContextPromptBlock(replyContext));
+  }
 
   const base = lines.join(" ");
 
@@ -202,6 +213,7 @@ export class GenerateIdeasService {
       ...(input.idea === undefined ? {} : { idea: input.idea }),
       ...(input.voiceProfileId === undefined ? {} : { voiceProfileId: input.voiceProfileId }),
       useKnownPostIds: input.useKnownPostIds ?? [],
+      ...(input.replyContext === undefined ? {} : { replyContext: input.replyContext }),
     });
   }
 
@@ -228,17 +240,17 @@ export class GenerateIdeasService {
   }
 
   private async generateFromFormat(
-    guidanceRequest: GenerationGuidanceRequest,
+    guidanceRequest: FormatGenerationRequest,
   ): Promise<GenerateIdeaResponse> {
     const deadline = new ChainDeadline({ budgetMs: this.chainTimeoutMs });
     const provider = await resolveProviderId(this.resolveProvider);
     const guidance = await this.resolveGuidanceSafely(guidanceRequest);
-    const { format, idea } = guidanceRequest;
+    const { format, idea, replyContext } = guidanceRequest;
 
     const request: StructuredLlmRequest<GeneratedDrafts> = {
       provider,
       purpose: "writer_variants",
-      instructions: generationInstructions(format, idea, guidance),
+      instructions: generationInstructions(format, idea, replyContext, guidance),
       turns: [
         {
           role: "user",
@@ -282,12 +294,15 @@ export class GenerateIdeasService {
 
     const judgeTimeoutMs = remainingLlmTimeoutMs(deadline);
 
+    const judgeOptions = {
+      timeoutMs: judgeTimeoutMs,
+      ...(replyContext === undefined ? {} : { replyContext }),
+    };
+
     // Judge every candidate in parallel. Chain-budget and request-timeout
     // failures are fatal for the batch; other judge failures stay candidate-local.
     const judged = await Promise.allSettled(
-      generated.map((candidate) =>
-        this.judge.judge(candidate.text, profile, { timeoutMs: judgeTimeoutMs }),
-      ),
+      generated.map((candidate) => this.judge.judge(candidate.text, profile, judgeOptions)),
     );
 
     const fatal = judged.map(fatalJudgeError).find((error) => error !== undefined);

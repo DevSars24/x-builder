@@ -4,8 +4,10 @@ import {
   type AnalyzePostsRequest,
   type AnalyzePostsResponse,
   type AnalyzedPostItem,
+  type ReplyComposerContext,
 } from "@x-builder/shared";
 
+import { stripLeadingReplyTargetHandle } from "../reply-context.js";
 import {
   analyzerVersion,
   heuristicLabel,
@@ -15,9 +17,38 @@ import { sanitizeScoreLearnings } from "./learning-copy.js";
 import { deriveApiPostCoach } from "./post-coach-view-model.js";
 import { toEngagementPrediction } from "./prediction-view-model.js";
 import { detectExternalLink } from "./quality-signal-checks.js";
+import type { VoiceCheck } from "./voice-check.js";
 
 const nowIso = (): string => new Date().toISOString();
 type AnalyzePost = typeof analyzeDraftText;
+
+const duplicateLeadingTargetHandleCheck: VoiceCheck = {
+  id: "reply.duplicate-leading-target-handle",
+  kind: "quality",
+  label: "Remove duplicate reply target handle",
+  status: "warn",
+};
+
+const prepareReplyAnalysisText = (
+  text: string,
+  replyContext?: ReplyComposerContext,
+): { status: "ready"; text: string; checks: VoiceCheck[] } | { status: "empty" } => {
+  if (replyContext === undefined || replyContext.leadingTargetHandle.state !== "present") {
+    return { status: "ready", text, checks: [] };
+  }
+
+  const stripped = stripLeadingReplyTargetHandle(text, replyContext, { structuralOnly: true });
+  if (!stripped.stripped) {
+    return { status: "ready", text, checks: [] };
+  }
+
+  const bodyText = stripped.text.trim();
+  if (bodyText.length === 0) {
+    return { status: "empty" };
+  }
+
+  return { status: "ready", text: bodyText, checks: [duplicateLeadingTargetHandleCheck] };
+};
 
 export class DeterministicAnalysisService {
   private readonly analyzePost: AnalyzePost;
@@ -31,14 +62,27 @@ export class DeterministicAnalysisService {
     const analyzedAt = nowIso();
     const items = parsedRequest.items.map((item): AnalyzedPostItem => {
       let analysis: ReturnType<AnalyzePost>;
+      const prepared = prepareReplyAnalysisText(item.text, item.replyContext);
+
+      if (prepared.status === "empty") {
+        return {
+          status: "score_failed",
+          id: item.id,
+          text: item.text,
+          sourceFormat: item.sourceFormat,
+          reason: "analysis_failed",
+          message: "Reply body is empty after removing the structural target handle.",
+          retryable: false,
+        };
+      }
 
       try {
-        analysis = this.analyzePost(item.text, {
+        analysis = this.analyzePost(prepared.text, {
           followers: parsedRequest.scoringContext.followers,
           trailingMedianImpressions:
             parsedRequest.scoringContext.trailingMedianImpressions,
           repeatHistory: parsedRequest.scoringContext.repeatHistory ?? [],
-          hasExternalLink: detectExternalLink(item.text),
+          hasExternalLink: detectExternalLink(prepared.text),
           // Pass-2: a judged scoringContext threads judgeSignals into the reach
           // model's judged-quality branch. Absent (pass-1) -> static quality.
           ...(parsedRequest.scoringContext.judgeSignals !== undefined
@@ -61,10 +105,13 @@ export class DeterministicAnalysisService {
         };
       }
 
-      const score = sanitizeScoreLearnings(analysis.score);
+      const sanitizedScore = sanitizeScoreLearnings(analysis.score);
+      const score = prepared.checks.length === 0
+        ? sanitizedScore
+        : { ...sanitizedScore, checks: [...prepared.checks, ...sanitizedScore.checks] };
       const postCoach = deriveApiPostCoach({
         score,
-        text: item.text,
+        text: prepared.text,
         mode: parsedRequest.presentation.postCoachMode,
       });
       const prediction = toEngagementPrediction({

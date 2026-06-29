@@ -3,8 +3,10 @@ import {
   judgeVerdictSchema,
   type JudgeDraftResponse,
   type JudgeVerdict,
+  type ReplyComposerContext,
 } from "@x-builder/shared";
 
+import { formatReplyContextPromptBlock } from "../reply-context.js";
 import type {
   StructuredLlmProviderResult,
   StructuredLlmRequest,
@@ -177,6 +179,7 @@ export type JudgeDraftOutcome =
 
 export interface JudgeDraftOptions {
   timeoutMs?: number;
+  replyContext?: ReplyComposerContext;
 }
 
 export interface JudgeDraft {
@@ -211,12 +214,17 @@ export class JudgeDraftService implements JudgeDraft {
     const provider = await resolveValue(this.resolveProvider);
     const model = await this.resolveModel?.();
     // Thread the account profile into the prompt envelope only when present, so a
-    // profile-less judge keeps a clean envelope and the model returns a null
-    // audienceMatch per the rubric instructions.
-    const instructions =
-      accountProfile !== undefined
-        ? `${judgeInstructions} ${accountProfileInstruction(accountProfile)}`
-        : judgeInstructions;
+    // profile-less judge keeps a clean envelope. Reply context is a bounded,
+    // untrusted block that frames the draft without letting target text become
+    // instructions.
+    const instructionBlocks = [judgeInstructions];
+    if (accountProfile !== undefined) {
+      instructionBlocks.push(accountProfileInstruction(accountProfile));
+    }
+    if (options.replyContext !== undefined) {
+      instructionBlocks.push(formatReplyContextPromptBlock(options.replyContext));
+    }
+    const instructions = instructionBlocks.join(" ");
     const result = await this.llm.generateStructured({
       provider,
       purpose: "candidate_judge",
