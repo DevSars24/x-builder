@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: done
 ---
 
 # RCC-004: Reply-Aware Compose Cockpit Orchestration
@@ -120,3 +120,4 @@ Isolation boundary: browser test fixture with teardown after each test.
 
 - 2026-06-29: Ticket authored from approved arch recon.
 - 2026-06-29: Started RGB-TDD implementation after RCC-003 Blue/Yellow approval.
+- 2026-06-29: Completed RGB-TDD after Blue/Yellow approval. Verified cockpit suite 28/28, reply-context suites 12/12, gates clean for corrected Green range 46d6675...909c561. Overlay lint remains blocked by unrelated pre-existing type debt outside RCC-004.
