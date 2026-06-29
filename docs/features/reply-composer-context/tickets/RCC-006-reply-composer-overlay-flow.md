@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: done
 ---
 
 # RCC-006: [E2E] Reply Composer Overlay Flow
@@ -98,3 +98,4 @@ Isolation boundary: explicit test page/server root; no inference from developer-
 ## Pipeline Log
 
 - 2026-06-29: Ticket authored from approved arch recon.
+- 2026-06-29: Implemented runner-backed overlay E2E coverage. Added reply DOM fixture seeding, exposed-function transport request capture, a runner-only Playwright config that rebuilds ignored dist artifacts before injection, and no-post-click assertions. Verified `@x-builder/e2e-tests` typecheck, scope/all gates, `git diff --check`, and `pnpm --filter @x-builder/e2e-tests exec playwright test --config playwright.runner.config.ts` (13 passed). Blue and Yellow validation approved.
