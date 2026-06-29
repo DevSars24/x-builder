@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import {
   apiErrorSchema,
+  type ExternalXSignalPattern,
   generateCategorySchema,
   type GenerateCategory,
 } from "@x-builder/shared";
@@ -19,6 +20,7 @@ import {
 import { SqlitePostLibraryRepository } from "../../server/sqlite-post-library-repository";
 import { openEngineDatabase } from "../../server/open-engine-database";
 import { buildServer } from "../../server/server";
+import { SqliteExternalXSignalsRepository } from "../../external/sqlite-external-x-signals-repository";
 // Imported from the not-yet-existing module under test: this import alone makes the
 // suite RED until Green creates ../generate-category-service.
 import { GenerateCategoryService } from "../generate-category-service";
@@ -79,6 +81,33 @@ const STORY_TEXTS = [
 // Whitespace-only: still satisfies the store schema's text min length (1) at
 // length 3, but trims to empty so the classifier returns "other".
 const OTHER_TEXT = "   ";
+
+const externalPattern = (
+  overrides: Partial<ExternalXSignalPattern> = {},
+): ExternalXSignalPattern => ({
+  id: "external-pattern-category-sentinel",
+  patternType: "format",
+  label: "Outside ranking pattern",
+  statement:
+    "EXTERNAL_NO_CONTAMINATION_STATEMENT_CATEGORY_SENTINEL: outside winners must not rerank own categories.",
+  confidence: 0.9,
+  supportCount: 6,
+  sourceIds: [],
+  evidenceIds: [],
+  evidence: [
+    {
+      evidenceId: "external-evidence-category-sentinel",
+      sourceId: "external-source-category-sentinel",
+      screenName: "external_builder",
+      platformPostId: "1888888888888888888",
+      text: "EXTERNAL_NO_CONTAMINATION_EVIDENCE_PREVIEW_CATEGORY_SENTINEL should not affect ranking.",
+      metrics: { replies: 200 },
+    },
+  ],
+  generatedAt: FIXED_NOW_ISO,
+  version: "external-x-signals:v1",
+  ...overrides,
+});
 
 const baseEntityFlags = {
   hasUrls: false,
@@ -201,6 +230,7 @@ const findByFormat = (
 // RepetitionWindowService against the same repo, deterministic clock.
 // ---------------------------------------------------------------------------
 let root: string;
+let db: ReturnType<typeof openEngineDatabase>;
 let repository: PostLibraryRepository;
 let windowService: RepetitionWindowService;
 let service: GenerateCategoryService;
@@ -208,7 +238,8 @@ let service: GenerateCategoryService;
 beforeEach(async () => {
   idCounter = 0;
   root = await mkdtemp(join(tmpdir(), "x-builder-generate-category-"));
-  repository = new SqlitePostLibraryRepository(openEngineDatabase(":memory:"));
+  db = openEngineDatabase(":memory:");
+  repository = new SqlitePostLibraryRepository(db);
   windowService = new RepetitionWindowService(repository, fixedNow);
   service = new GenerateCategoryService(repository, windowService);
 });
@@ -481,6 +512,35 @@ describe("GenerateCategoryService.getCategories corpus path", () => {
     // The alphabetical first becomes the top performer; the rest are frequent.
     expect(categories[0]?.basis).toBe("top_performer");
     expect(categories.slice(1).every((category) => category.basis === "frequent")).toBe(true);
+  });
+
+  it("keeps own-corpus category ranking unchanged when external patterns exist in the same database", async () => {
+    const posts: CanonicalOwnPostInput[] = [
+      livePost(HOT_TAKE_TEXTS[0], isoDaysAgo(10), 5),
+      livePost(HOT_TAKE_TEXTS[1], isoDaysAgo(11), 5),
+      livePost(HOT_TAKE_TEXTS[2], isoDaysAgo(12), 5),
+      livePost(HOT_TAKE_TEXTS[3], isoDaysAgo(13), 5),
+      livePost(FOUNDER_STORY_TEXTS[0], isoDaysAgo(14), 3),
+      livePost(FOUNDER_STORY_TEXTS[1], isoDaysAgo(15), 3),
+      livePost(AUDIENCE_QUESTION_TEXTS[0], isoDaysAgo(16), 2),
+      livePost(AUDIENCE_QUESTION_TEXTS[1], isoDaysAgo(17), 2),
+      livePost(STORY_TEXTS[0], isoDaysAgo(18), 1),
+      livePost(STORY_TEXTS[1], isoDaysAgo(19), 1),
+    ];
+    await repository.upsertPosts(posts);
+
+    const baseline = await service.getCategories();
+    const externalRepository = new SqliteExternalXSignalsRepository(db, {
+      now: () => FIXED_NOW_ISO,
+      id: () => "external-source-category-sentinel",
+    });
+    await externalRepository.replacePatterns([externalPattern()]);
+
+    const withExternalPatterns = await service.getCategories();
+
+    expect(withExternalPatterns).toEqual(baseline);
+    expect(JSON.stringify(withExternalPatterns)).not.toContain("EXTERNAL_NO_CONTAMINATION_STATEMENT_CATEGORY_SENTINEL");
+    expect(JSON.stringify(withExternalPatterns)).not.toContain("EXTERNAL_NO_CONTAMINATION_EVIDENCE_PREVIEW_CATEGORY_SENTINEL");
   });
 
   // Edge: every original classifies as "other" while still clearing the 10-original

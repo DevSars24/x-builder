@@ -14,11 +14,13 @@
  * ModuleNotFoundError / unresolved-export.  That is the correct Red state.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   analyzePostsResponseSchema,
+  type DetectedPostFormat,
   deriveApproved,
   ENGINE_TRANSPORT_BINDINGS,
+  type GenerateIdeaRequest,
   generateIdeaRequestSchema,
   judgeAnnotationSchema,
   judgeVerdictSchema,
@@ -327,6 +329,26 @@ describe("generateIdeaRequestSchema additive refine", () => {
     expect(
       generateIdeaRequestSchema.safeParse({ format: "viral_thread" }).success,
     ).toBe(false);
+  });
+
+  it("strips external guidance fields from the public generation request contract", () => {
+    const parsed = generateIdeaRequestSchema.parse({
+      format: "hot_take",
+      externalPatternGuidance: "EXTERNAL_NO_CONTAMINATION_STATEMENT_SCHEMA_SENTINEL",
+      externalEvidencePreview: "EXTERNAL_NO_CONTAMINATION_EVIDENCE_PREVIEW_SCHEMA_SENTINEL",
+    });
+
+    expect(parsed).toEqual({ format: "hot_take" });
+    expect(parsed).not.toHaveProperty("externalPatternGuidance");
+    expect(parsed).not.toHaveProperty("externalEvidencePreview");
+    expectTypeOf<GenerateIdeaRequest>().toEqualTypeOf<{
+      idea?: string;
+      format?: DetectedPostFormat;
+      voiceProfileId?: string;
+      useKnownPostIds?: string[];
+    }>();
+    expectTypeOf<GenerateIdeaRequest>().not.toHaveProperty("externalPatternGuidance");
+    expectTypeOf<GenerateIdeaRequest>().not.toHaveProperty("externalEvidencePreview");
   });
 });
 

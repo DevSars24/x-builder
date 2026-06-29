@@ -7,8 +7,16 @@ import {
 } from "@x-builder/shared";
 
 import { GenerateIdeasService, IdeaGenerationError } from "../generate-ideas-service";
-import type { GenerationGuidanceResolver } from "../generation-guidance";
 import {
+  createGenerationGuidanceResolver,
+  type GenerationGuidanceResolver,
+} from "../generation-guidance";
+import type {
+  ExternalPatternGuidanceItem,
+  ExternalPatternGuidanceProvider,
+} from "../external-pattern-guidance";
+import {
+  JudgeDraftService,
   type JudgeDraft,
   type JudgeDraftOptions,
   type JudgeDraftOutcome,
@@ -18,6 +26,8 @@ import {
   type StructuredLlmProviderResult,
   type StructuredLlmRequest,
 } from "../structured-llm-service";
+import { openEngineDatabase } from "../../server/open-engine-database";
+import { SqlitePostLibraryRepository } from "../../server/sqlite-post-library-repository";
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -264,6 +274,93 @@ describe("GenerateIdeasService format path", () => {
     expect(instructions).toContain(guidanceBlockIntro);
     expect(instructions).toContain("Use the requested format playbook.");
     expect(instructions).toContain("Mirror the author's terse voice.");
+  });
+
+  it("renders external guidance without creating own posts or voice samples when the own corpus is empty", async () => {
+    const externalStatement =
+      "EXTERNAL_NO_CONTAMINATION_STATEMENT_NO_VOICE_SENTINEL: lead with a concrete operator receipt.";
+    const evidencePreview =
+      "EXTERNAL_NO_CONTAMINATION_EVIDENCE_PREVIEW_NO_VOICE_SENTINEL: raw external post preview.";
+    const postLibraryRepository = new SqlitePostLibraryRepository(openEngineDatabase(":memory:"));
+    const externalPatternGuidanceProvider: ExternalPatternGuidanceProvider = vi.fn(
+      async () => [
+        {
+          id: "external-pattern-no-voice",
+          patternType: "hook",
+          format: "hot_take",
+          statement: externalStatement,
+          confidence: 0.91,
+          supportCount: 7,
+          generatedAt: "2026-06-29T09:00:00.000Z",
+          version: "external-x-signals:v1",
+          evidencePreview,
+        } as ExternalPatternGuidanceItem & Record<string, unknown>,
+      ],
+    );
+    const resolver = createGenerationGuidanceResolver({
+      settingsRepository: {
+        load: async () => {
+          throw new Error("no test knowledge base");
+        },
+      },
+      postLibraryRepository,
+      externalPatternGuidanceProvider,
+    });
+    const { generateStructured, llm } = makeLlmFake(generateSuccess());
+    const { judge } = makeAllJudgedFake();
+    const service = createServiceWithGuidance(llm, { judge }, resolver);
+
+    await service.generate(formatRequest({ format: "hot_take" }));
+
+    const instructions = generateStructured.mock.calls[0]?.[0].instructions;
+    expect(instructions).toContain(externalStatement);
+    expect(instructions).not.toContain(evidencePreview);
+    expect(instructions).not.toContain("# Voice samples (match tone, do not copy)");
+    await expect(postLibraryRepository.loadStore()).resolves.toMatchObject({ posts: [] });
+  });
+
+  it("does not pass external pattern statements or evidence previews into candidate judge prompts", async () => {
+    const externalStatement =
+      "EXTERNAL_NO_CONTAMINATION_STATEMENT_JUDGE_SENTINEL: borrow the competitor launch arc.";
+    const evidencePreview =
+      "EXTERNAL_NO_CONTAMINATION_EVIDENCE_PREVIEW_JUDGE_SENTINEL: raw competitor post preview.";
+    const { generateStructured, llm } = makeLlmFake(generateSuccess());
+    const capturedJudgeRequests: StructuredLlmRequest<JudgeVerdict>[] = [];
+    const judge = new JudgeDraftService({
+      generateStructured: async (request) => {
+        capturedJudgeRequests.push(request);
+        return {
+          status: "success",
+          provider: "codex-cli",
+          requestId: `judge-${capturedJudgeRequests.length}`,
+          output: verdictWithOverall(82),
+          durationMs: 8,
+          completedAt: "2026-06-20T12:00:00.000Z",
+        };
+      },
+    });
+    const resolver = makeGuidanceResolver(
+      [
+        "# External performance patterns (derived constraints, not voice)",
+        externalStatement,
+        evidencePreview,
+      ].join("\n"),
+    );
+    const service = createServiceWithGuidance(llm, judge, resolver);
+
+    await service.generate(formatRequest({ format: "hot_take" }));
+
+    expect(generateStructured.mock.calls[0]?.[0].instructions).toContain(externalStatement);
+    expect(capturedJudgeRequests).toHaveLength(3);
+    for (const request of capturedJudgeRequests) {
+      const serializedPrompt = JSON.stringify({
+        instructions: request.instructions,
+        turns: request.turns,
+        metadata: request.metadata ?? null,
+      });
+      expect(serializedPrompt).not.toContain(externalStatement);
+      expect(serializedPrompt).not.toContain(evidencePreview);
+    }
   });
 
   it("continues without the guidance block when resolver output is blank", async () => {

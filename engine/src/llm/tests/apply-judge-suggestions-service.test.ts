@@ -483,6 +483,47 @@ describe("ApplyJudgeSuggestionsService", () => {
     }
   });
 
+  it("does not include external pattern statements or evidence previews in apply rewrite inputs", async () => {
+    const externalStatement =
+      "EXTERNAL_NO_CONTAMINATION_STATEMENT_APPLY_SENTINEL: copy the outside winner's hook.";
+    const evidencePreview =
+      "EXTERNAL_NO_CONTAMINATION_EVIDENCE_PREVIEW_APPLY_SENTINEL: raw outside evidence preview.";
+    const originalVerdict = verdictWithOverall(60, {
+      annotations: [
+        {
+          quote: "soft opening",
+          severity: "suggestion",
+          recommendation: "make the claim more concrete",
+        },
+      ],
+      improvements: ["Tighten the closing line"],
+    });
+    const rewriteVerdict = verdictWithOverall(78);
+    const { judge, calls } = makeJudgeFake([
+      judgedOutcome(originalVerdict),
+      judgedOutcome(rewriteVerdict),
+    ]);
+    const { llm, generateStructured } = makeLlmFake(rewriteSuccessText("A sharper rewrite."));
+    const service = buildService(judge, llm);
+
+    await service.apply({
+      text: "A draft with a soft opening.",
+      externalPatternStatement: externalStatement,
+      externalEvidencePreview: evidencePreview,
+    } as ApplyJudgeSuggestionsRequest & Record<string, unknown>);
+
+    const rewriteRequest = generateStructured.mock.calls[0]![0];
+    const serializedRewritePrompt = JSON.stringify({
+      instructions: rewriteRequest.instructions,
+      turns: rewriteRequest.turns,
+      metadata: rewriteRequest.metadata ?? null,
+    });
+    expect(serializedRewritePrompt).not.toContain(externalStatement);
+    expect(serializedRewritePrompt).not.toContain(evidencePreview);
+    expect(JSON.stringify(calls)).not.toContain(externalStatement);
+    expect(JSON.stringify(calls)).not.toContain(evidencePreview);
+  });
+
   it("passes undefined to the judge and completes the chain when the profile resolver throws", async () => {
     const originalVerdict = verdictWithOverall(60);
     const rewriteVerdict = verdictWithOverall(78);
