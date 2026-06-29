@@ -123,29 +123,60 @@ describe("external pattern guidance", () => {
   });
 
   it("renders at most four default items in provider order", async () => {
+    const firstProviderStatement = "Provider first: lead with the late zebra proof.";
+    const secondProviderStatement = "Provider second: open with the alpha counterexample.";
+    const thirdProviderStatement = "Provider third: anchor the newest omega lesson.";
+    const fourthProviderStatement = "Provider fourth: use the beta operator receipt.";
+    const fifthProviderStatement = "Provider fifth sentinel: sorted aardvark should be excluded.";
+
     const guidance = await rendered([
-      guidanceItem({ id: "pattern-1", statement: "Use alpha proof." }),
-      guidanceItem({ id: "pattern-2", statement: "Use beta proof." }),
-      guidanceItem({ id: "pattern-3", statement: "Use gamma proof." }),
-      guidanceItem({ id: "pattern-4", statement: "Use delta proof." }),
-      guidanceItem({ id: "pattern-5", statement: "Use epsilon proof." }),
+      guidanceItem({
+        id: "pattern-z-provider-first",
+        statement: firstProviderStatement,
+        confidence: 0.31,
+        generatedAt: "2026-06-29T09:00:00.000Z",
+      }),
+      guidanceItem({
+        id: "pattern-a-provider-second",
+        statement: secondProviderStatement,
+        confidence: 0.87,
+        generatedAt: "2026-06-26T09:00:00.000Z",
+      }),
+      guidanceItem({
+        id: "pattern-y-provider-third",
+        statement: thirdProviderStatement,
+        confidence: 0.44,
+        generatedAt: "2026-06-28T09:00:00.000Z",
+      }),
+      guidanceItem({
+        id: "pattern-b-provider-fourth",
+        statement: fourthProviderStatement,
+        confidence: 0.72,
+        generatedAt: "2026-06-27T09:00:00.000Z",
+      }),
+      guidanceItem({
+        id: "pattern-c-provider-fifth",
+        statement: fifthProviderStatement,
+        confidence: 0.99,
+        generatedAt: "2026-06-30T09:00:00.000Z",
+      }),
     ]);
 
     expect(guidance).toBeDefined();
-    expect(guidance).toContain("Use alpha proof.");
-    expect(guidance).toContain("Use beta proof.");
-    expect(guidance).toContain("Use gamma proof.");
-    expect(guidance).toContain("Use delta proof.");
-    expect(guidance).not.toContain("Use epsilon proof.");
-    expect(guidance!.indexOf("Use alpha proof.")).toBeLessThan(
-      guidance!.indexOf("Use beta proof."),
-    );
-    expect(guidance!.indexOf("Use beta proof.")).toBeLessThan(
-      guidance!.indexOf("Use gamma proof."),
-    );
-    expect(guidance!.indexOf("Use gamma proof.")).toBeLessThan(
-      guidance!.indexOf("Use delta proof."),
-    );
+    expect(guidance).toContain(firstProviderStatement);
+    expect(guidance).toContain(secondProviderStatement);
+    expect(guidance).toContain(thirdProviderStatement);
+    expect(guidance).toContain(fourthProviderStatement);
+    expect(guidance).not.toContain(fifthProviderStatement);
+
+    const renderedPositions = [
+      firstProviderStatement,
+      secondProviderStatement,
+      thirdProviderStatement,
+      fourthProviderStatement,
+    ].map((statement) => guidance!.indexOf(statement));
+
+    expect(renderedPositions).toEqual([...renderedPositions].sort((a, b) => a - b));
   });
 
   it("returns no section when there are no guidance items", async () => {
@@ -165,16 +196,34 @@ describe("external pattern guidance", () => {
     expect(guidance).not.toContain("END_SENTINEL");
   });
 
-  it("renders a pattern without inventing a missing format", async () => {
+  it("renders provided format metadata", async () => {
     const guidance = await rendered([
       guidanceItem({
-        statement: "Use the statement without implying a post format.",
+        patternType: "format",
+        format: "hot_take",
+        statement: "Name the contrarian claim before the supporting evidence.",
       }),
     ]);
 
     expect(guidance).toBeDefined();
-    expect(guidance).toContain("Use the statement without implying a post format.");
+    expect(guidance).toContain("Name the contrarian claim before the supporting evidence.");
+    expect(guidance).toMatch(/\bformat\b/i);
+    expect(guidance).toContain("hot_take");
+  });
+
+  it("renders a pattern without inventing a missing format", async () => {
+    const guidance = await rendered([
+      guidanceItem({
+        statement: "Use proof before naming the broader lesson.",
+      }),
+    ]);
+
+    expect(guidance).toBeDefined();
+    expect(guidance).toContain("Use proof before naming the broader lesson.");
+    expect(guidance).not.toMatch(/\bformat\b/i);
     expect(guidance).not.toContain("undefined");
+    expect(guidance).not.toContain("unknown");
+    expect(guidance).not.toContain("none");
     expect(guidance).not.toContain("other");
     expect(guidance).not.toContain("hot_take");
     expect(guidance).not.toContain("genuine_question");
