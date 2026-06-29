@@ -595,6 +595,14 @@ export class SqliteExternalXSignalsRepository implements ExternalXSignalsReposit
          WHERE pattern_type IN (${patternTypePlaceholders})
            AND confidence >= ?
            AND support_count >= ?
+           AND EXISTS (
+             SELECT 1
+             FROM external_x_signal_pattern_evidence pe
+             JOIN external_x_signal_evidence e ON e.id = pe.evidence_id
+             JOIN external_x_signal_source s ON s.id = e.source_id
+             WHERE pe.pattern_id = external_x_signal_pattern.id
+               AND s.status != 'removed'
+           )
          ORDER BY
            CASE
              WHEN ? IS NOT NULL AND json_extract(payload, '$.format') = ? THEN 0

@@ -64,12 +64,12 @@ const pattern = (overrides: Partial<ExternalXSignalPattern> = {}): ExternalXSign
 });
 
 const standalonePattern = (overrides: Partial<ExternalXSignalPattern> = {}): ExternalXSignalPattern =>
-  pattern({
-    sourceIds: [],
-    evidenceIds: [],
-    evidence: [],
-    ...overrides,
-  });
+  pattern(overrides);
+
+const seedActiveEvidence = async (repo: SqliteExternalXSignalsRepository): Promise<void> => {
+  const { source } = await repo.addSource({ screenName: "external_builder" });
+  await repo.upsertObservedEvidence([evidence({ sourceId: source.id })]);
+};
 
 type ExternalPatternSnapshotReader = {
   listGenerationPatterns(request: {
@@ -248,6 +248,7 @@ describe("SqliteExternalXSignalsRepository", () => {
       const repo = new SqliteExternalXSignalsRepository(openEngineDatabase(":memory:"), {
         now: () => now,
       });
+      await seedActiveEvidence(repo);
       const patterns = [
         standalonePattern({
           id: "other-higher-confidence",
@@ -316,6 +317,7 @@ describe("SqliteExternalXSignalsRepository", () => {
       const repo = new SqliteExternalXSignalsRepository(openEngineDatabase(":memory:"), {
         now: () => now,
       });
+      await seedActiveEvidence(repo);
       await repo.replacePatterns([
         ...Array.from({ length: 25 }, (_, index) =>
           standalonePattern({
@@ -366,6 +368,7 @@ describe("SqliteExternalXSignalsRepository", () => {
       const repo = new SqliteExternalXSignalsRepository(openEngineDatabase(":memory:"), {
         now: () => now,
       });
+      await seedActiveEvidence(repo);
       await repo.replacePatterns([
         standalonePattern({
           id: "included-hook",
@@ -403,11 +406,58 @@ describe("SqliteExternalXSignalsRepository", () => {
       expect(snapshots.map((item) => item.id)).toEqual(["included-hook"]);
     });
 
+    it("excludes generation patterns supported only by removed sources", async () => {
+      const repo = new SqliteExternalXSignalsRepository(openEngineDatabase(":memory:"), {
+        now: () => now,
+      });
+      const active = await repo.addSource({ screenName: "active_builder" });
+      const removed = await repo.addSource({ screenName: "removed_builder" });
+      await repo.upsertObservedEvidence([
+        evidence({ id: "active-evidence", sourceId: active.source.id }),
+        evidence({
+          id: "removed-evidence",
+          sourceId: removed.source.id,
+          platformPostId: "1800000000000000002",
+          screenName: "removed_builder",
+        }),
+      ]);
+      await repo.removeSource({ sourceId: removed.source.id });
+      await repo.replacePatterns([
+        pattern({
+          id: "removed-only-pattern",
+          patternType: "format",
+          format: "hot_take",
+          statement: "Removed-source-only pattern must not become generation guidance.",
+          confidence: 0.99,
+          supportCount: 20,
+          sourceIds: [removed.source.id],
+          evidenceIds: ["removed-evidence"],
+          evidence: [],
+        }),
+        pattern({
+          id: "active-pattern",
+          patternType: "format",
+          format: "hot_take",
+          statement: "Active source pattern can become generation guidance.",
+          confidence: 0.8,
+          supportCount: 3,
+          sourceIds: [active.source.id],
+          evidenceIds: ["active-evidence"],
+          evidence: [],
+        }),
+      ]);
+
+      const snapshots = await snapshotReader(repo).listGenerationPatterns({ format: "hot_take" });
+
+      expect(snapshots.map((item) => item.id)).toEqual(["active-pattern"]);
+    });
+
     it("throws when a stored pattern payload cannot be parsed as a pattern", async () => {
       const db = openEngineDatabase(":memory:");
       const repo = new SqliteExternalXSignalsRepository(db, {
         now: () => now,
       });
+      await seedActiveEvidence(repo);
       db.prepare(
         `INSERT INTO external_x_signal_pattern (
           id, pattern_type, label, statement, confidence, support_count, generated_at, version, payload
@@ -430,6 +480,10 @@ describe("SqliteExternalXSignalsRepository", () => {
           version: "external-x-signals:v1",
         }),
       );
+      db.prepare(
+        `INSERT INTO external_x_signal_pattern_evidence (pattern_id, evidence_id, role)
+         VALUES (?, ?, 'supporting')`,
+      ).run("malformed-pattern", "evidence-1");
 
       await expect(snapshotReader(repo).listGenerationPatterns({})).rejects.toThrow();
     });

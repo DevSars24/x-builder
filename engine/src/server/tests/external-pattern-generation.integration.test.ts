@@ -33,6 +33,8 @@ const SANITIZED_PATTERN_SENTINEL =
 const DUPLICATE_PATTERN_PREFIX = "EFL005_DUPLICATE_PATTERN_";
 const REMOVED_SOURCE_SENTINEL =
   "EFL005_REMOVED_SOURCE_EVIDENCE_SENTINEL: removed evidence must stay out.";
+const REMOVED_SOURCE_PATTERN_SENTINEL =
+  "EFL005_REMOVED_SOURCE_PATTERN_SENTINEL: removed-source-only pattern must stay out.";
 const RAW_EXTERNAL_TEXT_SENTINEL =
   "EFL005_RAW_EXTERNAL_TEXT_SENTINEL: raw external post body.";
 const RAW_EXTERNAL_PREVIEW_SENTINEL =
@@ -359,15 +361,35 @@ describe("external pattern generation integration", () => {
           }),
         ]);
         await repository.replacePatterns(
-          Array.from({ length: 8 }, (_value, index) =>
-            patternFor(active.source.id, {
-              id: `efl005-duplicate-pattern-${index}`,
-              statement: `${DUPLICATE_PATTERN_PREFIX}${index}: keep this bounded duplicate constraint.`,
-              confidence: 0.95 - index * 0.01,
-              supportCount: 10 - index,
-              evidenceIds: [EVIDENCE_ID_SENTINEL],
+          [
+            patternFor(removed.source.id, {
+              id: "efl005-removed-source-only-pattern",
+              statement: REMOVED_SOURCE_PATTERN_SENTINEL,
+              confidence: 0.99,
+              supportCount: 20,
+              sourceIds: [removed.source.id],
+              evidenceIds: ["efl005-removed-evidence"],
+              evidence: [
+                {
+                  evidenceId: "efl005-removed-evidence",
+                  sourceId: removed.source.id,
+                  screenName: "efl005_removed_source",
+                  platformPostId: "efl005-removed-platform-post",
+                  text: REMOVED_SOURCE_SENTINEL,
+                  metrics: { likes: 987654 },
+                },
+              ],
             }),
-          ),
+            ...Array.from({ length: 8 }, (_value, index) =>
+              patternFor(active.source.id, {
+                id: `efl005-duplicate-pattern-${index}`,
+                statement: `${DUPLICATE_PATTERN_PREFIX}${index}: keep this bounded duplicate constraint.`,
+                confidence: 0.95 - index * 0.01,
+                supportCount: 10 - index,
+                evidenceIds: [EVIDENCE_ID_SENTINEL],
+              }),
+            ),
+          ],
         );
       } finally {
         db.close();
@@ -387,6 +409,7 @@ describe("external pattern generation integration", () => {
       expect(instructions).toContain(`${DUPLICATE_PATTERN_PREFIX}3`);
       expect(instructions).not.toContain(`${DUPLICATE_PATTERN_PREFIX}4`);
       expect(instructions).not.toContain(REMOVED_SOURCE_SENTINEL);
+      expect(instructions).not.toContain(REMOVED_SOURCE_PATTERN_SENTINEL);
       expect(instructions.length).toBeLessThan(10_000);
     } finally {
       await app.close();
