@@ -802,6 +802,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
       feedbackRepository: engineStorage.feedbackLoopRepository,
       postLibraryRepository,
     });
+  const usesDefaultExternalXSignalsService = options.externalXSignalsService === undefined;
   const externalXSignalsService =
     options.externalXSignalsService ??
     new ExternalXSignalsService({ repository: engineStorage.externalXSignalsRepository });
@@ -937,9 +938,13 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
       createGenerationGuidanceResolver({
         settingsRepository,
         postLibraryRepository,
-        externalPatternGuidanceProvider: createExternalPatternGuidanceProvider(
-          engineStorage.externalXSignalsRepository,
-        ),
+        ...(usesDefaultExternalXSignalsService
+          ? {
+              externalPatternGuidanceProvider: createExternalPatternGuidanceProvider(
+                engineStorage.externalXSignalsRepository,
+              ),
+            }
+          : {}),
       }),
     );
 

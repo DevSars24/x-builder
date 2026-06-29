@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -18,6 +18,7 @@ import { openEngineDatabase } from "../open-engine-database";
 import { buildServer } from "../server";
 import { JsonFileAppSettingsRepository } from "../settings-repository";
 import { SqliteExternalXSignalsRepository } from "../../external/sqlite-external-x-signals-repository";
+import type { ExternalXSignalsService } from "../../external/external-x-signals-service";
 
 type LlmCall = {
   purpose: string;
@@ -195,6 +196,7 @@ const patternFor = (
 });
 
 const openExternalRepository = (root: string) => {
+  mkdirSync(join(root, "storage"), { recursive: true });
   const db = openEngineDatabase(join(root, "storage", "x-builder.db"));
   return {
     db,
@@ -204,6 +206,13 @@ const openExternalRepository = (root: string) => {
     }),
   };
 };
+
+const fakeExternalXSignalsService = (): ExternalXSignalsService => ({
+  getOverview: vi.fn(),
+  addSource: vi.fn(),
+  removeSource: vi.fn(),
+  refreshSource: vi.fn(),
+} as unknown as ExternalXSignalsService);
 
 const postTableCount = (root: string): number => {
   const db = openEngineDatabase(join(root, "storage", "x-builder.db"));
@@ -320,6 +329,48 @@ describe("external pattern generation integration", () => {
       expect(instructions).not.toContain(EXTERNAL_GUIDANCE_HEADER);
       expect(instructions).not.toContain("# Voice samples (match tone, do not copy)");
       expect(postTableCount(root)).toBe(0);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("does not read default-storage external patterns when an unpaired external signals service is injected", async () => {
+    const root = createTempRoot("x-builder-efl005-injected-service-");
+    const settingsRepository = new JsonFileAppSettingsRepository({ root: join(root, "settings") });
+
+    const { db, repository } = openExternalRepository(root);
+    try {
+      const { source } = await repository.addSource({ screenName: "default_storage_source" });
+      await repository.upsertObservedEvidence([evidenceFor(source.id)]);
+      await repository.replacePatterns([
+        patternFor(source.id, {
+          id: "efl005-default-storage-stale-pattern",
+          statement:
+            "EFL005_SERVER_UNPAIRED_SERVICE_STALE_PATTERN_SENTINEL should not reach generation.",
+        }),
+      ]);
+    } finally {
+      db.close();
+    }
+
+    const app = buildServer({
+      storageRoot: root,
+      settingsRepository,
+      externalXSignalsService: fakeExternalXSignalsService(),
+    });
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/ideas/generate",
+        payload: { format: "hot_take" },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(generateIdeaResponseSchema.parse(parseJson(response.body)).candidates).toHaveLength(3);
+      const instructions = writerInstructions();
+      expect(instructions).not.toContain(EXTERNAL_GUIDANCE_HEADER);
+      expect(instructions).not.toContain("EFL005_SERVER_UNPAIRED_SERVICE_STALE_PATTERN_SENTINEL");
     } finally {
       await app.close();
     }
