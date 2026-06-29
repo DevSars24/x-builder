@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 ---
 
 # RCC-001: [FND] Shared Reply Composer Context Contract
@@ -125,3 +125,4 @@ N/A.
 ## Pipeline Log
 
 - 2026-06-29: Ticket authored from approved arch recon.
+- 2026-06-29: Implemented in `de5032e`; Red, Blue, Yellow, and `[FND]` architecture checkpoint approved. Targeted shared schema tests, shared typecheck/lint, and RGB gates passed; full shared test remains blocked by unrelated removed-`client/` policy-test paths.
