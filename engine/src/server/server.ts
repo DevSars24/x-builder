@@ -76,6 +76,7 @@ import {
 } from "../llm/judge-draft-service.js";
 import { GenerateIdeasService } from "../llm/generate-ideas-service.js";
 import { createGenerationGuidanceResolver } from "../llm/generation-guidance.js";
+import { createExternalPatternGuidanceProvider } from "../llm/external-pattern-guidance.js";
 import { ApplyJudgeSuggestionsService } from "../llm/apply-judge-suggestions-service.js";
 import { SuggestPostService } from "../suggest/suggest-post-service.js";
 import { judgeProviderRegistry } from "../llm/judge-provider-registry.js";
@@ -801,6 +802,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
       feedbackRepository: engineStorage.feedbackLoopRepository,
       postLibraryRepository,
     });
+  const usesDefaultExternalXSignalsService = options.externalXSignalsService === undefined;
   const externalXSignalsService =
     options.externalXSignalsService ??
     new ExternalXSignalsService({ repository: engineStorage.externalXSignalsRepository });
@@ -936,6 +938,13 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
       createGenerationGuidanceResolver({
         settingsRepository,
         postLibraryRepository,
+        ...(usesDefaultExternalXSignalsService
+          ? {
+              externalPatternGuidanceProvider: createExternalPatternGuidanceProvider(
+                engineStorage.externalXSignalsRepository,
+              ),
+            }
+          : {}),
       }),
     );
 

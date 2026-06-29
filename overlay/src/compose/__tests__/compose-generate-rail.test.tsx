@@ -1,12 +1,11 @@
 // @x-builder/overlay — ComposeGenerateRail tests (browser mode → Playwright Chromium)
 //
-// RED: `../compose-generate-rail` does not exist yet, so importing
-// `ComposeGenerateRail` is what drives the failing state. These tests pin the
-// component contract from the ticket — one ghost `Button` per category, a
-// `warning` `Badge` when `cooldownStatus !== "clear"`, the pending button in its
-// loading+disabled state (siblings unaffected), the FULL category object passed
-// to `onGenerate`, cold-start/corpus visual parity, and the edge cases (empty /
-// single / unknown-pending / rapid double-click).
+// RED: these tests pin the component contract: one ghost `Button` per category,
+// a `warning` `Badge` when `cooldownStatus !== "clear"`, the pending button in
+// its loading+disabled state (siblings unaffected), the FULL category object
+// passed to `onGenerate`, cold-start/corpus visual parity, the bounded local
+// panel style, and the edge cases (empty / single / unknown-pending / rapid
+// double-click).
 //
 // Harness: the established overlay shadow-host harness (`mountShadowHost`) with
 // the design-token + neon sheets adopted, rendered via `vitest-browser-react`
@@ -22,10 +21,11 @@ import { cleanup, render } from "vitest-browser-react";
 import {
   cooldownCategory,
   defaultCategories,
+  makeCategoryList,
 } from "../../testing/generate-categories";
 import { mountShadowHost, type ShadowHostHandle } from "../../testing/shadow-host";
 
-// Not-yet-existing module — importing it is what drives the RED state.
+// Component under test.
 import { ComposeGenerateRail } from "../compose-generate-rail";
 
 let harness: ShadowHostHandle;
@@ -62,6 +62,28 @@ function warningBadges(root: ParentNode): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>('[data-variant="warning"]'));
 }
 
+/** The top-level rail panel rendered when at least one category exists. */
+function railPanel(root: HTMLElement): HTMLElement {
+  const panel = root.firstElementChild;
+  if (!(panel instanceof HTMLElement)) throw new Error("rail panel not found");
+  return panel;
+}
+
+/** The truncating label span for a category label. */
+function labelSpanByTitle(root: ParentNode, title: string): HTMLElement {
+  const match = Array.from(root.querySelectorAll<HTMLElement>("span[title]")).find(
+    (el) => el.getAttribute("title") === title,
+  );
+  if (!match) throw new Error(`no label span found for title "${title}"`);
+  return match;
+}
+
+/** The currently visible tooltip, if one is open. */
+function tooltip(root: ParentNode): HTMLElement | null {
+  const el = root.querySelector('[role="tooltip"]');
+  return el instanceof HTMLElement ? el : null;
+}
+
 // --------------------------------------------------------------------------
 // 1. Render — 4 default categories → 4 buttons, exact labels, no badges.
 // --------------------------------------------------------------------------
@@ -82,6 +104,35 @@ describe("ComposeGenerateRail — render", () => {
 
     // All `clear` → no warning badge anywhere.
     expect(warningBadges(root)).toHaveLength(0);
+  });
+
+  it("renders every category and applies the local scroll boundary", () => {
+    const categories = makeCategoryList(16);
+    const root = mount(
+      <ComposeGenerateRail categories={categories} onGenerate={vi.fn()} />,
+    );
+
+    expect(buttons(root)).toHaveLength(categories.length);
+    for (const category of categories) {
+      expect(buttonByLabel(root, category.label)).toBeDefined();
+    }
+
+    const panel = railPanel(root);
+    expect(panel.style.maxHeight).toBe("70vh");
+    expect(panel.style.overflowY).toBe("auto");
+    expect(panel.style.overscrollBehavior).toBe("contain");
+    expect(panel.style.boxSizing).toBe("border-box");
+
+    // The rail should not introduce a width contract; cockpit pinning owns width.
+    const styleText = panel.getAttribute("style") ?? "";
+    expect(styleText).not.toMatch(/(?:^|;)\s*width\s*:/);
+
+    // Long-label truncation stays structural, avoiding brittle pixel snapshots.
+    const longLabel = categories[0]!.label;
+    const label = labelSpanByTitle(root, longLabel);
+    expect(label.style.overflow).toBe("hidden");
+    expect(label.style.textOverflow).toBe("ellipsis");
+    expect(label.style.whiteSpace).toBe("nowrap");
   });
 
   it("renders the buttons as the ghost variant (no X primary CTA hue)", () => {
@@ -106,7 +157,7 @@ describe("ComposeGenerateRail — render", () => {
 // --------------------------------------------------------------------------
 
 describe("ComposeGenerateRail — cooldown annotation", () => {
-  it("appends a warning Badge for a cooldown category and keeps that button clickable", () => {
+  it("appends a warning Badge with a tooltip and keeps that button clickable", async () => {
     const onGenerate = vi.fn();
     const root = mount(
       <ComposeGenerateRail categories={[cooldownCategory]} onGenerate={onGenerate} />,
@@ -116,15 +167,30 @@ describe("ComposeGenerateRail — cooldown annotation", () => {
     const badges = warningBadges(root);
     expect(badges).toHaveLength(1);
 
-    // The badge text is built ONLY from fields on GenerateCategory: cooldownStatus
-    // + sampleCount. It must surface both signals and NOT a windowDays/message field.
+    // The badge text is built from the cooldown signal and its current window.
     const badgeText = badges[0]!.textContent ?? "";
     expect(badgeText).toContain(cooldownCategory.cooldownStatus); // "cooldown"
-    expect(badgeText).toContain(String(cooldownCategory.sampleCount)); // "4"
+    expect(badgeText).toContain(String(cooldownCategory.recentCount)); // "4"
+    expect(badgeText).toContain(`${cooldownCategory.windowDays}d`); // "7d"
 
     // The button is NOT disabled — the user can override the cooldown.
     const btn = buttonByLabel(root, cooldownCategory.label);
     expect(btn.disabled).toBe(false);
+
+    const badgeWrap = badges[0]!.parentElement;
+    if (!(badgeWrap instanceof HTMLElement)) {
+      throw new Error("cooldown badge wrapper not found");
+    }
+    badgeWrap.dispatchEvent(
+      new MouseEvent("mouseover", { bubbles: true, composed: true }),
+    );
+
+    await vi.waitFor(() => {
+      const tip = tooltip(root);
+      expect(tip).not.toBeNull();
+      expect(tip!.textContent).toContain(cooldownCategory.label);
+      expect(tip!.textContent).toContain(String(cooldownCategory.windowDays));
+    });
 
     btn.click();
     expect(onGenerate).toHaveBeenCalledTimes(1);
@@ -221,6 +287,8 @@ describe("ComposeGenerateRail — cold-start parity", () => {
       basis: "default",
       cooldownStatus: "clear",
       sampleCount: 0,
+      recentCount: 0,
+      windowDays: 7,
     };
     const corpusBacked: GenerateCategory = {
       id: "warm",
@@ -229,6 +297,8 @@ describe("ComposeGenerateRail — cold-start parity", () => {
       basis: "top_performer",
       cooldownStatus: "clear",
       sampleCount: 12,
+      recentCount: 0,
+      windowDays: 7,
     };
 
     const root = mount(
@@ -270,6 +340,7 @@ describe("ComposeGenerateRail — edge cases", () => {
       root = mount(<ComposeGenerateRail categories={[]} onGenerate={vi.fn()} />);
     }).not.toThrow();
 
+    expect(root.firstElementChild).toBeNull();
     expect(buttons(root)).toHaveLength(0);
     expect(warningBadges(root)).toHaveLength(0);
   });

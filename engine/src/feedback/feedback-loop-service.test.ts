@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import type { FeedbackPredictionSnapshot, RecordFeedbackPredictionRequest } from "@x-builder/shared";
+import type {
+  ExternalXSignalPattern,
+  FeedbackPredictionSnapshot,
+  RecordFeedbackPredictionRequest,
+} from "@x-builder/shared";
 import { openEngineDatabase } from "../server/open-engine-database.js";
 import { SqlitePostLibraryRepository } from "../server/sqlite-post-library-repository.js";
 import { seedPosts } from "../server/sqlite-test-helpers.js";
 import type { CanonicalOwnPost } from "../server/post-library-repository.js";
+import { SqliteExternalXSignalsRepository } from "../external/sqlite-external-x-signals-repository.js";
 import { FeedbackLoopService } from "./feedback-loop-service.js";
 import { SqliteFeedbackLoopRepository } from "./sqlite-feedback-loop-repository.js";
 
@@ -70,6 +75,33 @@ const post = (overrides: Partial<CanonicalOwnPost> = {}): CanonicalOwnPost => ({
   ],
   sourceRefs: [],
   updatedAt: later,
+  ...overrides,
+});
+
+const externalPattern = (
+  overrides: Partial<ExternalXSignalPattern> = {},
+): ExternalXSignalPattern => ({
+  id: "external-pattern-feedback-sentinel",
+  patternType: "hook",
+  label: "Outside hook",
+  statement:
+    "EXTERNAL_NO_CONTAMINATION_STATEMENT_FEEDBACK_SENTINEL: outside posts should not affect feedback actuals.",
+  confidence: 0.88,
+  supportCount: 5,
+  sourceIds: [],
+  evidenceIds: [],
+  evidence: [
+    {
+      evidenceId: "external-evidence-feedback-sentinel",
+      sourceId: "external-source-feedback-sentinel",
+      screenName: "external_builder",
+      platformPostId: "1999999999999999999",
+      text: "EXTERNAL_NO_CONTAMINATION_EVIDENCE_PREVIEW_FEEDBACK_SENTINEL should not appear in feedback.",
+      metrics: { likes: 999 },
+    },
+  ],
+  generatedAt: now,
+  version: "external-x-signals:v1",
   ...overrides,
 });
 
@@ -180,5 +212,24 @@ describe("FeedbackLoopService", () => {
       actual: { source: "archive_tweets_js", favoriteCount: 12 },
       delta: { bucket: "unknown" },
     });
+  });
+
+  it("keeps feedback summaries unchanged when external patterns are present in the same database", async () => {
+    const { db, service } = makeService();
+    await seedPosts(db, [post()]);
+    await service.recordPrediction(request("Local feedback loops need explicit matching."));
+
+    const baseline = await service.getSummary({ windowDays: 90, limit: 10 });
+
+    const externalRepository = new SqliteExternalXSignalsRepository(db, {
+      now: () => now,
+      id: () => "external-source-feedback-sentinel",
+    });
+    await externalRepository.replacePatterns([externalPattern()]);
+
+    const withExternalPatterns = await service.getSummary({ windowDays: 90, limit: 10 });
+    expect(withExternalPatterns).toEqual(baseline);
+    expect(JSON.stringify(withExternalPatterns)).not.toContain("EXTERNAL_NO_CONTAMINATION_STATEMENT_FEEDBACK_SENTINEL");
+    expect(JSON.stringify(withExternalPatterns)).not.toContain("EXTERNAL_NO_CONTAMINATION_EVIDENCE_PREVIEW_FEEDBACK_SENTINEL");
   });
 });
