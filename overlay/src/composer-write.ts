@@ -53,8 +53,12 @@ export function writeIntoComposer(composerEl: HTMLElement, text: string): void {
         bubbles: true,
         cancelable: true,
       });
-      composerEl.dispatchEvent(pasteEvent);
-      return;
+      const notCancelled = composerEl.dispatchEvent(pasteEvent);
+      if (!notCancelled || pasteEvent.defaultPrevented) {
+        return;
+      }
+      // If no paste handler consumed the synthetic paste, degrade below so the
+      // requested write is still observable in non-Draft hosts.
     } catch {
       // Fall through to the degraded path.
     }

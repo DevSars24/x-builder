@@ -472,9 +472,8 @@ describe("ComposeCockpit — reply-aware orchestration", () => {
 
     mountCockpit(fake);
     await settle();
-    await clickWhenPresent(/run judge/i);
-    await settle();
 
+    expect(findButton(/run judge/i)).toBeUndefined();
     expect(analyzeCalls).toEqual([]);
     expect(judgeCalls).toEqual([]);
   });
