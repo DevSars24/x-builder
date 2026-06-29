@@ -61,8 +61,10 @@ import {
   type RecordFeedbackPredictionRequest,
 } from "@x-builder/shared";
 import {
+  ExternalXSignalsService,
   JsonFileAppSettingsRepository,
   SqlitePostLibraryRepository,
+  SqliteExternalXSignalsRepository,
   openEngineDatabase,
   LiveCaptureService,
 } from "@x-builder/engine";
@@ -319,7 +321,10 @@ let settingsRepository: JsonFileAppSettingsRepository;
 let postLibraryRepository: SqlitePostLibraryRepository;
 let liveCapture: LiveCaptureService;
 
-function buildBundle(extra?: { observerState?: "ok" | "paused" | "layout_changed" }) {
+function buildBundle(extra?: {
+  observerState?: "ok" | "paused" | "layout_changed";
+  boundOverrides?: Record<string, unknown>;
+}) {
   const { gateway, calls, generateStructured } = createFakeLlm();
   const observer = { state: extra?.observerState ?? "paused" as const, lastCaptureAt: undefined };
   const services = createBoundEngineServices({
@@ -331,6 +336,7 @@ function buildBundle(extra?: { observerState?: "ok" | "paused" | "layout_changed
     judgeLlm: gateway,
     // The capture observer drives the readiness capture-state.
     observer,
+    ...extra?.boundOverrides,
   } as never);
   return { services, calls, generateStructured, observer };
 }
@@ -405,6 +411,26 @@ describe("real engine bundle — binding registration (invariant #1)", () => {
     expect(expected).toHaveLength(24);
     expect(registered).toEqual(expected);
     expect(registered).toHaveLength(24);
+  });
+
+  it("does not add an external-feedback generate method beyond the existing transport surface", async () => {
+    const { services } = buildBundle();
+    const mockPage = createMockPage();
+
+    await ExposeFunctionTransport.bindAll(mockPage.page as never, services);
+
+    const methods = Object.keys(ENGINE_TRANSPORT_BINDINGS);
+    const registered = [...mockPage.handlers.keys()];
+
+    expect(methods).toHaveLength(24);
+    expect(methods).toContain("generateIdeas");
+    expect(methods).not.toContain("generateExternalFeedback");
+    expect(methods).not.toContain("generateWithExternalFeedback");
+    expect(methods).not.toContain("getExternalPatternGuidance");
+    expect(methods.filter((method) => /external.*generate|generate.*external/i.test(method))).toEqual([]);
+    expect(registered).not.toContain("__xbuilder_generateExternalFeedback");
+    expect(registered).not.toContain("__xbuilder_generateWithExternalFeedback");
+    expect(registered).not.toContain("__xbuilder_getExternalPatternGuidance");
   });
 });
 
@@ -678,6 +704,71 @@ describe("real engine bundle — generateIdeas refine attaches verdict + approve
     expect(instructions).toContain('Produce exactly 3 distinct draft posts in the "hot_take" format.');
     expect(instructions).not.toContain("# Requested format playbook");
     expect(instructions).not.toContain("# Voice samples (match tone, do not copy)");
+  });
+
+  it("continues without external guidance when the paired snapshot reader fails", async () => {
+    const externalPatternSnapshotReader = {
+      listGenerationPatterns: vi.fn(async () => {
+        throw new Error("external snapshot read failed");
+      }),
+    };
+    const { services, calls } = buildBundle({
+      boundOverrides: { externalPatternSnapshotReader },
+    });
+    const mockPage = createMockPage();
+    await ExposeFunctionTransport.bindAll(mockPage.page as never, services);
+
+    const handler = mockPage.handlers.get(ENGINE_TRANSPORT_BINDINGS.generateIdeas)!;
+    const raw = await handler({ format: "hot_take" });
+
+    expect(generateIdeaResponseSchema.parse(raw).candidates).toHaveLength(3);
+    expect(externalPatternSnapshotReader.listGenerationPatterns).toHaveBeenCalledTimes(1);
+    expect(writerInstructions(calls)).not.toContain("# External performance patterns");
+  });
+
+  it("does not create a separate external guidance reader when only an external signals service is injected", async () => {
+    const externalDb = openEngineDatabase(":memory:");
+    const externalRepository = new SqliteExternalXSignalsRepository(externalDb);
+    const externalXSignalsService = new ExternalXSignalsService({
+      repository: externalRepository,
+    });
+
+    try {
+      await externalRepository.replacePatterns([
+        {
+          id: "efl005-runner-injected-service-pattern",
+          patternType: "format",
+          format: "hot_take",
+          label: "Injected service only pattern",
+          statement:
+            "EFL005_RUNNER_UNPAIRED_SERVICE_PATTERN_SENTINEL should not reach generation.",
+          confidence: 0.96,
+          supportCount: 5,
+          sourceIds: ["runner-source"],
+          evidenceIds: [],
+          evidence: [],
+          generatedAt: ISO,
+          version: "external-x-signals:v1",
+        },
+      ]);
+
+      const { services, calls } = buildBundle({
+        boundOverrides: { externalXSignalsService },
+      });
+      const mockPage = createMockPage();
+      await ExposeFunctionTransport.bindAll(mockPage.page as never, services);
+
+      const handler = mockPage.handlers.get(ENGINE_TRANSPORT_BINDINGS.generateIdeas)!;
+      const raw = await handler({ format: "hot_take" });
+
+      expect(generateIdeaResponseSchema.parse(raw).candidates).toHaveLength(3);
+      expect(writerInstructions(calls)).not.toContain("# External performance patterns");
+      expect(writerInstructions(calls)).not.toContain(
+        "EFL005_RUNNER_UNPAIRED_SERVICE_PATTERN_SENTINEL",
+      );
+    } finally {
+      externalDb.close();
+    }
   });
 });
 
