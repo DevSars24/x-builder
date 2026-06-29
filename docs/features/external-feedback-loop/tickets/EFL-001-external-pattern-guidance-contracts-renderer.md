@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 ---
 
 # EFL-001: [FND] Define external pattern guidance contracts and renderer
@@ -92,3 +92,6 @@ Coverage level: engine unit tests. Owning suite: engine LLM guidance tests. Fixt
 
 - 2026-06-29: Ticket authored from approved arch recon.
 - 2026-06-29: RGB pipeline started.
+- 2026-06-29: Red approved after two fixes: contract shape aligned with ticket data models, provider-order coverage hardened, and missing-format assertions tightened.
+- 2026-06-29: Green implemented `renderExternalPatternGuidance` and engine-private guidance contracts. Blue approved. Yellow rejected once for long-statement truncation dropping metadata; Green fixed per-item budgeting so metadata survives within the 1,200 character budget.
+- 2026-06-29: Blue, Yellow, and foundation architecture checkpoint approved. Verification: `vitest run src/llm/tests/external-pattern-guidance.test.ts` passed 7/7, `tsc -p tsconfig.json --noEmit` passed, RGB gates clean.
