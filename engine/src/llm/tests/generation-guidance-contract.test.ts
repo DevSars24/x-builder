@@ -1,11 +1,14 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { detectedPostFormatSchema, type DetectedPostFormat } from "@x-builder/shared";
+import type { ReplyComposerContext } from "@x-builder/shared";
 import type {
+  ArchiveVoiceProfile,
   FormatPlaybookMapping,
   GenerationContext,
   GenerationGuidanceRequest,
   GenerationGuidanceResolver,
   PlaybookSlice,
+  RenderedArchiveVoiceProfile,
   VoiceSamplePost,
 } from "../generation-guidance.js";
 
@@ -42,6 +45,7 @@ describe("generation guidance playbook mapping", () => {
       idea?: string;
       voiceProfileId?: string;
       useKnownPostIds: string[];
+      replyContext?: ReplyComposerContext;
     }>();
 
     expectTypeOf<FormatPlaybookMapping>().toEqualTypeOf<
@@ -83,8 +87,15 @@ describe("generation guidance playbook mapping", () => {
     expectTypeOf<GenerationContext>().toEqualTypeOf<{
       request: GenerationGuidanceRequest;
       playbook: PlaybookSlice;
+      archiveVoiceProfile?: ArchiveVoiceProfile;
       voiceSamples: VoiceSamplePost[];
       renderedGuidance?: string;
+    }>();
+
+    expectTypeOf<RenderedArchiveVoiceProfile>().toEqualTypeOf<{
+      content: string;
+      charCount: number;
+      truncated: boolean;
     }>();
 
     expectTypeOf<GenerationGuidanceResolver>().toEqualTypeOf<

@@ -91,3 +91,4 @@ export * from "./llm/cli-readiness-probe.js";
 export * from "./voice/voice-embedder.js";
 export * from "./voice/voice-index-service.js";
 export * from "./voice/sqlite-voice-sample-provider.js";
+export * from "./voice/archive-voice-profile-service.js";

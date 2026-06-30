@@ -85,10 +85,10 @@ const snapshotReader = (repo: SqliteExternalXSignalsRepository): ExternalPattern
   repo as unknown as ExternalPatternSnapshotReader;
 
 describe("SqliteExternalXSignalsRepository", () => {
-  it("opens new databases at migration version 3 with external ledger tables", () => {
+  it("opens new databases at the current migration version with external ledger tables", () => {
     const db = openEngineDatabase(":memory:");
 
-    expect(db.pragma("user_version", { simple: true })).toBe(4);
+    expect(db.pragma("user_version", { simple: true })).toBe(5);
     expect(
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(
         "external_x_signal_source",

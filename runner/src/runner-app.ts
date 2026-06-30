@@ -35,6 +35,9 @@ import {
   SqliteExternalXSignalsRepository,
   SqlitePostLibraryRepository,
   StructuredLlmService,
+  ArchiveVoiceProfileService,
+  createArchiveVoiceProfileProvider,
+  createSettingsJudgeProviderResolver,
   createSqliteVoiceSampleProvider,
   importPostLibraryJsonToSqlite,
   judgeProviderRegistry,
@@ -145,6 +148,7 @@ export interface EngineServices {
   externalXSignalsService?: ExternalXSignalsService;
   externalPatternSnapshotReader?: ExternalPatternSnapshotReader;
   voiceSampleProvider?: VoiceSampleProvider;
+  archiveVoiceProfileDb?: ReturnType<typeof openEngineDatabase>;
 }
 
 export interface RunnerAppOptions {
@@ -226,6 +230,7 @@ const defaultCreateServices = (opts: { engineSettingsDir: string }): EngineServi
     externalXSignalsService,
     externalPatternSnapshotReader: externalXSignalsRepository,
     voiceSampleProvider: createSqliteVoiceSampleProvider({ db }),
+    archiveVoiceProfileDb: db,
   };
 };
 
@@ -357,12 +362,25 @@ export class RunnerApp {
     }
 
     const llm = buildDefaultStructuredLlm();
+    const archiveVoiceProfileProvider =
+      services.archiveVoiceProfileDb === undefined
+        ? undefined
+        : createArchiveVoiceProfileProvider(
+            new ArchiveVoiceProfileService({
+              db: services.archiveVoiceProfileDb,
+              llm: llm as StructuredLlmService,
+              resolveProvider: createSettingsJudgeProviderResolver(services.settingsRepository),
+            }),
+          );
     const bundle = createBoundEngineServices({
       settingsRepository: services.settingsRepository,
       postLibraryRepository: services.postLibraryRepository,
       feedbackLoopService: services.feedbackLoopService,
       externalXSignalsService: services.externalXSignalsService,
       externalPatternSnapshotReader: services.externalPatternSnapshotReader,
+      ...(archiveVoiceProfileProvider === undefined
+        ? {}
+        : { archiveVoiceProfileProvider }),
       voiceSampleProvider: services.voiceSampleProvider,
       liveCapture: services.liveCapture as LiveCaptureService,
       llm,

@@ -69,6 +69,7 @@ const MIGRATION_1_TABLES = [
 ] as const;
 
 const MIGRATION_4_TABLES = ["voice_index_meta", "voice_post_embedding"] as const;
+const MIGRATION_5_TABLES = ["archive_voice_profile", "archive_voice_profile_evidence"] as const;
 
 const importedAt = "2026-06-16T10:00:00.000Z";
 const sourceHash =
@@ -592,12 +593,12 @@ describe("user flow: round-trip through the repository interface", () => {
 // ARCHITECTURAL INVARIANT — SQLite is the real on-disk artifact.
 //
 // Falsifiable: a JSON-under-the-hood facade (or an in-memory-only impl) would
-// lack a real x-builder.db file whose PRAGMA user_version is 4 and whose
+// lack a real x-builder.db file whose PRAGMA user_version is 5 and whose
 // sqlite_master holds the seven migration-1 tables — so this test would fail it.
 // ===========================================================================
 
 describe("invariant: the migrated artifact is a real SQLite database on disk", () => {
-  it("after a buildServer migration, x-builder.db opens as a real db with user_version 4 and the migration tables", async () => {
+  it("after a buildServer migration, x-builder.db opens as a real db with user_version 5 and the migration tables", async () => {
     const root = await makeTempRoot("artifact");
     const dir = storageDir(root);
     await writeStoreFile(dir, v2Store());
@@ -617,7 +618,7 @@ describe("invariant: the migrated artifact is a real SQLite database on disk", (
     const raw = new Database(join(dir, DB_FILE), { readonly: true });
     try {
       const userVersion = Number(raw.pragma("user_version", { simple: true }));
-      expect(userVersion).toBe(4);
+      expect(userVersion).toBe(5);
 
       const tableRows = raw
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
@@ -628,6 +629,9 @@ describe("invariant: the migrated artifact is a real SQLite database on disk", (
         expect(tableNames.has(table)).toBe(true);
       }
       for (const table of MIGRATION_4_TABLES) {
+        expect(tableNames.has(table)).toBe(true);
+      }
+      for (const table of MIGRATION_5_TABLES) {
         expect(tableNames.has(table)).toBe(true);
       }
 
@@ -693,6 +697,43 @@ describe("invariant: the migrated artifact is a real SQLite database on disk", (
     expect(
       db.prepare("SELECT COUNT(*) AS count FROM voice_post_embedding").get(),
     ).toEqual({ count: 0 });
+  });
+
+  it("cascades archive voice profile evidence when the canonical post row is deleted", async () => {
+    const db = makeTempEngineDb();
+    await seedPosts(db, [canonicalPost()]);
+
+    db.prepare(
+      `
+      INSERT INTO archive_voice_profile (
+        profile_id, rule_version, corpus_hash, source_post_count, source_reply_count,
+        generated_at, model_provider, model_id, profile_json, updated_at
+      ) VALUES (
+        'profile-1', 'archive-voice-profile-v1', 'sha256:test', 1, 0,
+        '2026-06-30T00:00:00.000Z', 'codex-cli', NULL, '{}', '2026-06-30T00:00:00.000Z'
+      )
+    `,
+    ).run();
+    db.prepare(
+      `
+      INSERT INTO archive_voice_profile_evidence (
+        profile_id, post_id, platform_post_id, kind, evidence_role, excerpt, created_at
+      ) VALUES (
+        'profile-1', 'post-1', '1800000000000000001', 'original',
+        'sampled', 'evidence excerpt', '2026-06-01T00:00:00.000Z'
+      )
+    `,
+    ).run();
+
+    expect(
+      (db.prepare("SELECT COUNT(*) AS count FROM archive_voice_profile_evidence").get() as { count: number }).count,
+    ).toBe(1);
+
+    db.prepare("DELETE FROM post WHERE id = ?").run("post-1");
+
+    expect(
+      (db.prepare("SELECT COUNT(*) AS count FROM archive_voice_profile_evidence").get() as { count: number }).count,
+    ).toBe(0);
   });
 });
 

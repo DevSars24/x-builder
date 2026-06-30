@@ -1,7 +1,12 @@
 import { z } from "zod";
 
 export const llmProviderIdSchema = z.string().min(1);
-export const llmPurposeSchema = z.enum(["writer_first_pass", "writer_variants", "candidate_judge"]);
+export const llmPurposeSchema = z.enum([
+  "writer_first_pass",
+  "writer_variants",
+  "candidate_judge",
+  "archive_voice_profile",
+]);
 export const llmTurnRoleSchema = z.enum(["system", "user", "assistant"]);
 
 export const defaultStructuredLlmOptions = {

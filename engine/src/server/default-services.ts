@@ -37,6 +37,10 @@ import { NodeProcessRunner, type ProcessRunner } from "../llm/process-runner.js"
 import { StructuredLlmService } from "../llm/structured-llm-service.js";
 import { GenerateCategoryService } from "../suggest/generate-category-service.js";
 import { SuggestPostService } from "../suggest/suggest-post-service.js";
+import {
+  ArchiveVoiceProfileService,
+  createArchiveVoiceProfileProvider,
+} from "../voice/archive-voice-profile-service.js";
 import { createSqliteVoiceSampleProvider } from "../voice/sqlite-voice-sample-provider.js";
 import { defaultSettingsRoot } from "./constants.js";
 import { importPostLibraryJsonToSqlite } from "./import-post-library-json.js";
@@ -95,6 +99,7 @@ export type CreateDefaultJudgeDraftServiceOptions = {
 };
 
 type EngineStorageRepositories = {
+  db?: ReturnType<typeof openEngineDatabase>;
   postLibraryRepository: PostLibraryRepository;
   feedbackLoopRepository: FeedbackLoopRepository;
   externalXSignalsRepository: ExternalXSignalsRepository;
@@ -179,6 +184,7 @@ const resolveEngineStorageRepositories = (
     importPostLibraryJsonToSqlite(storageDir, db);
 
     return {
+      db,
       postLibraryRepository: new SqlitePostLibraryRepository(db),
       feedbackLoopRepository: new SqliteFeedbackLoopRepository(db),
       externalXSignalsRepository: new SqliteExternalXSignalsRepository(db),
@@ -189,6 +195,7 @@ const resolveEngineStorageRepositories = (
   const db = openEngineDatabase(":memory:");
 
   return {
+    db,
     postLibraryRepository: new SqlitePostLibraryRepository(db),
     feedbackLoopRepository: new SqliteFeedbackLoopRepository(db),
     externalXSignalsRepository: new SqliteExternalXSignalsRepository(db),
@@ -309,15 +316,43 @@ export const createServerServiceBundle = (
         )
       : [];
 
+    const structuredLlm = new StructuredLlmService({ providers });
+    const resolveProvider = createSettingsJudgeProviderResolver(settingsRepository);
+    const archiveVoiceProfileProvider =
+      engineStorage.db === undefined
+        ? undefined
+        : createArchiveVoiceProfileProvider(
+            new ArchiveVoiceProfileService({
+              db: engineStorage.db,
+              llm: structuredLlm,
+              resolveProvider,
+              resolveModel: async () => {
+                try {
+                  const { settings } = await settingsRepository.load();
+                  const provider = await resolveProvider();
+                  const modelKey = judgeProviderModelKeys[provider as keyof typeof judgeProviderModelKeys];
+                  const model = modelKey === undefined ? undefined : settings[modelKey]?.trim();
+
+                  return model === undefined || model.length === 0 ? undefined : model;
+                } catch {
+                  return undefined;
+                }
+              },
+            }),
+          );
+
     const generateIdeasService = new GenerateIdeasService(
-      new StructuredLlmService({ providers }),
+      structuredLlm,
       judgeDraftService,
-      createSettingsJudgeProviderResolver(settingsRepository),
+      resolveProvider,
       () => resolveJudgeAccountProfile(undefined),
       undefined,
       createGenerationGuidanceResolver({
         settingsRepository,
         postLibraryRepository,
+        ...(archiveVoiceProfileProvider === undefined
+          ? {}
+          : { archiveVoiceProfileProvider }),
         ...(engineStorage.voiceSampleProvider === undefined
           ? {}
           : { voiceSampleProvider: engineStorage.voiceSampleProvider }),
