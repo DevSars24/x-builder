@@ -28,14 +28,14 @@ The required CI workflow runs on pull requests to `main` and pushes to `main`:
 
 ```txt
 pnpm install --frozen-lockfile
-pnpm lint
-pnpm typecheck
+pnpm exec turbo lint --filter=!@x-builder/e2e-tests
+pnpm exec turbo typecheck --filter=!@x-builder/e2e-tests
 pnpm test
 ```
 
-End-to-end tests are intentionally outside the default required gate because `pnpm test`
-excludes `@x-builder/e2e-tests`. E2E can be added as a separate required check once the
-overlay/runner harness is repointed and stable.
+End-to-end tests are intentionally outside the default required gate. The e2e package is
+excluded from the required lint, typecheck, and test commands until the overlay/runner
+harness is repointed and stable. E2E can then be added as a separate required check.
 
 ## Feature Issue Expectations
 

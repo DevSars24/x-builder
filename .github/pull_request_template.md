@@ -8,8 +8,8 @@ Closes #
 
 ## Validation
 
-- [ ] `pnpm lint`
-- [ ] `pnpm typecheck`
+- [ ] `pnpm exec turbo lint --filter=!@x-builder/e2e-tests`
+- [ ] `pnpm exec turbo typecheck --filter=!@x-builder/e2e-tests`
 - [ ] `pnpm test`
 
 ## Review Checklist
