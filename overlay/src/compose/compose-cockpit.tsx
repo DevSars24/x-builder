@@ -31,7 +31,6 @@ import {
   useReducer,
   useRef,
   useState,
-  type CSSProperties,
   type ReactElement,
   type ReactNode,
 } from "react";
@@ -39,26 +38,23 @@ import type { JudgeAnnotation } from "@x-builder/shared";
 
 import { useComposeContext, type ReplyDraftSplit } from "../anchor-layer";
 import { writeIntoComposer } from "../composer-write";
-import { CompositionHighlightLayer } from "../highlight/composition-highlight-layer";
-import { ProvenanceController } from "../provenance/provenance-controller";
 import { useTransport } from "../transport/use-transport";
 
-import { ComposeGenerateRail } from "./compose-generate-rail";
-import { ChannelDivider } from "./channel-divider";
+import { ComposeCockpitAssembly } from "./compose-cockpit-assembly";
 import {
   composeReducer,
   initialComposeState,
   type ApplyState,
   type ComposeMachineState,
 } from "./compose-machine";
-import { StaticEngineColumn, type AnalyzeState } from "./static-engine-column";
-import { JudgeStrip, type JudgeState } from "../judge/judge-strip";
+import type { AnalyzeState } from "./static-engine-column";
+import type { JudgeState } from "../judge/judge-strip";
 import { Alert } from "../ui/v2/alert";
 import { Badge } from "../ui/v2/badge";
 import { Button } from "../ui/v2/button";
 import type { ExplainerSource } from "../explainer/types";
 import type { ScoredPostItem } from "./types";
-import { useComposeSnapshot, type SnapshotRect } from "./use-compose-snapshot";
+import { useComposeSnapshot } from "./use-compose-snapshot";
 
 export interface ComposeCockpitProps {
   /** MetricExplainer copy source — the ONLY external prop (self-orchestrating). */
@@ -78,9 +74,6 @@ const STACK_BREAKPOINT_PX = 1180;
 
 /** The composer-text → analyze debounce window (matches the ticket's 350 ms). */
 const ANALYZE_DEBOUNCE_MS = 350;
-
-/** `--space-5` (~20px) gap between the modal bottom and the JudgeStrip pin. */
-const JUDGE_GAP_PX = 20;
 
 /** Read whether the viewport is at/below the stack breakpoint right now. */
 function isStackedWidth(): boolean {
@@ -338,42 +331,6 @@ function FeedbackRecordControl({
     </div>
   );
 }
-
-const ROOT_STYLE: CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  // Never push X's UI nor add page scroll: the cockpit floats over the modal.
-  overflowX: "hidden",
-  pointerEvents: "none",
-  zIndex: "var(--xb-z-pin)",
-};
-
-const STACKED_ROOT_EXTRA: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "var(--space-4)",
-  padding: "var(--space-4)",
-  overflowY: "auto",
-};
-
-const PIN_BASE_STYLE: CSSProperties = {
-  position: "absolute",
-  // Each pin scrolls internally on overflow; it never grows X's layout.
-  overflow: "auto",
-  // Keep the scroll INSIDE the pin: reaching the pin's top/bottom must not chain
-  // the wheel to X's page behind it (XOB #2).
-  overscrollBehavior: "contain",
-  maxHeight: "80vh",
-  pointerEvents: "auto",
-};
-
-const STACKED_PIN_STYLE: CSSProperties = {
-  position: "relative",
-  overflow: "auto",
-  overscrollBehavior: "contain",
-  maxHeight: "60vh",
-  pointerEvents: "auto",
-};
 
 /** Inner orchestrator — only mounted when a composer is detected (active). */
 function ActiveCockpit({
@@ -878,108 +835,40 @@ function ActiveCockpit({
     [latestVerdict],
   );
 
-  // Pin placement off the single snapshot (host-relative). Wide layout pins the
-  // three zones over the modal; stacked layout flows them in one column.
-  const railStyle = widePinStyle(snapshot.modal, "left");
-  const staticStyle = widePinStyle(snapshot.modal, "right");
-  const judgeStyle = wideJudgeStyle(snapshot.modal);
-
   return (
-    <div
-      ref={rootRef}
-      data-cockpit={stacked ? "stacked" : "wide"}
-      style={stacked ? { ...ROOT_STYLE, ...STACKED_ROOT_EXTRA } : ROOT_STYLE}
-    >
-      <ProvenanceController
-        composerEl={composerEl}
-        composerText={composerText}
-        annotations={annotations}
-        latestVerdict={latestVerdict}
-      >
-        {(ctx) => {
-          // Capture the live setAnchor for the async write handlers.
-          setProvenanceAnchorRef.current = ctx.setAnchor;
-          return (
-            <>
-              <div data-cockpit-pin style={stacked ? STACKED_PIN_STYLE : railStyle}>
-                <ComposeGenerateRail
-                  categories={categories}
-                  pending={pendingCategory}
-                  onGenerate={onGenerate}
-                />
-              </div>
-
-              <div data-cockpit-pin style={stacked ? STACKED_PIN_STYLE : staticStyle}>
-                {stacked ? <ChannelDivider leading="Static engine" trailing="AI judge" /> : null}
-                <StaticEngineColumn
-                  analyzeState={analyzeState}
-                  followers={followers}
-                  onRetryStatic={onRetryStatic}
-                  explainer={explainer}
-                />
-              </div>
-
-              <div data-cockpit-pin style={stacked ? STACKED_PIN_STYLE : judgeStyle}>
-                {stacked ? <ChannelDivider leading="Static engine" trailing="AI judge" /> : null}
-                <JudgeStrip
-                  judge={judgeState}
-                  provenance={ctx.provenanceState}
-                  applyState={state.applyState as ApplyState}
-                  onRunJudge={onRunJudge}
-                  canRunJudge={canRunJudge}
-                  showRunJudge={showRunJudge}
-                  approved={ctx.approved}
-                  onApplyAll={onApplyAll}
-                  explainer={explainer}
-                />
-                <FeedbackRecordControl
-                  state={feedbackRecordState}
-                  canRecord={requestText.trim().length > 0}
-                  onRecordPosted={onRecordPostedDraft}
-                />
-              </div>
-
-              {/* The ONE composition highlight layer, riding the same composer the
-                  snapshot tracks (single rect source — no second measure loop).
-                  `showGreen` is gated on the provenance ctx; in `generated` state
-                  the layer paints the green wash and ignores annotations. */}
-              <CompositionHighlightLayer
-                composerEl={composerEl}
-                annotations={ctx.showGreen ? (NO_ANNOTATIONS as JudgeAnnotation[]) : annotations}
-                showGreen={ctx.showGreen}
-              />
-            </>
-          );
-        }}
-      </ProvenanceController>
-    </div>
+    <ComposeCockpitAssembly
+      rootRef={rootRef}
+      stacked={stacked}
+      snapshot={snapshot}
+      composerEl={composerEl}
+      composerText={composerText}
+      annotations={annotations}
+      latestVerdict={latestVerdict}
+      categories={categories}
+      pendingCategory={pendingCategory}
+      onGenerate={onGenerate}
+      analyzeState={analyzeState}
+      followers={followers}
+      onRetryStatic={onRetryStatic}
+      explainer={explainer}
+      judgeState={judgeState}
+      applyState={state.applyState as ApplyState}
+      onRunJudge={onRunJudge}
+      canRunJudge={canRunJudge}
+      showRunJudge={showRunJudge}
+      onApplyAll={onApplyAll}
+      feedbackControl={
+        <FeedbackRecordControl
+          state={feedbackRecordState}
+          canRecord={requestText.trim().length > 0}
+          onRecordPosted={onRecordPostedDraft}
+        />
+      }
+      captureSetAnchor={(setAnchor) => {
+        setProvenanceAnchorRef.current = setAnchor;
+      }}
+    />
   );
-}
-
-/** Position a side pin (LEFT rail / RIGHT static) against the modal box. */
-function widePinStyle(modal: SnapshotRect | null, side: "left" | "right"): CSSProperties {
-  if (modal === null) {
-    return { ...PIN_BASE_STYLE, top: 0, left: side === "left" ? 0 : undefined, right: side === "right" ? 0 : undefined, width: "320px" };
-  }
-  const width = 320;
-  const gap = JUDGE_GAP_PX;
-  if (side === "left") {
-    return { ...PIN_BASE_STYLE, top: `${modal.top}px`, left: `${modal.left - width - gap}px`, width: `${width}px` };
-  }
-  return { ...PIN_BASE_STYLE, top: `${modal.top}px`, left: `${modal.left + modal.width + gap}px`, width: `${width}px` };
-}
-
-/** Position the UNDER judge pin below the modal bottom + `--space-5` gap. */
-function wideJudgeStyle(modal: SnapshotRect | null): CSSProperties {
-  if (modal === null) {
-    return { ...PIN_BASE_STYLE, bottom: 0, left: 0, width: "480px" };
-  }
-  return {
-    ...PIN_BASE_STYLE,
-    top: `${modal.top + modal.height + JUDGE_GAP_PX}px`,
-    left: `${modal.left}px`,
-    width: `${modal.width}px`,
-  };
 }
 
 /**

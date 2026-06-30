@@ -94,7 +94,7 @@ describe("v2 Button", () => {
 
     // The v2 token closure must resolve on the host: a neon token reads back
     // its seeded value through the rendered primitive.
-    expect(tokenValue(btn, "--xb-surface-panel")).toBe("hsl(210 28% 9% / 0.72)");
+    expect(tokenValue(btn, "--xb-surface-panel")).toBe("hsl(210 24% 14% / 0.96)");
     expect(tokenValue(btn, "--xb-accent")).toBe("hsl(174 90% 52%)");
   });
 });

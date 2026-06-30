@@ -22,6 +22,7 @@ import type {
   GetFeedbackLoopSummaryResponse,
   OverlayReadiness,
 } from "@x-builder/shared";
+import { overlayReadinessSchema } from "@x-builder/shared";
 import {
   useCallback,
   useEffect,
@@ -53,6 +54,10 @@ function isResolved<T>(value: Loadable<T>): value is T {
     value !== "loading" &&
     !(typeof value === "object" && value !== null && "error" in value)
   );
+}
+
+function parseOverlayReadiness(value: unknown): OverlayReadiness {
+  return overlayReadinessSchema.parse(value);
 }
 
 export function SettingsAffordance(): ReactElement {
@@ -105,7 +110,7 @@ export function SettingsAffordance(): ReactElement {
       .catch((error: unknown) => setSettings({ error }));
     transport
       .getOverlayReadiness()
-      .then((value) => setReadiness(value))
+      .then((value) => setReadiness(parseOverlayReadiness(value)))
       .catch((error: unknown) => setReadiness({ error }));
     transport
       .getCaptureSummary()

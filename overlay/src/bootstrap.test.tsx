@@ -9,8 +9,8 @@ const EXPECTED_TOKENS: Record<string, string> = {
   "--xb-accent": "hsl(174 90% 52%)",
   "--xb-accent-2": "hsl(316 88% 62%)",
   "--xb-judge": "hsl(192 95% 60%)",
-  "--xb-surface-panel": "hsl(210 28% 9% / 0.72)",
-  "--xb-surface-overlay": "hsl(210 30% 7% / 0.88)",
+  "--xb-surface-panel": "hsl(210 24% 14% / 0.96)",
+  "--xb-surface-overlay": "hsl(210 26% 11% / 0.98)",
   "--xb-border-edge": "hsl(174 90% 52% / 0.55)",
   "--xb-glow-sm": "0 0 8px hsl(174 90% 52% / 0.35)",
   "--xb-glow-md": "0 0 18px hsl(174 90% 52% / 0.4)",
@@ -141,7 +141,7 @@ describe("Visual AC token characteristics", () => {
       .getPropertyValue("--xb-surface-panel")
       .trim();
     expect(panel).toContain("/");
-    expect(panel).toBe("hsl(210 28% 9% / 0.72)");
+    expect(panel).toBe("hsl(210 24% 14% / 0.96)");
   });
 
   it("carries box-shadow values (not none) for every glow token", () => {
@@ -155,7 +155,7 @@ describe("Visual AC token characteristics", () => {
     }
   });
 
-  it("exposes the default-theme override raising panel opacity and darkening text", () => {
+  it("exposes the default-theme override while keeping light text on the dark panel", () => {
     bootstrap();
 
     const host = getHost()!;
@@ -163,9 +163,9 @@ describe("Visual AC token characteristics", () => {
     const style = getComputedStyle(getMountNode(host));
 
     expect(style.getPropertyValue("--xb-surface-panel").trim()).toBe(
-      "hsl(210 28% 9% / 0.94)",
+      "hsl(210 24% 14% / 0.96)",
     );
-    expect(style.getPropertyValue("--xb-text").trim()).toBe("hsl(200 30% 12%)");
+    expect(style.getPropertyValue("--xb-text").trim()).toBe("hsl(180 25% 96%)");
   });
 
   it("collapses --xb-pulse-duration to 0ms under reduced motion", () => {

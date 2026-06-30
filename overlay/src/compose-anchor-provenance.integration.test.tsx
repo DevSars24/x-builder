@@ -18,6 +18,7 @@ import {
   deriveApproved,
   type JudgeVerdict,
 } from "@x-builder/shared";
+import { useEffect, useState, type ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render } from "vitest-browser-react";
 
@@ -323,16 +324,32 @@ interface Captured {
 }
 
 async function mountController(
-  props: Omit<Parameters<typeof ProvenanceController>[0], "children">,
+  props: Omit<Parameters<typeof ProvenanceController>[0], "children" | "composerText">,
 ): Promise<Captured> {
   let latest: ProvenanceRenderContext | undefined;
+  function Harness(): ReactNode {
+    const [composerText, setComposerText] = useState(props.composerEl?.textContent ?? "");
+
+    useEffect(() => {
+      const el = props.composerEl;
+      if (el === null) return;
+      const update = (): void => setComposerText(el.textContent ?? "");
+      el.addEventListener("input", update);
+      return () => el.removeEventListener("input", update);
+    }, []);
+
+    return (
+      <ProvenanceController {...props} composerText={composerText}>
+        {(ctx) => {
+          latest = ctx;
+          return null;
+        }}
+      </ProvenanceController>
+    );
+  }
+
   render(
-    <ProvenanceController {...props}>
-      {(ctx) => {
-        latest = ctx;
-        return null;
-      }}
-    </ProvenanceController>,
+    <Harness />,
   );
   await settle();
   return {

@@ -26,7 +26,7 @@ import { describe, expect, it } from "vitest";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 
-// The prediction-path source files across shared + engine + client. These are
+// The prediction-path source files across shared + engine + overlay. These are
 // every non-test file that defines or maps the engagement-prediction shape — the
 // exact surface a legacy mirror would have to reappear in.
 const predictionPathFiles = [
@@ -36,7 +36,7 @@ const predictionPathFiles = [
   "engine/src/deterministic/prediction-view-model.ts",
   "engine/src/deterministic/deterministic-analysis-service.ts",
   "engine/src/deterministic/const/scoring-weights.ts",
-  "client/src/features/writer/deterministic/components.tsx",
+  "overlay/src/compose/static-engine-column.tsx",
 ] as const;
 
 // The deleted legacy prediction-mirror field names. `confidence` and `midpoint`

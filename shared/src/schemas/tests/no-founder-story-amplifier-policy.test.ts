@@ -14,16 +14,18 @@ const runtimeContractFiles = [
   "engine/src/deterministic/const/reach-model-weights.ts",
   "engine/src/deterministic/deterministic-analysis-service.ts",
   "engine/src/server/server.ts",
+  "engine/src/server/routes.ts",
+  "engine/src/server/default-services.ts",
   "engine/src/llm/judge-draft-service.ts",
-  "client/src/features/writer/deterministic/components.tsx",
-  "client/src/features/writer/writer-workflow.ts",
-  "client/src/features/writer/writer-page.tsx",
+  "engine/src/llm/generate-ideas-service.ts",
+  "overlay/src/compose/static-engine-column.tsx",
+  "overlay/src/compose/compose-cockpit.tsx",
   "tools/calibration/src/fit.ts",
 ] as const;
 
 const userFacingCopyFiles = [
-  "client/src/features/writer/deterministic/components.tsx",
-  "client/src/features/writer/writer-page.tsx",
+  "overlay/src/compose/static-engine-column.tsx",
+  "overlay/src/compose/compose-cockpit.tsx",
   "engine/src/llm/judge-draft-service.ts",
   "docs/how-to/estimate-post-reach.md",
 ] as const;

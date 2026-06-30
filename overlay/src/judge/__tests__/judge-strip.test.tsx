@@ -3,7 +3,7 @@
 // RED: `../judge-strip` does not exist yet, so importing `JudgeStrip`
 // is what drives the failing state. These tests pin the 9 ticket cases + the key
 // edges against a PURELY PRESENTATIONAL component: it receives `judge`,
-// `provenance`, `applyState`, `onRetryJudge`, and `explainer` as props and
+// `provenance`, `applyState`, `onRunJudge`, and `explainer` as props and
 // renders. The judge transport, the `judgeDraft` kick, edit-while-judging abort,
 // and the generate-refine BRANCHING are OUT OF SCOPE here (owned by the
 // ComposeCockpit machine) — JudgeStrip only renders what `judge` + `provenance`
@@ -106,7 +106,9 @@ function props(
     judge: { status: "waiting" },
     provenance: USER_WRITTEN,
     applyState: "idle",
-    onRetryJudge: vi.fn(),
+    onRunJudge: vi.fn(),
+    canRunJudge: false,
+    approved: false,
     // Green makes `onApplyAll` a required prop on JudgeStrip. Adding it
     // to the helper defaults keeps every existing test (which builds props via
     // this helper) typechecking without touching their bodies.
@@ -151,7 +153,7 @@ describe("JudgeStrip — waiting", () => {
   it("shows a static waiting label, no pulse dot, and is not aria-busy", () => {
     const root = mount(<JudgeStrip {...props({ judge: { status: "waiting" } })} />);
 
-    expect(root.textContent?.toLowerCase()).toContain("waiting for draft");
+    expect(root.textContent?.toLowerCase()).toContain("waiting for a draft");
     // No animated running indicator while waiting.
     expect(pulseDot(root)).toBeNull();
     expect(root.querySelector('[aria-busy="true"]')).toBeNull();
@@ -269,15 +271,17 @@ describe("JudgeStrip — aria-live announcement", () => {
 });
 
 // --------------------------------------------------------------------------
-// 5. Failed → danger Alert + retry button; click calls onRetryJudge once.
+// 5. Failed → danger Alert + retry button; click calls onRunJudge once.
 // --------------------------------------------------------------------------
 
 describe("JudgeStrip — failed", () => {
-  it("renders a danger Alert with a retry Button that calls onRetryJudge once", () => {
-    const onRetryJudge = vi.fn();
+  it("renders a danger Alert with a retry Button that calls onRunJudge once", () => {
+    const onRunJudge = vi.fn();
     const root = mount(
       <JudgeStrip
-        {...props({ judge: { status: "failed", error: "judge crashed" }, onRetryJudge })}
+        {...props({ judge: { status: "failed", error: "judge crashed" }, onRunJudge })}
+        canRunJudge
+        showRunJudge
       />,
     );
 
@@ -287,10 +291,10 @@ describe("JudgeStrip — failed", () => {
       alert!.getAttribute("data-variant") ?? alert!.getAttribute("class") ?? "",
     ).toContain("danger");
 
-    const retry = buttons(root).find((b) => /retry|try again/i.test(b.textContent ?? ""));
+    const retry = buttons(root).find((b) => /run judge|retry|try again/i.test(b.textContent ?? ""));
     expect(retry).toBeDefined();
     retry!.click();
-    expect(onRetryJudge).toHaveBeenCalledTimes(1);
+    expect(onRunJudge).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -306,6 +310,7 @@ describe("JudgeStrip — refine entry (pre-approved)", () => {
         {...props({
           judge: { status: "judged", verdict: approvedVerdict },
           provenance: GENERATED,
+          approved: true,
         })}
       />,
     );
@@ -374,7 +379,7 @@ describe("JudgeStrip — refine fallback (no verdict)", () => {
       />,
     );
 
-    expect(root.textContent?.toLowerCase()).toContain("waiting for draft");
+    expect(root.textContent?.toLowerCase()).toContain("waiting for a draft");
     expect(root.textContent).not.toContain("✓ Judge approved");
     expect(pulseDot(root)).toBeNull();
     expect(scoreBars(root)).toHaveLength(0);
@@ -424,7 +429,7 @@ describe("JudgeStrip — never primary CTA", () => {
     // Render a reference primary Button in the SAME shadow host so we read the
     // EXACT resolved primary fill (`--interactive-default` → `--accent-9`),
     // rather than hard-coding a brittle hue. Then assert no JudgeStrip button
-    // matches it. The failed state is the only state with a button (retry).
+    // matches it. Force the current utility action row visible.
     const root = mount(
       <>
         <Button variant="primary" onClick={() => {}}>
@@ -432,6 +437,8 @@ describe("JudgeStrip — never primary CTA", () => {
         </Button>
         <JudgeStrip
           {...props({ judge: { status: "failed", error: "judge crashed" } })}
+          canRunJudge
+          showRunJudge
         />
       </>,
     );
@@ -446,7 +453,7 @@ describe("JudgeStrip — never primary CTA", () => {
     expect(primaryFill).not.toBe("rgba(0, 0, 0, 0)");
 
     const judgeButtons = allButtons.filter((b) => b !== reference);
-    expect(judgeButtons.length).toBeGreaterThan(0); // retry exists
+    expect(judgeButtons.length).toBeGreaterThan(0);
     for (const btn of judgeButtons) {
       expect(getComputedStyle(btn).backgroundColor).not.toBe(primaryFill);
     }
@@ -595,6 +602,7 @@ describe("auto-improve: Apply-all + ApplyState machine + provenance gate", () =>
           judge: { status: "judged", verdict: approvedVerdict },
           provenance: GENERATED,
           applyState: { status: "applied", improvedOverOriginal: true },
+          approved: true,
         })}
       />,
     );
@@ -636,11 +644,11 @@ describe("auto-improve: Apply-all + ApplyState machine + provenance gate", () =>
 
   // ------------------------------------------------------------------------
   // 6. `failed` → danger Alert + retry button; clicking retry fires onApplyAll
-  //    (the APPLY retry — NOT onRetryJudge, which is the judge-failure retry).
+  //    (the APPLY retry — NOT onRunJudge, which is the judge-failure retry).
   // ------------------------------------------------------------------------
-  it("renders a danger Alert with a retry that calls onApplyAll once (not onRetryJudge)", () => {
+  it("renders a danger Alert with a retry that calls onApplyAll once (not onRunJudge)", () => {
     const onApplyAll = vi.fn();
-    const onRetryJudge = vi.fn();
+    const onRunJudge = vi.fn();
     const root = mount(
       <JudgeStrip
         {...props({
@@ -650,7 +658,7 @@ describe("auto-improve: Apply-all + ApplyState machine + provenance gate", () =>
           provenance: USER_WRITTEN,
           applyState: { status: "failed", error: "generation_failed" },
           onApplyAll,
-          onRetryJudge,
+          onRunJudge,
         })}
       />,
     );
@@ -669,7 +677,7 @@ describe("auto-improve: Apply-all + ApplyState machine + provenance gate", () =>
 
     // The APPLY retry drives onApplyAll exactly once, and never the judge retry.
     expect(onApplyAll).toHaveBeenCalledTimes(1);
-    expect(onRetryJudge).not.toHaveBeenCalled();
+    expect(onRunJudge).not.toHaveBeenCalled();
   });
 
   // ------------------------------------------------------------------------
@@ -728,6 +736,7 @@ describe("auto-improve: Apply-all + ApplyState machine + provenance gate", () =>
           judge: { status: "judged", verdict: approvedVerdict },
           provenance: GENERATED,
           applyState: { status: "applied", improvedOverOriginal: true },
+          approved: true,
         })}
       />,
     );

@@ -21,6 +21,8 @@
 // threshold literal of their own.
 
 import { deriveApproved, type JudgeAnnotation } from "@x-builder/shared";
+import { useEffect, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "vitest-browser-react";
 
@@ -144,17 +146,33 @@ interface Captured {
 function mountController(
   props: Omit<
     Parameters<typeof ProvenanceController>[0],
-    "children"
+    "children" | "composerText"
   >,
 ): Captured {
   let latest: ProvenanceRenderContext | undefined;
+  function Harness(): ReactNode {
+    const [composerText, setComposerText] = useState(props.composerEl?.textContent ?? "");
+
+    useEffect(() => {
+      const el = props.composerEl;
+      if (el === null) return;
+      const update = (): void => flushSync(() => setComposerText(el.textContent ?? ""));
+      el.addEventListener("input", update);
+      return () => el.removeEventListener("input", update);
+    }, []);
+
+    return (
+      <ProvenanceController {...props} composerText={composerText}>
+        {(ctx) => {
+          latest = ctx;
+          return null;
+        }}
+      </ProvenanceController>
+    );
+  }
+
   const root = mount(
-    <ProvenanceController {...props}>
-      {(ctx) => {
-        latest = ctx;
-        return null;
-      }}
-    </ProvenanceController>,
+    <Harness />,
   );
   // The controller reads textContent on a debounce; settle the first read.
   flushDebounce();

@@ -515,7 +515,7 @@ describe("JudgeDraftService span annotations", () => {
     expect(() => request.structuredOutput.parser({ ...modelOutput, annotations: null })).toThrow();
   });
 
-  it("briefs the model on emitting exact-substring annotations and exposes an optional annotations property in the output schema", async () => {
+  it("briefs the model on emitting exact-substring annotations and exposes annotations in the output schema", async () => {
     const request = await captureParser();
 
     // Prompt: the instructions must tell the model to emit annotations with a
@@ -523,8 +523,10 @@ describe("JudgeDraftService span annotations", () => {
     expect(request.instructions).toContain("annotations");
     expect(request.instructions.toLowerCase()).toContain("substring");
 
-    // Output schema: an optional `annotations` array property capped at 12 items,
-    // each { quote, severity, recommendation }, and NOT promoted to required.
+    // Output schema: an `annotations` array property capped at 12 items, each
+    // { quote, severity, recommendation }. The strict provider schema requires
+    // every declared property on the wire, while the parser still tolerates
+    // missing annotations for non-strict providers and defaults them to [].
     const schema = request.structuredOutput.schema;
     const properties = schema.properties as Record<string, unknown>;
     const annotationsNode = properties.annotations as Record<string, unknown> | undefined;
@@ -543,8 +545,8 @@ describe("JudgeDraftService span annotations", () => {
     expect(itemProps).toHaveProperty("recommendation");
     expect((itemProps.severity as Record<string, unknown>).enum).toEqual(["suggestion", "warning"]);
 
-    // Optional at the model layer: annotations must NOT be in the top-level required set.
-    expect(schema.required as string[]).not.toContain("annotations");
+    expect(schema.required as string[]).toContain("annotations");
+    expect(request.structuredOutput.parser({ ...modelOutput }).annotations).toEqual([]);
   });
 });
 

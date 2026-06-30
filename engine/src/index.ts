@@ -1,4 +1,8 @@
 export * from "./server/server.js";
+export {
+  ANALYZE_COOLDOWN_WINDOW_DAYS,
+  attachCooldownSignals,
+} from "./server/cooldown.js";
 // Runner enablement (XOB-015): the runner constructs these in-process. The
 // Fastify server is unchanged — these are barrel re-exports only.
 export {

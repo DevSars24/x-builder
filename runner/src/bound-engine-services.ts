@@ -53,11 +53,11 @@ import {
   type ReadinessService,
   type StructuredLlmService,
   type VoiceSampleProvider,
+  ANALYZE_COOLDOWN_WINDOW_DAYS,
+  attachCooldownSignals,
 } from "@x-builder/engine";
 import type {
   AnalyzePostsRequest,
-  AnalyzePostsResponse,
-  CooldownReport,
   JudgeDraftRequest,
   JudgeDraftResponse,
 } from "@x-builder/shared";
@@ -97,33 +97,6 @@ export interface CreateBoundEngineServicesOptions {
   /** Pre-built readiness service; defaults to the in-process composer. */
   readinessService?: ReadinessService;
 }
-
-// The cooldown window the per-item re-attach joins against — one compute(7) per
-// analyze request, mirroring the engine /posts/analyze handler.
-const ANALYZE_COOLDOWN_WINDOW_DAYS = 7;
-
-// Re-attach a per-item cooldown signal to each scored item by joining its
-// detectedFormat to the precomputed window report. A scored item gets a cooldown
-// key ONLY when the report carries an in-window signal for its format; formats
-// with no signal leave the key genuinely absent (the field is .optional() in the
-// contract). Non-scored items are returned unchanged. This mirrors the private
-// `attachCooldownSignals` in engine/src/server/server.ts so the binding adapter
-// reproduces the /posts/analyze response exactly.
-const attachCooldownSignals = (
-  response: AnalyzePostsResponse,
-  report: CooldownReport,
-): AnalyzePostsResponse => ({
-  ...response,
-  items: response.items.map((item) => {
-    if (item.status !== "scored") {
-      return item;
-    }
-
-    const signal = report.signals.find((candidate) => candidate.format === item.detectedFormat);
-
-    return signal === undefined ? item : { ...item, cooldown: signal };
-  }),
-});
 
 // Recover the settings root from the repository's public defaults
 // (`storagePath = <root>/storage`) so the readiness service probes the same

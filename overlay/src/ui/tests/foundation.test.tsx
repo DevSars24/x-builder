@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import type {
   ButtonHTMLAttributes,
   ReactElement,
@@ -6,6 +5,8 @@ import type {
 } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+
+import foundationCss from "../foundation.css?raw";
 
 const foundationModulePath = "../foundation";
 
@@ -551,7 +552,7 @@ describe("Switch", () => {
 
 describe("foundation stylesheet", () => {
   it("uses product tokens and dense shell selectors without decorative page treatment", () => {
-    const css = readFileSync(new URL("../foundation.css", import.meta.url), "utf8");
+    const css = foundationCss;
 
     expect(css).toContain("product-tokens.css");
     expect(css).toContain("--type-page-title");
