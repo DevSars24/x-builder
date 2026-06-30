@@ -1,0 +1,54 @@
+name: Feature
+description: Plan a feature before implementation starts.
+title: "[Feature] "
+labels:
+  - feature
+body:
+  - type: input
+    id: feature_doc
+    attributes:
+      label: Feature doc
+      description: Link the local feature README under docs/features.
+      placeholder: docs/features/example-feature/README.md
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What user-visible outcome should this feature create?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What is in scope for this issue?
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Boundaries
+      description: What must not change?
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation
+      description: Which tests or checks should prove the work?
+      placeholder: pnpm lint, pnpm typecheck, pnpm test, focused suites
+    validations:
+      required: true
+  - type: checkboxes
+    id: readiness
+    attributes:
+      label: Readiness checklist
+      options:
+        - label: Feature doc exists and is linked above.
+          required: true
+        - label: Acceptance criteria are clear enough for review.
+          required: true
+        - label: Implementation will happen through a PR linked to this issue.
+          required: true
