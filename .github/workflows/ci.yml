@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: CI / test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm exec turbo build --filter=@x-builder/engine --filter=@x-builder/overlay --filter=@x-builder/runner --filter=@x-builder/shared
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @x-builder/runner exec playwright install --with-deps chromium
+
+      - name: Lint
+        run: pnpm exec turbo lint --filter=@x-builder/engine --filter=@x-builder/overlay --filter=@x-builder/runner --filter=@x-builder/shared
+
+      - name: Typecheck
+        run: pnpm exec turbo typecheck --filter=@x-builder/engine --filter=@x-builder/overlay --filter=@x-builder/runner --filter=@x-builder/shared
+
+      - name: Test
+        run: pnpm exec turbo test --filter=@x-builder/engine --filter=@x-builder/overlay --filter=@x-builder/runner --filter=@x-builder/shared
