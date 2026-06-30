@@ -292,8 +292,8 @@ describe("GenerateIdeasService format path", () => {
 
   it.each([
     ["recognition_roast", "Recognition roast shape: one recognizable behavior"],
-    ["ab_choice", "A/B choice shape: exactly two options"],
-    ["milestone", "Milestone shape: one concrete number"],
+    ["ab_choice", "A/B choice shape: exactly two bullet lines"],
+    ["milestone", "Milestone shape: first person plus one concrete number"],
   ] as const)("adds first-class %s shape constraints to the writer request", async (format, expected) => {
     const { generateStructured, llm } = makeLlmFake(generateSuccess());
     const { judge } = makeAllJudgedFake();
