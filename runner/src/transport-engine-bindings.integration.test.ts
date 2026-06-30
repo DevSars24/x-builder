@@ -722,7 +722,7 @@ describe("real engine bundle — generateIdeas refine attaches verdict + approve
     expect(Object.prototype.hasOwnProperty.call(request, "generationContext")).toBe(false);
   });
 
-  it("reaches the base writer prompt when there is no playbook and no voice corpus", async () => {
+  it("grounds the writer prompt in the default playbook when no custom playbook or voice corpus exists", async () => {
     const { services, calls } = buildBundle();
     const mockPage = createMockPage();
     await ExposeFunctionTransport.bindAll(mockPage.page as never, services);
@@ -735,7 +735,9 @@ describe("real engine bundle — generateIdeas refine attaches verdict + approve
 
     const instructions = writerInstructions(calls);
     expect(instructions).toContain('Produce exactly 3 distinct draft posts in the "hot_take" format.');
-    expect(instructions).not.toContain("# Requested format playbook");
+    expect(instructions).toContain("# Requested format playbook");
+    expect(instructions).toContain("hot_take");
+    expect(instructions).toContain("max two short visible lines");
     expect(instructions).not.toContain("# Voice samples (match tone, do not copy)");
   });
 
