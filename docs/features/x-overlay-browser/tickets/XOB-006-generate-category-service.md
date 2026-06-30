@@ -31,14 +31,14 @@ Add `engine/src/suggest/generate-category-service.ts`. Class constructor: `Gener
 4. Call `windowService.compute(7)` to get the `CooldownReport`.
 5. Annotate each format's `cooldownStatus` from the report: look up by `signal.format`; if no signal, `"clear"`.
 6. Assign `basis`:
-   - Highest-ranked corpus-backed generation lane → `"top_performer"`.
+   - First corpus-backed lane after opportunity-first sorting → `"top_performer"`.
    - Remaining corpus-backed generation lanes → `"frequent"`.
    - Lanes with no corpus match → `"default"`.
 7. Return exactly 15 generation lanes sorted by opportunity weight first, corpus `performanceScore` second, and fixed generator order third. Corpus metadata is overlaid onto matching lanes; weak archived formats do not suppress stronger default generator options. Formats `"other"` and `"connect"` are not generation lanes.
 8. Each returned `GenerateCategory` has:
    - `id`: `"corpus_${format}"` for corpus-derived entries.
    - `label`: human-readable display label. Use the same label map as the overlay button map: `hot_take → "Hot take"`, `founder_story → "Build-in-public"`, `audience_question → "Question"`, `story → "Story"`; for all other formats, derive from the format key (replace `_` with space, title-case).
-   - `format`, `basis`, `cooldownStatus`, `sampleCount`.
+   - `format`, `basis`, `cooldownStatus`, `sampleCount`, `recentCount`, `windowDays`.
 
 **Transport bindings:**
 
@@ -51,7 +51,7 @@ Add `engine/src/suggest/generate-category-service.ts`. Class constructor: `Gener
 
 From `@x-builder/shared` (XOB-002):
 
-- `generateCategorySchema` — `{ id: ≤120, label: ≤40, format: detectedPostFormat, basis: enum(top_performer|frequent|default), cooldownStatus: cooldownStatusSchema, sampleCount: int≥0 }`
+- `generateCategorySchema` — `{ id: ≤120, label: ≤40, format: detectedPostFormat, basis: enum(top_performer|frequent|default), cooldownStatus: cooldownStatusSchema, sampleCount: int≥0, recentCount: int≥0, windowDays: int>0 }`
 - `cooldownStatusSchema` — `enum("clear" | "warming" | "cooldown")`
 
 Existing types reused:
@@ -98,8 +98,8 @@ Existing types reused:
 Coverage:
 
 1. Corpus < 10 originals → returns 15 defaults, all `basis: "default"`, `sampleCount: 0`, `cooldownStatus: "clear"`.
-2. Corpus ≥ 10 originals with skewed `hot_take` frequency and live replies → `hot_take` appears first with `basis: "top_performer"`.
-3. Cooldown condition on `hot_take` (4+ in last 7 days via `RepetitionWindowService`) → returned `hot_take` category has `cooldownStatus: "cooldown"`.
+2. Corpus ≥ 10 originals with skewed `hot_take` frequency and live replies → `hot_take` carries corpus metadata and `basis: "top_performer"` only when it is the first corpus-backed lane after opportunity-first ordering.
+3. Cooldown condition on `hot_take` (4+ in last 7 days via `RepetitionWindowService`) → returned `hot_take` category has `cooldownStatus: "cooldown"`, `recentCount` from the cooldown window, and `windowDays: 7`.
 4. Format `"other"` posts are excluded from ranking; do not appear in result.
 5. HTTP route: `buildServer().inject({ method: 'GET', url: '/generate/categories' })` → status 200, response parses as `z.array(generateCategorySchema)`.
 6. HTTP route: injected service throws `PostLibraryStorageError` → status 500, `code: "library_storage_failed"`.
@@ -118,7 +118,7 @@ Coverage:
 
 **When** `getCategories()` is called
 
-**Then** the first returned category has `format: "hot_take"`, `basis: "top_performer"`, `cooldownStatus: "cooldown"`, `sampleCount > 0`.
+**Then** the result contains the fixed 15-lane generator set in opportunity-first order, and the `hot_take` lane has corpus metadata plus `cooldownStatus: "cooldown"`, `recentCount >= 4`, `windowDays: 7`, and `sampleCount > 0`.
 
 ---
 

@@ -22,6 +22,7 @@
  */
 
 import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   ArchiveDerivedContextService,
@@ -106,6 +107,8 @@ export interface CreateBoundEngineServicesOptions {
 // boundary the repository persists to, without reaching for a private field.
 const settingsRootOf = (settingsRepository: JsonFileAppSettingsRepository): string =>
   dirname(settingsRepository.defaults().storagePath);
+
+const runnerPackageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
 // Resolve the persisted account profile, composed with any active archive
 // context — the same fallback the engine LLM routes use. A resolver that throws
@@ -199,7 +202,7 @@ export function createBoundEngineServices(
     settingsRepository,
     archiveStudioContextResolver,
   );
-  const defaultKnowledgeBasePath = resolveDefaultKnowledgeBasePath();
+  const defaultKnowledgeBasePath = resolveDefaultKnowledgeBasePath(runnerPackageRoot);
 
   const judgeDraftService = new JudgeDraftService(judgeLlm, resolveProvider);
   const generateIdeasService = new GenerateIdeasService(

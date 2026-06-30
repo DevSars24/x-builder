@@ -81,6 +81,15 @@ const formatShapeConstraints: Partial<Record<DetectedPostFormat, readonly string
   binary_choice: [
     "Binary choice shape: exactly two clear options; make the answer obvious to type quickly.",
   ],
+  recognition_roast: [
+    "Recognition roast shape: one recognizable behavior or character type, lightly roasted without cruelty.",
+  ],
+  ab_choice: [
+    "A/B choice shape: exactly two options with clear contrast; no third option or explanatory paragraph.",
+  ],
+  milestone: [
+    "Milestone shape: one concrete number or progress marker plus a simple stake; do not turn it into a victory lap.",
+  ],
   audience_question: [
     "Audience question shape: name the audience, ask one quick low-context question.",
   ],

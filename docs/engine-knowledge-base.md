@@ -382,9 +382,6 @@ median, and it is never surfaced as a suggestion. Rules:
   not just any image). Emotional opens it least
   (internal, noisier, ~5–15x). The caps mean past a threshold, more signal adds
   nothing — so there is no gradient that rewards escalating emotion or news-jacking.
-  potential). Emotional opens it less (internal, noisier, ~5–15x). The cap means past
-  a threshold, more emotional signal adds nothing — so there is no gradient that
-  rewards escalating emotion.
 - **First-use only, steep repeat-decay.** The amplifier fires on first genuine
   disclosure of a given beat. Reuse of the same emotional/event beat decays hard
   (≥0.55^count) AND should flag "you've resurfaced this beat before." This is the line
