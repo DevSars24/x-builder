@@ -44,6 +44,7 @@ import {
   createDefaultReadinessService,
   createExternalPatternGuidanceProvider,
   createGenerationGuidanceResolver,
+  resolveDefaultKnowledgeBasePath,
   openEngineDatabase,
   createSettingsJudgeProviderResolver,
   type ExternalPatternGuidanceProvider,
@@ -198,6 +199,7 @@ export function createBoundEngineServices(
     settingsRepository,
     archiveStudioContextResolver,
   );
+  const defaultKnowledgeBasePath = resolveDefaultKnowledgeBasePath();
 
   const judgeDraftService = new JudgeDraftService(judgeLlm, resolveProvider);
   const generateIdeasService = new GenerateIdeasService(
@@ -218,6 +220,9 @@ export function createBoundEngineServices(
       ...(options.voiceSampleProvider === undefined
         ? {}
         : { voiceSampleProvider: options.voiceSampleProvider }),
+      ...(defaultKnowledgeBasePath === undefined
+        ? {}
+        : { defaultKnowledgeBasePath }),
     }),
   );
   const applyJudgeSuggestionsService = new ApplyJudgeSuggestionsService(
