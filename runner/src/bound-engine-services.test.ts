@@ -240,6 +240,7 @@ describe("createBoundEngineServices generation guidance wiring", () => {
 
     await services.generateIdeasService.generate({ format: "hot_take" });
 
+    expect(archiveVoiceProfileProvider).toHaveBeenCalledTimes(1);
     expect(archiveVoiceProfileProvider).toHaveBeenCalledWith({ surface: "post" });
     expect(writerInstructions(calls)).toContain("# Archive voice profile");
     expect(writerInstructions(calls)).toContain("RUNNER_ARCHIVE_PROFILE_SENTINEL");

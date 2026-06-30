@@ -6,12 +6,12 @@ status: implemented
 
 Purpose: build an explicit local writing voice skill from the user's uploaded archive corpus so post and reply generation share one stable voice source instead of relying only on nearest-neighbor examples.
 
-## What Exists Today
+## Current Implementation
 
 - `my-x-archive-import` imports `tweets.js` into the canonical local corpus.
 - `voice-rag-generation` retrieves original-post voice samples from the SQLite corpus.
 - `generation-guidance` can include requested format playbook slices, external pattern guidance, and own voice samples.
-- There is no LLM-derived voice skill/profile built from the archive, and reply voice is not modeled separately from post voice.
+- `archive-voice-skill` derives a versioned local voice profile from canonical originals and replies, then renders post- or reply-specific rules into generation guidance before Voice RAG samples.
 
 ## Target Shape
 

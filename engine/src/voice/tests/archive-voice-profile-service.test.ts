@@ -5,6 +5,7 @@ import type { CanonicalOwnPost } from "../../server/post-library-repository.js";
 import {
   ARCHIVE_VOICE_PROFILE_RULE_VERSION,
   ArchiveVoiceProfileService,
+  createArchiveVoiceProfileProvider,
 } from "../archive-voice-profile-service.js";
 
 const ISO = "2026-06-30T12:00:00.000Z";
@@ -87,7 +88,7 @@ describe("ArchiveVoiceProfileService", () => {
 
     const service = new ArchiveVoiceProfileService({
       db,
-      llm,
+      llm: llm as never,
       resolveProvider: "codex-cli",
       now: () => ISO,
     });
@@ -123,13 +124,73 @@ describe("ArchiveVoiceProfileService", () => {
     ]);
   });
 
+  it("JSON-encodes sampled text in the profile prompt", async () => {
+    const db = makeTempEngineDb();
+    await seedPosts(db, [
+      canonicalPost({
+        id: "post-quote",
+        text: 'Quotes like "this" and newlines\nmust not corrupt the example shape.',
+      }),
+    ]);
+    const { llm, calls } = createLlm({
+      ...profileOutput,
+      evidencePostIds: ["post-quote"],
+    });
+    const service = new ArchiveVoiceProfileService({
+      db,
+      llm: llm as never,
+      resolveProvider: "codex-cli",
+      now: () => ISO,
+    });
+
+    await service.getCurrentProfile();
+
+    expect(calls[0]?.content).toContain(
+      'text="Quotes like \\"this\\" and newlines must not corrupt the example shape."',
+    );
+  });
+
+  it("ignores model-selected evidence ids that were not sent to the LLM", async () => {
+    const db = makeTempEngineDb();
+    await seedPosts(db, [
+      canonicalPost({
+        id: "post-sent",
+        platformPostId: "platform-sent",
+        createdAt: "2026-06-02T00:00:00.000Z",
+        text: "This row is in the sampled prompt.",
+      }),
+      canonicalPost({
+        id: "post-unsent",
+        platformPostId: "platform-unsent",
+        createdAt: "2026-06-01T00:00:00.000Z",
+        text: "This row is outside the sampled prompt.",
+      }),
+    ]);
+    const { llm } = createLlm({
+      ...profileOutput,
+      evidencePostIds: ["post-unsent"],
+    });
+    const service = new ArchiveVoiceProfileService({
+      db,
+      llm,
+      resolveProvider: "codex-cli",
+      now: () => ISO,
+      maxExamplesPerKind: 1,
+    });
+
+    const profile = await service.getCurrentProfile();
+
+    expect(profile?.evidence.map((item) => item.postId)).toEqual(["post-sent"]);
+    expect(profile?.evidence.every((item) => item.postId !== "post-unsent")).toBe(true);
+  });
+
   it("reuses the current profile when the corpus hash has not changed", async () => {
     const db = makeTempEngineDb();
     await seedPosts(db, [canonicalPost({ id: "post-original" })]);
     const { llm } = createLlm();
     const service = new ArchiveVoiceProfileService({
       db,
-      llm,
+      llm: llm as never,
       resolveProvider: "codex-cli",
       now: () => ISO,
     });
@@ -163,5 +224,28 @@ describe("ArchiveVoiceProfileService", () => {
     });
 
     await expect(service.getCurrentProfile()).resolves.toBeUndefined();
+  });
+
+  it("bounds provider wait time so generation can fail open while refresh continues", async () => {
+    const db = makeTempEngineDb();
+    await seedPosts(db, [canonicalPost({ id: "post-original" })]);
+    const llm = {
+      generateStructured: vi.fn(
+        () =>
+          new Promise(() => {
+            // Intentionally never resolves.
+          }),
+      ),
+    };
+    const service = new ArchiveVoiceProfileService({
+      db,
+      llm: llm as never,
+      resolveProvider: "codex-cli",
+      now: () => ISO,
+    });
+    const provider = createArchiveVoiceProfileProvider(service, { maxWaitMs: 1 });
+
+    await expect(provider({ surface: "post" })).resolves.toBeUndefined();
+    expect(llm.generateStructured).toHaveBeenCalledTimes(1);
   });
 });

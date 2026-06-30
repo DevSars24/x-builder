@@ -264,7 +264,7 @@ CREATE TABLE archive_voice_profile_evidence (
   post_id TEXT NOT NULL REFERENCES post(id) ON DELETE CASCADE,
   platform_post_id TEXT NOT NULL,
   kind TEXT NOT NULL CHECK (kind IN ('original', 'reply')),
-  evidence_role TEXT NOT NULL,
+  evidence_role TEXT NOT NULL CHECK (evidence_role IN ('model_selected', 'sampled')),
   excerpt TEXT NOT NULL,
   created_at TEXT NOT NULL,
   PRIMARY KEY (profile_id, post_id, evidence_role)

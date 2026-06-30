@@ -735,6 +735,36 @@ describe("invariant: the migrated artifact is a real SQLite database on disk", (
       (db.prepare("SELECT COUNT(*) AS count FROM archive_voice_profile_evidence").get() as { count: number }).count,
     ).toBe(0);
   });
+
+  it("rejects unknown archive voice profile evidence roles", async () => {
+    const db = makeTempEngineDb();
+    await seedPosts(db, [canonicalPost()]);
+
+    db.prepare(
+      `
+      INSERT INTO archive_voice_profile (
+        profile_id, rule_version, corpus_hash, source_post_count, source_reply_count,
+        generated_at, model_provider, model_id, profile_json, updated_at
+      ) VALUES (
+        'profile-1', 'archive-voice-profile-v1', 'sha256:test', 1, 0,
+        '2026-06-30T00:00:00.000Z', 'codex-cli', NULL, '{}', '2026-06-30T00:00:00.000Z'
+      )
+    `,
+    ).run();
+
+    expect(() =>
+      db.prepare(
+        `
+        INSERT INTO archive_voice_profile_evidence (
+          profile_id, post_id, platform_post_id, kind, evidence_role, excerpt, created_at
+        ) VALUES (
+          'profile-1', 'post-1', '1800000000000000001', 'original',
+          'unknown_role', 'evidence excerpt', '2026-06-01T00:00:00.000Z'
+        )
+      `,
+      ).run(),
+    ).toThrow(/CHECK constraint failed/);
+  });
 });
 
 // ===========================================================================

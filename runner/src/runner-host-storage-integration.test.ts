@@ -184,14 +184,14 @@ const startCapturingServices = async (): Promise<EngineServices> => {
   return captured;
 };
 
-// Read the row count of every migration-1 table off a freshly re-opened engine
+// Read the row count of every migration-1 and archive voice table off a freshly re-opened engine
 // db handle. Re-opening (rather than reusing the runner's handle) proves the
 // counts are durable on disk.
 const tableCountsAt = (dbPath: string): Record<string, number> => {
   const db = openEngineDatabase(dbPath);
   try {
     const counts: Record<string, number> = {};
-    for (const table of MIGRATION_1_TABLES) {
+    for (const table of [...MIGRATION_1_TABLES, ...MIGRATION_5_TABLES]) {
       counts[table] = (
         db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }
       ).n;

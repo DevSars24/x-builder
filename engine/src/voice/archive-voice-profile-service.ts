@@ -65,6 +65,10 @@ export type ArchiveVoiceProfileServiceOptions = {
   maxExamplesPerKind?: number;
 };
 
+export type ArchiveVoiceProfileProviderOptions = {
+  maxWaitMs?: number;
+};
+
 type CorpusRow = {
   id: string;
   platform_post_id: string;
@@ -131,7 +135,7 @@ const renderExamples = (label: string, rows: CorpusRow[]): string => {
 
   const lines = rows.map(
     (row, index) =>
-      `${index + 1}. id=${row.id}; created=${row.created_at}; text="${excerpt(row.text)}"`,
+      `${index + 1}. id=${row.id}; created=${row.created_at}; text=${JSON.stringify(excerpt(row.text))}`,
   );
 
   return `${label}:\n${lines.join("\n")}`;
@@ -297,6 +301,7 @@ export class ArchiveVoiceProfileService {
     const replyRows = corpusRows
       .filter((row) => row.kind === "reply")
       .slice(0, this.maxExamplesPerKind);
+    const sentRows = [...postRows, ...replyRows];
 
     const result = await this.llm.generateStructured({
       provider,
@@ -336,11 +341,14 @@ export class ArchiveVoiceProfileService {
 
     const generatedAt = this.now();
     const profileId = profileIdFor(corpusHash);
-    const selectedEvidenceIds = new Set(result.output.evidencePostIds);
+    const sentRowIds = new Set(sentRows.map((row) => row.id));
+    const selectedEvidenceIds = new Set(
+      result.output.evidencePostIds.filter((postId) => sentRowIds.has(postId)),
+    );
     const sampledEvidenceIds = new Set(
       [...postRows.slice(0, 3), ...replyRows.slice(0, 3)].map((row) => row.id),
     );
-    const evidenceRows = corpusRows
+    const evidenceRows = sentRows
       .filter((row) => selectedEvidenceIds.has(row.id) || sampledEvidenceIds.has(row.id))
       .slice(0, 24)
       .map((row): ArchiveVoiceEvidence => ({
@@ -450,6 +458,26 @@ export type ArchiveVoiceProfileProvider = (
   request: ArchiveVoiceProfileRequest,
 ) => Promise<ArchiveVoiceProfile | undefined>;
 
+const DEFAULT_PROFILE_PROVIDER_MAX_WAIT_MS = 1_500;
+
 export const createArchiveVoiceProfileProvider = (
   service: ArchiveVoiceProfileService,
-): ArchiveVoiceProfileProvider => async () => service.getCurrentProfile();
+  options: ArchiveVoiceProfileProviderOptions = {},
+): ArchiveVoiceProfileProvider => {
+  const maxWaitMs = options.maxWaitMs ?? DEFAULT_PROFILE_PROVIDER_MAX_WAIT_MS;
+
+  return async () => {
+    const profilePromise = service.getCurrentProfile();
+
+    if (!Number.isInteger(maxWaitMs) || maxWaitMs <= 0) {
+      return profilePromise;
+    }
+
+    return Promise.race([
+      profilePromise,
+      new Promise<undefined>((resolve) => {
+        setTimeout(() => resolve(undefined), maxWaitMs);
+      }),
+    ]);
+  };
+};
