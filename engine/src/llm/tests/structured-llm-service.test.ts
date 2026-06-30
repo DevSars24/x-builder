@@ -21,7 +21,12 @@ type FakeProvider = LlmProvider<unknown> & {
   generateStructured: ReturnType<typeof vi.fn>;
 };
 
-const supportedPurposes = ["writer_first_pass", "writer_variants", "candidate_judge"] as const;
+const supportedPurposes = [
+  "writer_first_pass",
+  "writer_variants",
+  "candidate_judge",
+  "archive_voice_profile",
+] as const;
 
 const providerFailureCases = [
   ["provider_unavailable", true],

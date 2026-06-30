@@ -48,6 +48,7 @@ import {
   createSettingsJudgeProviderResolver,
   type ExternalPatternGuidanceProvider,
   type ExternalPatternSnapshotReader,
+  type ArchiveVoiceProfileProvider,
   type JudgeLlmGateway,
   type PostLibraryRepository,
   type ReadinessService,
@@ -81,6 +82,7 @@ export interface CreateBoundEngineServicesOptions {
   externalXSignalsService?: ExternalXSignalsService;
   externalPatternGuidanceProvider?: ExternalPatternGuidanceProvider;
   externalPatternSnapshotReader?: ExternalPatternSnapshotReader;
+  archiveVoiceProfileProvider?: ArchiveVoiceProfileProvider;
   voiceSampleProvider?: VoiceSampleProvider;
   /** Structured-LLM gateway for generate / apply-suggestions / suggest. */
   llm: StructuredLlmGateway;
@@ -210,6 +212,9 @@ export function createBoundEngineServices(
       ...(externalPatternGuidanceProvider === undefined
         ? {}
         : { externalPatternGuidanceProvider }),
+      ...(options.archiveVoiceProfileProvider === undefined
+        ? {}
+        : { archiveVoiceProfileProvider: options.archiveVoiceProfileProvider }),
       ...(options.voiceSampleProvider === undefined
         ? {}
         : { voiceSampleProvider: options.voiceSampleProvider }),

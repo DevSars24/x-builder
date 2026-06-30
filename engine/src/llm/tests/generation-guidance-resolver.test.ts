@@ -12,11 +12,13 @@ import type {
 } from "../../server/post-library-repository.js";
 import type { AppSettingsRepository } from "../../server/settings-repository.js";
 import type {
+  ArchiveVoiceProfile,
   CreateGenerationGuidanceResolverInput,
   GenerationGuidanceRequest,
   GenerationGuidanceResolver,
   VoiceSampleProvider,
 } from "../generation-guidance.js";
+import type { ArchiveVoiceProfileProvider } from "../../voice/archive-voice-profile-service.js";
 import type {
   ExternalPatternGuidanceItem,
   ExternalPatternGuidanceProvider,
@@ -40,6 +42,17 @@ const entityFlags = {
   hasMedia: false,
   hasHashtags: false,
   hasMentions: false,
+} as const;
+
+const replyContext = {
+  source: "same_dialog_dom",
+  targetAuthorHandle: "alice",
+  targetText: "The clever version rarely survives contact.",
+  targetStatusId: "1930000000000000001",
+  leadingTargetHandle: {
+    handle: "alice",
+    state: "present",
+  },
 } as const;
 
 type GuidanceResolverModule = {
@@ -349,6 +362,32 @@ const externalPatternProviderOf = (
 ): ReturnType<typeof vi.fn<ExternalPatternGuidanceProvider>> =>
   vi.fn(async (_request) => items);
 
+const archiveVoiceProfile = (
+  overrides: Partial<ArchiveVoiceProfile> = {},
+): ArchiveVoiceProfile => ({
+  profileId: overrides.profileId ?? "archive-voice-profile-v1:abc",
+  ruleVersion: overrides.ruleVersion ?? "archive-voice-profile-v1",
+  corpusHash: overrides.corpusHash ?? "sha256:abc",
+  generatedAt: overrides.generatedAt ?? BASE_DATE,
+  modelProvider: overrides.modelProvider ?? "codex-cli",
+  sourceCounts: overrides.sourceCounts ?? { posts: 12, replies: 8 },
+  summary: overrides.summary ?? "Direct, concrete, low-hype operator voice.",
+  syntaxHabits: overrides.syntaxHabits ?? ["Short opening sentence before the explanation."],
+  toneBoundaries: overrides.toneBoundaries ?? ["No cheerleading or generic praise."],
+  recurringMoves: overrides.recurringMoves ?? ["Names the tradeoff before the recommendation."],
+  antiPatterns: overrides.antiPatterns ?? ["Avoid engagement-bait questions."],
+  postRules: overrides.postRules ?? ["Post rule sentinel: make the claim concrete."],
+  replyRules: overrides.replyRules ?? ["Reply rule sentinel: answer the target directly."],
+  evidencePostIds: overrides.evidencePostIds ?? ["post-1"],
+  evidence: overrides.evidence ?? [],
+  ...(overrides.modelId === undefined ? {} : { modelId: overrides.modelId }),
+});
+
+const archiveVoiceProfileProviderOf = (
+  profile: ArchiveVoiceProfile | undefined,
+): ReturnType<typeof vi.fn<ArchiveVoiceProfileProvider>> =>
+  vi.fn(async (_request) => profile);
+
 const guidanceInputWithExternalProvider = (
   input: CreateGenerationGuidanceResolverInput,
   externalPatternGuidanceProvider: ExternalPatternGuidanceProvider,
@@ -396,6 +435,7 @@ describe("generation guidance resolver", () => {
       settingsRepository: Pick<AppSettingsRepository, "load">;
       postLibraryRepository: Pick<PostLibraryRepository, "loadStore">;
       externalPatternGuidanceProvider?: ExternalPatternGuidanceProvider;
+      archiveVoiceProfileProvider?: ArchiveVoiceProfileProvider;
       voiceSampleProvider?: VoiceSampleProvider;
     }>();
 
@@ -573,6 +613,90 @@ ORDERED_PLAYBOOK_SENTINEL
     expect(playbookIndex).toBeGreaterThanOrEqual(0);
     expect(externalIndex).toBeGreaterThan(playbookIndex);
     expect(voiceIndex).toBeGreaterThan(externalIndex);
+  });
+
+  it("renders archive voice profile rules after external patterns and before own voice samples", async () => {
+    const externalProvider = externalPatternProviderOf([
+      externalGuidanceItem({ statement: "ORDERED_EXTERNAL_PATTERN_SENTINEL" }),
+    ]);
+    const profileProvider = archiveVoiceProfileProviderOf(
+      archiveVoiceProfile({
+        summary: "ORDERED_ARCHIVE_PROFILE_SUMMARY",
+        postRules: ["ORDERED_ARCHIVE_POST_RULE"],
+      }),
+    );
+
+    const guidance = expectDefinedGuidance(
+      await resolveGuidance(
+        {
+          settingsRepository: settingsRepositoryOf(),
+          postLibraryRepository: postLibraryRepositoryOf([
+            canonicalPost({ id: "voice", text: "ORDERED_SAMPLE_SENTINEL" }),
+          ]),
+          externalPatternGuidanceProvider: externalProvider,
+          archiveVoiceProfileProvider: profileProvider,
+        },
+        requestOf({ format: "hot_take" }),
+      ),
+    );
+
+    expect(profileProvider).toHaveBeenCalledWith({ surface: "post" });
+    expect(guidance).toContain("# Archive voice profile (derived from local corpus)");
+    expect(guidance).toContain("ORDERED_ARCHIVE_PROFILE_SUMMARY");
+    expect(guidance).toContain("ORDERED_ARCHIVE_POST_RULE");
+    expect(guidance).not.toContain("Reply rule sentinel");
+
+    const externalIndex = guidance.indexOf("# External performance patterns");
+    const profileIndex = guidance.indexOf("# Archive voice profile");
+    const sampleIndex = guidance.indexOf("# Voice samples");
+
+    expect(externalIndex).toBeGreaterThanOrEqual(0);
+    expect(profileIndex).toBeGreaterThan(externalIndex);
+    expect(sampleIndex).toBeGreaterThan(profileIndex);
+  });
+
+  it("uses reply-specific archive voice rules for reply generation", async () => {
+    const profileProvider = archiveVoiceProfileProviderOf(
+      archiveVoiceProfile({
+        postRules: ["POST_RULE_MUST_NOT_RENDER_FOR_REPLY"],
+        replyRules: ["REPLY_RULE_MUST_RENDER"],
+      }),
+    );
+
+    const guidance = expectDefinedGuidance(
+      await resolveGuidance(
+        {
+          settingsRepository: settingsRepositoryOf(),
+          postLibraryRepository: postLibraryRepositoryOf([]),
+          archiveVoiceProfileProvider: profileProvider,
+        },
+        requestOf({ replyContext }),
+      ),
+    );
+
+    expect(profileProvider).toHaveBeenCalledWith({ surface: "reply" });
+    expect(guidance).toContain("Reply-specific rules");
+    expect(guidance).toContain("REPLY_RULE_MUST_RENDER");
+    expect(guidance).not.toContain("POST_RULE_MUST_NOT_RENDER_FOR_REPLY");
+  });
+
+  it("omits only the archive voice section when the profile provider fails", async () => {
+    const profileProvider = vi.fn(async () => {
+      throw new Error("profile unavailable");
+    }) as ReturnType<typeof vi.fn<ArchiveVoiceProfileProvider>>;
+
+    const guidance = expectDefinedGuidance(
+      await resolveGuidance({
+        settingsRepository: settingsRepositoryOf(),
+        postLibraryRepository: postLibraryRepositoryOf([
+          canonicalPost({ id: "fallback", text: "FALLBACK_SAMPLE_STILL_RENDERS" }),
+        ]),
+        archiveVoiceProfileProvider: profileProvider,
+      }),
+    );
+
+    expect(guidance).not.toContain("# Archive voice profile");
+    expect(guidance).toContain("FALLBACK_SAMPLE_STILL_RENDERS");
   });
 
   it("omits only the external section when the external pattern provider fails", async () => {

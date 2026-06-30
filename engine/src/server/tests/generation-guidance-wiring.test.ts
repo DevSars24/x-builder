@@ -14,6 +14,25 @@ describe("buildServer generation guidance construction", () => {
     );
   });
 
+  it("passes an archive voice profile provider into the default generation resolver", async () => {
+    const source = await loadDefaultServicesSource();
+
+    expect(source).toMatch(
+      /createArchiveVoiceProfileProvider\([\s\S]*new ArchiveVoiceProfileService\([\s\S]*db:\s*engineStorage\.db[\s\S]*\)[\s\S]*\)/,
+    );
+    expect(source).toMatch(
+      /createGenerationGuidanceResolver\(\{[\s\S]*archiveVoiceProfileProvider[\s\S]*\}\)/,
+    );
+  });
+
+  it("shares the host structured LLM service between profile derivation and generation", async () => {
+    const source = await loadDefaultServicesSource();
+
+    expect(source).toMatch(
+      /const structuredLlm = new StructuredLlmService\(\{ providers \}\)[\s\S]*llm:\s*structuredLlm[\s\S]*new GenerateIdeasService\(\s*structuredLlm/,
+    );
+  });
+
   it("shares the host external signals repository between the default service and generation guidance provider", async () => {
     const source = await loadDefaultServicesSource();
 

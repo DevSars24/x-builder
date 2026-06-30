@@ -1,17 +1,17 @@
 ---
-status: planned
+status: implemented
 ---
 
 # Archive Voice Skill
 
 Purpose: build an explicit local writing voice skill from the user's uploaded archive corpus so post and reply generation share one stable voice source instead of relying only on nearest-neighbor examples.
 
-## What Exists Today
+## Current Implementation
 
 - `my-x-archive-import` imports `tweets.js` into the canonical local corpus.
 - `voice-rag-generation` retrieves original-post voice samples from the SQLite corpus.
 - `generation-guidance` can include requested format playbook slices, external pattern guidance, and own voice samples.
-- There is no LLM-derived voice skill/profile built from the archive, and reply voice is not modeled separately from post voice.
+- `archive-voice-skill` derives a versioned local voice profile from canonical originals and replies, then renders post- or reply-specific rules into generation guidance before Voice RAG samples.
 
 ## Target Shape
 
@@ -35,6 +35,18 @@ The artifact should be versioned and explainable. It should preserve source evid
 - `engine/src/llm/generation-guidance.ts`
 - `engine/src/voice/sqlite-voice-sample-provider.ts`
 - Reference repo idea: `../XActions/docs/features/x-voice-generation/README.md`
+
+## Shipped Shape
+
+- Migration 5 adds `archive_voice_profile` and `archive_voice_profile_evidence` as local derived tables beside the canonical corpus and Voice RAG projection.
+- `ArchiveVoiceProfileService` samples canonical local originals and replies, computes a corpus hash, and asks the configured structured LLM for compact rules.
+- `createGenerationGuidanceResolver` renders archive voice profile rules before own voice samples, using post-specific rules for normal generation and reply-specific rules when `replyContext` is present.
+- Existing Voice RAG and newest-original fallback remain in place. If the profile provider, LLM, or storage fails, generation continues without the archive profile section.
+- Generated drafts/replies are not queried as evidence; only canonical own corpus rows are eligible.
+
+## Pipeline Log
+
+- 2026-06-30: Implemented local archive voice profile storage, LLM derivation service, generation guidance rendering, HTTP/runner wiring, and local storage docs.
 
 ## Bookkeeper Prompt
 

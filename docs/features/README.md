@@ -50,14 +50,14 @@ arch-recon
 - [`external-x-import-signals`](./external-x-import-signals/) — observe-only external X signal ledger
 - [`external-feedback-loop`](./external-feedback-loop/) — sanitized external pattern guidance for generation
 - [`reply-composer-context`](./reply-composer-context/) — same-dialog reply detection and safe reply body split/merge through the existing cockpit
+- [`archive-voice-skill`](./archive-voice-skill/) — explicit local voice skill/profile derived from the user's own corpus for post and reply generation
 
 **Next build queue:**
 
-1. [`archive-voice-skill`](./archive-voice-skill/) — derive an explicit local voice skill/profile from the user's own uploaded archive corpus.
-2. [`labeled-corpus-memory`](./labeled-corpus-memory/) — add post/reply labels, parent context, generated-content exclusion, and grounded fact/belief projections to local RAG memory.
-3. [`reply-thread-context`](./reply-thread-context/) — capture the available root/parent/ancestor reply graph for parent-aware replies.
-4. [`reply-variant-assistant`](./reply-variant-assistant/) — replace post-like reply generation with 3-4 parent-aware variants drafted from a grounded reply plan and a generated-reply ledger.
-5. [`unified-generation-context`](./unified-generation-context/) — make posts and replies consume the shared voice skill and labeled memory with task-specific context policies, including dual retrieval for reply grounding vs voice.
+1. [`labeled-corpus-memory`](./labeled-corpus-memory/) — add post/reply labels, parent context, generated-content exclusion, and grounded fact/belief projections to local RAG memory.
+2. [`reply-thread-context`](./reply-thread-context/) — capture the available root/parent/ancestor reply graph for parent-aware replies.
+3. [`reply-variant-assistant`](./reply-variant-assistant/) — replace post-like reply generation with 3-4 parent-aware variants drafted from a grounded reply plan and a generated-reply ledger.
+4. [`unified-generation-context`](./unified-generation-context/) — make posts and replies consume the shared voice skill and labeled memory with task-specific context policies, including dual retrieval for reply grounding vs voice.
 
 **Planned feature areas:**
 

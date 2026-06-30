@@ -1,12 +1,18 @@
 import { readFile, stat } from "node:fs/promises";
-import type { DetectedPostFormat } from "@x-builder/shared";
+import type { DetectedPostFormat, ReplyComposerContext } from "@x-builder/shared";
 
 import type { CanonicalOwnPost, PostLibraryRepository } from "../server/post-library-repository.js";
 import type { AppSettingsRepository } from "../server/settings-repository.js";
+import type {
+  ArchiveVoiceProfile,
+  ArchiveVoiceProfileProvider,
+} from "../voice/archive-voice-profile-service.js";
 import {
   renderExternalPatternGuidance,
   type ExternalPatternGuidanceProvider,
 } from "./external-pattern-guidance.js";
+
+export type { ArchiveVoiceProfile } from "../voice/archive-voice-profile-service.js";
 
 const PLAYBOOK_SLICE_CHAR_LIMIT = 6_000;
 const KNOWLEDGE_BASE_FILE_BYTE_LIMIT = 256_000;
@@ -14,6 +20,8 @@ const VOICE_SAMPLE_LIMIT = 5;
 const KNOWN_POST_ID_LIMIT = 25;
 const VOICE_SAMPLE_GUIDANCE_CHAR_LIMIT = 2_400;
 const PLAYBOOK_GUIDANCE_HEADER = "# Requested format playbook";
+const ARCHIVE_VOICE_PROFILE_GUIDANCE_HEADER =
+  "# Archive voice profile (derived from local corpus)";
 const VOICE_SAMPLE_GUIDANCE_HEADER = "# Voice samples (match tone, do not copy)";
 const FOUNDER_STORY_GUARDRAIL =
   "Founder-story guardrail: never invent, suggest, or prompt emotional content; only preserve stakes the user supplied.";
@@ -23,6 +31,7 @@ export type GenerationGuidanceRequest = {
   idea?: string;
   voiceProfileId?: string;
   useKnownPostIds: string[];
+  replyContext?: ReplyComposerContext;
 };
 
 export type FormatPlaybookMapping = Readonly<
@@ -71,10 +80,17 @@ export type RenderedVoiceSamples = {
   truncated: boolean;
 };
 
+export type RenderedArchiveVoiceProfile = {
+  content: string;
+  charCount: number;
+  truncated: boolean;
+};
+
 export type CreateGenerationGuidanceResolverInput = {
   settingsRepository: Pick<AppSettingsRepository, "load">;
   postLibraryRepository: Pick<PostLibraryRepository, "loadStore">;
   externalPatternGuidanceProvider?: ExternalPatternGuidanceProvider;
+  archiveVoiceProfileProvider?: ArchiveVoiceProfileProvider;
   voiceSampleProvider?: VoiceSampleProvider;
 };
 
@@ -95,6 +111,7 @@ export type VoiceSampleProvider = (
 export type GenerationContext = {
   request: GenerationGuidanceRequest;
   playbook: PlaybookSlice;
+  archiveVoiceProfile?: ArchiveVoiceProfile;
   voiceSamples: VoiceSamplePost[];
   renderedGuidance?: string;
 };
@@ -362,6 +379,50 @@ export const renderVoiceSampleGuidance = (samples: VoiceSamplePost[]): RenderedV
   };
 };
 
+const renderRuleList = (label: string, rules: string[]): string[] => {
+  if (rules.length === 0) {
+    return [];
+  }
+
+  return [`${label}:`, ...rules.map((rule) => `- ${rule.replace(/\s+/g, " ").trim()}`)];
+};
+
+export const renderArchiveVoiceProfileGuidance = (
+  profile: ArchiveVoiceProfile | undefined,
+  request: GenerationGuidanceRequest,
+): RenderedArchiveVoiceProfile => {
+  if (profile === undefined) {
+    return {
+      content: "",
+      charCount: 0,
+      truncated: false,
+    };
+  }
+
+  const surface = request.replyContext === undefined ? "post" : "reply";
+  const surfaceRules = surface === "reply" ? profile.replyRules : profile.postRules;
+  const lines = [
+    `Profile: ${profile.profileId}`,
+    `Evidence: ${profile.sourceCounts.posts} originals, ${profile.sourceCounts.replies} replies from the local authored corpus.`,
+    "Use these as stable voice rules; do not copy evidence examples.",
+    `Summary: ${profile.summary.replace(/\s+/g, " ").trim()}`,
+    ...renderRuleList("Syntax habits", profile.syntaxHabits),
+    ...renderRuleList("Tone boundaries", profile.toneBoundaries),
+    ...renderRuleList("Recurring moves", profile.recurringMoves),
+    ...renderRuleList("Anti-patterns", profile.antiPatterns),
+    ...renderRuleList(surface === "reply" ? "Reply-specific rules" : "Post-specific rules", surfaceRules),
+  ];
+  const rendered = lines.join("\n");
+  const truncated = rendered.length > VOICE_SAMPLE_GUIDANCE_CHAR_LIMIT;
+  const content = truncated ? rendered.slice(0, VOICE_SAMPLE_GUIDANCE_CHAR_LIMIT).trimEnd() : rendered;
+
+  return {
+    content,
+    charCount: content.length,
+    truncated,
+  };
+};
+
 const resolveKnowledgeBasePath = async (
   settingsRepository: Pick<AppSettingsRepository, "load">,
 ): Promise<string | undefined> => {
@@ -383,6 +444,7 @@ const renderGenerationGuidance = (
   request: GenerationGuidanceRequest,
   playbook: PlaybookSlice,
   renderedExternalPatternGuidance: string | undefined,
+  renderedArchiveVoiceProfile: RenderedArchiveVoiceProfile,
   renderedVoiceSamples: RenderedVoiceSamples,
 ): string | undefined => {
   const sections: string[] = [];
@@ -393,6 +455,10 @@ const renderGenerationGuidance = (
 
   if (renderedExternalPatternGuidance !== undefined) {
     sections.push(renderedExternalPatternGuidance);
+  }
+
+  if (renderedArchiveVoiceProfile.content.length > 0) {
+    sections.push(`${ARCHIVE_VOICE_PROFILE_GUIDANCE_HEADER}\n${renderedArchiveVoiceProfile.content}`);
   }
 
   if (renderedVoiceSamples.content.length > 0) {
@@ -408,6 +474,23 @@ const renderGenerationGuidance = (
   }
 
   return sections.join("\n\n");
+};
+
+const resolveArchiveVoiceProfile = async (
+  provider: ArchiveVoiceProfileProvider | undefined,
+  request: GenerationGuidanceRequest,
+): Promise<ArchiveVoiceProfile | undefined> => {
+  if (provider === undefined) {
+    return undefined;
+  }
+
+  try {
+    return await provider({
+      surface: request.replyContext === undefined ? "post" : "reply",
+    });
+  } catch {
+    return undefined;
+  }
 };
 
 const resolveExternalPatternGuidance = async (
@@ -453,11 +536,12 @@ export const createGenerationGuidanceResolver = (
   return async (request) => {
     try {
       const knowledgeBasePath = await resolveKnowledgeBasePath(input.settingsRepository);
-      const [playbook, voiceSamples, externalPatternGuidance] = await Promise.all([
+      const [playbook, archiveVoiceProfile, voiceSamples, externalPatternGuidance] = await Promise.all([
         resolvePlaybookSlice({
           format: request.format,
           knowledgeBasePath,
         }),
+        resolveArchiveVoiceProfile(input.archiveVoiceProfileProvider, request),
         resolveVoiceSamples(input, request),
         resolveExternalPatternGuidance(input.externalPatternGuidanceProvider, request),
       ]);
@@ -466,6 +550,7 @@ export const createGenerationGuidanceResolver = (
         request,
         playbook,
         externalPatternGuidance,
+        renderArchiveVoiceProfileGuidance(archiveVoiceProfile, request),
         renderVoiceSampleGuidance(voiceSamples),
       );
     } catch {

@@ -1,6 +1,6 @@
 # Where your data lives
 
-x-builder keeps everything on your machine. Your corpus of posts, the engagement numbers it tracks over time, and the context it uses to score and generate — all of it sits in a single local file, private to you. Nothing is uploaded anywhere.
+x-builder keeps its durable storage on your machine. Your corpus of posts, the engagement numbers it tracks over time, and the local context it uses to score and generate all sit in a single local file, private to you. Some LLM-backed features can still send selected prompt excerpts to the configured structured LLM provider; those interactions are called out below.
 
 This page explains where that file is, what's in it, and what happens the first time you start x-builder after this update.
 
@@ -38,15 +38,20 @@ The database holds the local data x-builder works with:
 | Derived insights | Conclusions x-builder works out from the data above |
 | Active scoring context | The settings currently used to score your drafts |
 | Voice retrieval index | Rebuildable local embeddings used to choose better own-post voice samples for generation |
+| Archive voice profile | Versioned local voice rules derived from your own corpus, with evidence pointers back to source posts |
 
 What it does **not** hold:
 
 - **Raw archive file contents.** When you import an X data export, the database stores the posts that came out of it — not the original archive file itself.
-- **Raw cloud/model data.** The voice retrieval index is local derived data. x-builder does not upload it or store hosted embedding responses.
+- **External-account voice training data.** External X signal tables can inform performance patterns, but they are not used as your voice.
+- **Generated drafts as voice evidence.** Generated drafts and generated-reply feedback are not treated as voice evidence unless they later appear in the canonical corpus as authored/captured/imported posts.
+- **Raw cloud/model data.** The voice retrieval index and archive voice profile are stored locally, and x-builder does not store hosted embedding responses. Refreshing the archive voice profile sends selected local post/reply excerpts to the configured structured LLM provider, and generation prompts may include the derived profile rules.
 
-### Canonical corpus vs. voice index
+### Canonical corpus vs. derived voice data
 
-The post corpus and metric observations are the source of truth. The voice retrieval index is different: it is a rebuildable projection of your own original posts, used only to pick better examples for generation prompts. If the index is missing, stale, or cannot be read, x-builder falls back to recent original posts and keeps generation working.
+The post corpus and metric observations are the source of truth. The voice retrieval index is different: it is a rebuildable projection of your own original posts, used only to pick better examples for generation prompts. The archive voice profile is also derived local data: it summarizes durable writing rules from your own originals and replies, stores a version/corpus hash, and keeps evidence pointers back to canonical posts.
+
+If the voice index or archive voice profile is missing, stale, or cannot be read, x-builder falls back to the existing generation behavior and keeps generation working.
 
 You should treat both as internal storage. Do not hand-edit the database.
 
@@ -74,4 +79,4 @@ Don't confuse the automatic migration above with **archive import**, which is a 
 
 They are different things. The migration happens on its own once; archive import is a deliberate action you take.
 
-<!-- Tickets: LPF-001..LPF-006, VRG-001..VRG-006 — local SQLite store + local voice index; verified 2026-06-29 -->
+<!-- Tickets: LPF-001..LPF-006, VRG-001..VRG-006, AVS-001..AVS-005 — local SQLite store + local voice index + archive voice profile; verified 2026-06-30 -->

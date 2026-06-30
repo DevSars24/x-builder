@@ -35,6 +35,9 @@ import {
   SqliteExternalXSignalsRepository,
   SqlitePostLibraryRepository,
   StructuredLlmService,
+  ArchiveVoiceProfileService,
+  createArchiveVoiceProfileProvider,
+  createSettingsJudgeProviderResolver,
   createSqliteVoiceSampleProvider,
   importPostLibraryJsonToSqlite,
   judgeProviderRegistry,
@@ -145,6 +148,7 @@ export interface EngineServices {
   externalXSignalsService?: ExternalXSignalsService;
   externalPatternSnapshotReader?: ExternalPatternSnapshotReader;
   voiceSampleProvider?: VoiceSampleProvider;
+  archiveVoiceProfileDb?: ReturnType<typeof openEngineDatabase>;
 }
 
 export interface RunnerAppOptions {
@@ -226,6 +230,7 @@ const defaultCreateServices = (opts: { engineSettingsDir: string }): EngineServi
     externalXSignalsService,
     externalPatternSnapshotReader: externalXSignalsRepository,
     voiceSampleProvider: createSqliteVoiceSampleProvider({ db }),
+    archiveVoiceProfileDb: db,
   };
 };
 
@@ -243,6 +248,12 @@ const buildDefaultStructuredLlm = (): StructuredLlmGateway => {
 
   return new StructuredLlmService({ providers });
 };
+
+const judgeProviderModelKeys = {
+  "codex-cli": "codexModel",
+  "claude-cli": "claudeModel",
+  "cursor-cli": "cursorModel",
+} as const;
 
 // Build the page init-script / evaluate source that mounts the overlay: install
 // the ONE canonical `assembleTransport` (serialized from its compiled source — no
@@ -356,13 +367,39 @@ export class RunnerApp {
       );
     }
 
+    const settingsRepository = services.settingsRepository;
     const llm = buildDefaultStructuredLlm();
+    const resolveProvider = createSettingsJudgeProviderResolver(settingsRepository);
+    const archiveVoiceProfileProvider =
+      services.archiveVoiceProfileDb === undefined
+        ? undefined
+        : createArchiveVoiceProfileProvider(
+            new ArchiveVoiceProfileService({
+              db: services.archiveVoiceProfileDb,
+              llm: llm as StructuredLlmService,
+              resolveProvider,
+              resolveModel: async (provider) => {
+                try {
+                  const { settings } = await settingsRepository.load();
+                  const modelKey = judgeProviderModelKeys[provider as keyof typeof judgeProviderModelKeys];
+                  const model = modelKey === undefined ? undefined : settings[modelKey]?.trim();
+
+                  return model === undefined || model.length === 0 ? undefined : model;
+                } catch {
+                  return undefined;
+                }
+              },
+            }),
+          );
     const bundle = createBoundEngineServices({
-      settingsRepository: services.settingsRepository,
+      settingsRepository,
       postLibraryRepository: services.postLibraryRepository,
       feedbackLoopService: services.feedbackLoopService,
       externalXSignalsService: services.externalXSignalsService,
       externalPatternSnapshotReader: services.externalPatternSnapshotReader,
+      ...(archiveVoiceProfileProvider === undefined
+        ? {}
+        : { archiveVoiceProfileProvider }),
       voiceSampleProvider: services.voiceSampleProvider,
       liveCapture: services.liveCapture as LiveCaptureService,
       llm,

@@ -243,6 +243,36 @@ CREATE INDEX idx_voice_post_embedding_content
   ON voice_post_embedding(content_hash, post_updated_at);
 `;
 
+const migration5Ddl = `
+CREATE TABLE archive_voice_profile (
+  profile_id TEXT PRIMARY KEY,
+  rule_version TEXT NOT NULL,
+  corpus_hash TEXT NOT NULL,
+  source_post_count INTEGER NOT NULL,
+  source_reply_count INTEGER NOT NULL,
+  generated_at TEXT NOT NULL,
+  model_provider TEXT NOT NULL,
+  model_id TEXT,
+  profile_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX idx_archive_voice_profile_current
+  ON archive_voice_profile(rule_version, corpus_hash, updated_at);
+
+CREATE TABLE archive_voice_profile_evidence (
+  profile_id TEXT NOT NULL REFERENCES archive_voice_profile(profile_id) ON DELETE CASCADE,
+  post_id TEXT NOT NULL REFERENCES post(id) ON DELETE CASCADE,
+  platform_post_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('original', 'reply')),
+  evidence_role TEXT NOT NULL CHECK (evidence_role IN ('model_selected', 'sampled')),
+  excerpt TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (profile_id, post_id, evidence_role)
+);
+CREATE INDEX idx_archive_voice_profile_evidence_post
+  ON archive_voice_profile_evidence(post_id);
+`;
+
 export type Migration = {
   version: number;
   up(db: DatabaseHandle): void;
@@ -274,6 +304,12 @@ export const migrations: Migration[] = [
     version: 4,
     up(db) {
       db.exec(migration4Ddl);
+    },
+  },
+  {
+    version: 5,
+    up(db) {
+      db.exec(migration5Ddl);
     },
   },
 ];

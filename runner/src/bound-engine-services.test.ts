@@ -218,6 +218,35 @@ describe("createBoundEngineServices generation guidance wiring", () => {
     expect(writerInstructions(calls)).not.toContain("# External performance patterns");
   });
 
+  it("passes an archive voice profile provider into format generation", async () => {
+    const archiveVoiceProfileProvider = vi.fn(async () => ({
+      profileId: "archive-voice-profile-v1:runner",
+      ruleVersion: "archive-voice-profile-v1",
+      corpusHash: "sha256:runner",
+      generatedAt: ISO,
+      modelProvider: "codex-cli",
+      sourceCounts: { posts: 3, replies: 2 },
+      summary: "RUNNER_ARCHIVE_PROFILE_SENTINEL",
+      syntaxHabits: ["Terse syntax."],
+      toneBoundaries: ["No generic praise."],
+      recurringMoves: ["Names the tradeoff."],
+      antiPatterns: ["No bait."],
+      postRules: ["RUNNER_ARCHIVE_POST_RULE_SENTINEL"],
+      replyRules: ["RUNNER_ARCHIVE_REPLY_RULE_SENTINEL"],
+      evidencePostIds: [],
+      evidence: [],
+    }));
+    const { services, calls } = buildServices({ archiveVoiceProfileProvider });
+
+    await services.generateIdeasService.generate({ format: "hot_take" });
+
+    expect(archiveVoiceProfileProvider).toHaveBeenCalledTimes(1);
+    expect(archiveVoiceProfileProvider).toHaveBeenCalledWith({ surface: "post" });
+    expect(writerInstructions(calls)).toContain("# Archive voice profile");
+    expect(writerInstructions(calls)).toContain("RUNNER_ARCHIVE_PROFILE_SENTINEL");
+    expect(writerInstructions(calls)).toContain("RUNNER_ARCHIVE_POST_RULE_SENTINEL");
+  });
+
   it("declares paired guidance-provider and snapshot-reader construction options", async () => {
     const source = await readFile(new URL("./bound-engine-services.ts", import.meta.url), "utf8");
 
